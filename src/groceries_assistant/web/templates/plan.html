@@ -33,6 +33,7 @@
       {% if e.over_budget %}<div class="warnings">over!</div>{% endif %}
     </td>
     <td class="col-dish">
+      {% if e.image %}<img class="thumb" src="/recipes/img/{{ e.image.name }}" alt="">{% endif %}
       <strong>{{ e.name }}</strong>
       {% if e.kind == 'leftovers' %}
       <form method="post" action="/plan/swap" class="inline">

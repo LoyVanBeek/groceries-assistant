@@ -118,7 +118,9 @@ def create_app(
             proposal = (plan_id, start)
         plan_id, start = proposal[0], proposal[1]
         prefs = preferences_from_store(store())
-        evenings = plan_view(store(), plan_id, all_recipes, prefs, store().people())
+        evenings = plan_view(
+            store(), plan_id, all_recipes, prefs, store().people(), image_for=image_path
+        )
         return render(
             request,
             "plan.html",

@@ -58,6 +58,7 @@ def plan_view(
     recipes: list[Recipe],
     prefs: Preferences,
     people: list[dict],
+    image_for=None,
 ) -> list[dict]:
     """Per-evening view model: label, dish, cook, joiners, swap options."""
     by_slug = {r.slug: r for r in recipes}
@@ -107,6 +108,7 @@ def plan_view(
                 "minutes": minutes,
                 "budget": budget,
                 "people": (len(evening.joiners) if evening.joiners is not None else row.people),
+                "image": image_for(row.recipe_slug) if image_for else None,
                 "members": members,
                 "cooking": cooking,
                 "alternatives": alts,

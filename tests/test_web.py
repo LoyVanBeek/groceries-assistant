@@ -625,3 +625,21 @@ def test_evening_minutes_adjustable_from_plan_page(tmp_path):
         page = client.get("/plan").text
         kok_form = page.split('id="evening-1"')[1].split("</form>")[0]
         assert 'name="minutes" value="60"' in kok_form
+
+
+def test_plan_page_shows_recipe_thumbnail(tmp_path):
+    with make_client(tmp_path) as client:
+        client.post(
+            "/recipes/save",
+            data={
+                "name": "Fotopasta",
+                "servings": "4",
+                "ingredients": "400 g spaghetti",
+                "steps": "Kook.",
+            },
+            files={"image": ("foto.png", _png_bytes(), "image/png")},
+            follow_redirects=False,
+        )
+        client.get("/plan")
+        page = client.get("/plan").text
+        assert '<img class="thumb" src="/recipes/img/fotopasta.png"' in page
