@@ -498,3 +498,29 @@ def test_toch_koken_converts_leftovers_to_best_fit(tmp_path):
         assert rows[tuesday.isoformat()].recipe_slug == "pasta"
         page = client.get("/plan")
         assert "wissel" in page.text
+
+
+def test_grid_checkboxes_bound_to_their_own_row(tmp_path):
+    """Regression: person checkboxes must reference their own evening's form.
+
+    A Jinja nested-loop shadowing bug made every row's Loy checkbox submit
+    Monday's form, so checking attendance silently edited other evenings.
+    """
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        for person_id, role in (("kid1", "kid"), ("mama", "adult"), ("papa", "adult")):
+            client.post(
+                "/settings/people",
+                data={"person_id": person_id, "name": person_id, "role": role, "weight": "1"},
+            )
+        page = client.get("/plan").text
+        # each evening id: exactly 3 checkbox refs + 1 opslaan button (3 people)
+        for n in range(1, 8):
+            refs = page.count(f'form="evening-{n}"')
+            assert refs == 4, f"evening-{n} referenced {refs}x, expected 4"
+        # the checkboxes in evening-5's own segment reference evening-5 (not another row)
+        segment = page.split('id="evening-5"')[1].split('id="evening-6"')[0]
+        first_checkbox = next(
+            chunk for chunk in segment.split("<input") if 'type="checkbox"' in chunk
+        )
+        assert 'form="evening-5"' in first_checkbox

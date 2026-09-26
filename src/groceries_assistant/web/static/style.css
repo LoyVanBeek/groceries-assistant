@@ -77,19 +77,31 @@ table.plan td { border-left: none; border-right: none; vertical-align: middle; }
 table.plan tr:first-child td { border-top: none; }
 table.plan tr:last-child td { border-bottom: 2px solid var(--ink); }
 table.plan td { border-bottom: 1px solid var(--rule); }
+
+/* uniform controls: every button and select same height; buttons aligned */
+table.plan th { text-align: center; border-bottom: 2px solid var(--ink); padding: 0.35rem 0.4rem; }
+table.plan select, table.plan button { height: 2.5rem; }
+table.plan button { min-width: 5.5rem; text-align: center; white-space: nowrap; padding: 0.3rem 0.6rem; font-size: 1rem; }
 table.plan .col-day { white-space: nowrap; width: 10rem; }
-table.plan .col-cook form { display: flex; flex-wrap: nowrap; gap: 0.35rem; align-items: center; }
-table.plan .col-cook select { max-width: 12rem; }
-table.plan .col-cook .chip { white-space: nowrap; }
+table.plan .col-cook { width: 13rem; }
+table.plan .col-cook form { display: flex; flex-wrap: nowrap; align-items: center; }
+table.plan .col-cook select { width: 100%; }
+table.plan .col-attend { text-align: center; width: 4.5rem; }
+table.plan .col-attend input[type="checkbox"] { width: 1.3rem; height: 1.3rem; accent-color: var(--ink); }
+table.plan .col-attend .cell-name { display: none; }
 table.plan .col-dish { width: 34%; }
 table.plan .col-dish form { display: flex; flex-wrap: nowrap; gap: 0.35rem; margin-top: 0; align-items: center; }
 table.plan .col-dish select { flex: 1; min-width: 12rem; }
-table.plan button { padding: 0.35rem 0.6rem; font-size: 1rem; white-space: nowrap; }
+table.plan .col-wissel, table.plan .col-save { width: 6.5rem; text-align: center; }
 
 @media (max-width: 700px) {
+  table.plan thead { display: none; }
   table.plan, table.plan tbody, table.plan tr, table.plan td { display: block; width: 100%; }
   table.plan tr { border-bottom: 1px solid var(--rule); padding-bottom: 0.5rem; margin-bottom: 0.5rem; }
   table.plan td { border: none; padding: 0.25rem 0; }
+  table.plan select, table.plan button { width: auto; }
+  table.plan .col-attend { display: inline-block; width: auto; padding-right: 0.75rem; }
+  table.plan .col-attend .cell-name { display: inline; padding-right: 0.3rem; }
 }
 
 @media (max-width: 700px) {

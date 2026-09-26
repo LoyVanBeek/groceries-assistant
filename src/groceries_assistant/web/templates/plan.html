@@ -12,7 +12,19 @@
 <p>Importeer eerst recepten via <a href="/recipes/import">importeren</a>.</p>
 {% else %}
 <table class="plan">
+  <thead>
+    <tr>
+      <th>Dag</th>
+      <th>Kok</th>
+      {% for m in evenings[0].members %}<th>{{ m.name }}</th>{% endfor %}
+      <th>Gerecht</th>
+      <th></th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
   {% for e in evenings %}
+  {% set row = loop.index %}
   <tr class="evening {% if e.over_budget %}over{% endif %}">
     <td class="col-day">
       <strong>{{ e.label }}</strong><br>
@@ -22,12 +34,12 @@
       {% if e.over_budget %}<div class="warnings">over!</div>{% endif %}
     </td>
     <td class="col-cook">
-      <form method="post" action="/plan/evening">
+      <form method="post" action="/plan/evening" id="evening-{{ row }}">
         <input type="hidden" name="day" value="{{ e.day_iso }}">
         {% if e.cooking.no_cook_available %}
         <span class="warnings">&#9888; geen kok</span>
         {% else %}
-        <select name="cook" aria-label="Kok {{ e.label }}">
+        <select name="cook" aria-label="Kok {{ e.label }}" onchange="this.form.requestSubmit()">
           <option value="" {% if not e.cooking.stored_valid %}selected{% endif %}>
             {%- if e.cooking.auto_cook -%}
             auto: {{ e.cooking.auto_cook }}
@@ -40,16 +52,16 @@
           {% endfor %}
         </select>
         {% endif %}
-        {% for p in e.members %}
-        <label class="chip {% if p.absent %}absent{% endif %}">
-          <input type="checkbox" name="joined" value="{{ p.id }}" {% if not p.absent %}checked{% endif %}
-                 onchange="this.form.requestSubmit()">
-          {{ p.name }}
-        </label>
-        {% endfor %}
-        <button aria-label="Bewaar avond {{ e.label }}">opslaan</button>
       </form>
     </td>
+    {% for p in e.members %}
+    <td class="col-attend">
+      <span class="cell-name">{{ p.name }}</span>
+      <input type="checkbox" form="evening-{{ row }}" name="joined" value="{{ p.id }}"
+             {% if not p.absent %}checked{% endif %} onchange="this.form.requestSubmit()"
+             aria-label="Eet mee {{ p.name }} {{ e.label }}">
+    </td>
+    {% endfor %}
     <td class="col-dish">
       <strong>{{ e.name }}</strong>
       {% if e.kind == 'leftovers' %}
@@ -74,8 +86,12 @@
       </form>
       {% endif %}
     </td>
+    <td class="col-save">
+      <button form="evening-{{ row }}" aria-label="Bewaar avond {{ e.label }}">opslaan</button>
+    </td>
   </tr>
   {% endfor %}
+  </tbody>
 </table>
 <form method="post" action="/plan/approve">
   <p><button type="submit" class="primary">Week goedkeuren &rarr; boodschappenlijst</button></p>
