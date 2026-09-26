@@ -1,8 +1,8 @@
 # TODO (OpenCode)
 
-- [ ] Black formatting, ruff and ty checks
-- [ ] Basic CI with the checks above
-- [ ] Pre-commit hooks with the checks above
+- [x] Black formatting (ruff format), ruff lint and ty type checks
+- [x] Basic CI with the checks above (GitHub Actions: lint, format, types, tests)
+- [x] Pre-commit hooks with the checks above (pytest on push)
 - [x] Nicer theme (sans typography, green accent, softer surfaces, aligned
       controls; both light and dark).
 - [x] Pictures for recipes (upload in the editor, shown on the list + view
