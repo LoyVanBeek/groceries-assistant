@@ -605,3 +605,23 @@ def test_recipe_image_moves_on_rename(tmp_path):
         )
         assert not (tmp_path / "recipes" / "img" / "oud.png").exists()
         assert (tmp_path / "recipes" / "img" / "nieuwe-naam.png").exists()
+
+
+def test_evening_minutes_adjustable_from_plan_page(tmp_path):
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        client.get("/plan")
+        from groceries_assistant.store.db import Store
+
+        monday = Store(tmp_path / "state.db").load_proposal()[1]
+        client.post(
+            "/plan/evening",
+            data={"day": monday.isoformat(), "cook": "", "joined": "", "minutes": "60"},
+            follow_redirects=False,
+        )
+        store = Store(tmp_path / "state.db")
+        override = store.week_override(monday)
+        assert override is not None and override[1] == 60
+        page = client.get("/plan").text
+        kok_form = page.split('id="evening-1"')[1].split("</form>")[0]
+        assert 'name="minutes" value="60"' in kok_form

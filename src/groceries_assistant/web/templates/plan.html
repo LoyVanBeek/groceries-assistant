@@ -62,6 +62,8 @@
         {% if e.cooking.no_cook_available %}
         <span class="warnings">&#9888; geen kok</span>
         {% else %}
+        <input type="number" name="minutes" value="{{ e.budget }}" min="0" max="300"
+               aria-label="Minuten {{ e.label }}" onchange="this.form.requestSubmit()">
         <select name="cook" aria-label="Kok {{ e.label }}" onchange="this.form.requestSubmit()">
           <option value="" {% if not e.cooking.stored_valid %}selected{% endif %}>
             {%- if e.cooking.auto_cook -%}

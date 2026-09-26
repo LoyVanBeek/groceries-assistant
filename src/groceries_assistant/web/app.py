@@ -182,7 +182,7 @@ def create_app(
 
     @app.post("/plan/evening")
     async def plan_evening(request: Request, day: str = Form(...)):
-        """Per-evening adjustments: who cooks, who joins.
+        """Per-evening adjustments: who cooks, who joins, how much time.
 
         The cook must be an adult who joins that evening; violations reject
         the whole save so no partial state (override/absences) is written.
@@ -190,16 +190,18 @@ def create_app(
         form = await request.form()
         cook = str(form.get("cook", "")).strip()
         joined = {str(v) for v in form.getlist("joined")}
+        minutes_raw = str(form.get("minutes", "")).strip()
         target = date.fromisoformat(day)
         if cook:
             people_by_id = {p["id"]: p for p in store().people()}
             person = people_by_id.get(cook)
             if person is None or person["role"] != "adult" or cook not in joined:
                 return RedirectResponse("/plan?error=kok", status_code=303)
+        minutes = int(minutes_raw) if minutes_raw.isdigit() else evening_minutes(store(), target)
         store().set_week_override(
             target,
             cook=cook,
-            free_minutes=evening_minutes(store(), target),
+            free_minutes=max(minutes, 0),
             allow_leftovers=evening_allows_leftovers(store(), target),
         )
         for person in store().people():

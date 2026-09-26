@@ -222,8 +222,9 @@ table.plan .col-dish { width: 40%; }
 table.plan .col-dish form { display: flex; flex-wrap: nowrap; gap: 0.35rem; margin-top: 0; align-items: center; }
 table.plan .col-dish select { flex: 1; min-width: 12rem; }
 table.plan .col-cook { width: 13rem; }
-table.plan .col-cook form { display: flex; flex-wrap: nowrap; align-items: center; }
-table.plan .col-cook select { width: 100%; }
+table.plan .col-cook form { display: flex; flex-wrap: nowrap; gap: 0.3rem; align-items: center; }
+table.plan .col-cook select { width: 100%; min-width: 0; }
+table.plan .col-cook input[type="number"] { width: 4rem; padding: 0.3rem 0.35rem; }
 table.plan .col-attend { text-align: center; width: 4.5rem; }
 table.plan .col-attend input[type="checkbox"] { width: 1.3rem; height: 1.3rem; accent-color: var(--accent); }
 table.plan .col-attend .cell-name { display: none; }
