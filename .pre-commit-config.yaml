@@ -1,0 +1,26 @@
+# Pre-commit: same checks as CI. Install once with: `pre-commit install`
+# (or run manually: `pre-commit run --all-files`).
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-lint
+        name: ruff (lint)
+        entry: uv run ruff check .
+        language: system
+        pass_filenames: false
+      - id: ruff-format
+        name: ruff (format check, Black-compatible)
+        entry: uv run ruff format --check .
+        language: system
+        pass_filenames: false
+      - id: ty
+        name: ty (types)
+        entry: uv run ty check src
+        language: system
+        pass_filenames: false
+      - id: pytest
+        name: pytest
+        entry: uv run pytest -q
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
