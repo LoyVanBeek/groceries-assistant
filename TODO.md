@@ -11,3 +11,4 @@
 - [ ] Allow to adjust the time available for cooking from the webpage
 - [ ] Add an mage picker for the recipes
 - [ ] Show thumbnail of recipe image on thee week overview webpage
+- [ ] Match up all the items with AH article numbers
