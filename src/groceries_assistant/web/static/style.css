@@ -196,6 +196,18 @@ tbody tr.over:hover { background: var(--over-bg); }
   margin-right: 0.5rem;
 }
 
+.img-grid { display: flex; flex-wrap: wrap; gap: 0.6rem; margin: 0.4rem 0; }
+.img-card {
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  padding: 0.4rem;
+  text-align: center;
+}
+.img-card.featured { border-color: var(--accent); border-width: 2.5px; }
+.img-card img { width: 9rem; height: 7rem; object-fit: cover; border-radius: 6px; display: block; }
+.img-actions { display: flex; justify-content: space-between; align-items: center; margin-top: 0.3rem; }
+.img-actions button { min-width: 2.2rem; padding: 0.2rem 0.4rem; }
+
 ul.plain { list-style: none; padding: 0; margin: 0.25rem 0; }
 li.item {
   padding: 0.5rem 0.25rem;

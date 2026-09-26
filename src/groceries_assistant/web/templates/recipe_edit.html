@@ -12,11 +12,37 @@
   {% if original_slug %}
   <input type="hidden" name="original_slug" value="{{ original_slug }}">
   {% endif %}
-  {% if has_image %}
-  <p><img class="recipe-img" src="/recipes/img/{{ original_slug }}{{ image_ext }}" alt="{{ name_value }}"></p>
-  {% endif %}
-  <p><label>Afbeelding (jpg/png/webp)</label><br><input type="file" name="image" accept="image/*"></p>
-  <p><label>Naam</label><br><input type="text" name="name" value="{{ name_value }}" required></p>
+{% if has_image %}
+<p><img class="recipe-img" src="/recipes/img/{{ original_slug }}{{ image_ext }}" alt="{{ name_value }}"></p>
+{% endif %}
+{% if images and images|length > 1 %}
+<h2>Foto's</h2>
+<div class="img-grid">
+  {% for img in images %}
+  <div class="img-card {% if img.featured %}featured{% endif %}">
+    <img src="/recipes/img/{{ img.name }}" alt="">
+    <div class="img-actions">
+      <form method="post" action="/recipes/img/select">
+        <input type="hidden" name="slug" value="{{ original_slug }}">
+        <input type="hidden" name="filename" value="{{ img.name }}">
+        <label class="chip">
+          <input type="radio" name="pick" {% if img.featured %}checked{% endif %}
+                 onchange="this.form.requestSubmit()"> hoofd
+        </label>
+      </form>
+      <form method="post" action="/recipes/img/delete">
+        <input type="hidden" name="slug" value="{{ original_slug }}">
+        <input type="hidden" name="filename" value="{{ img.name }}">
+        <button>&times;</button>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+<p><label>Afbeelding (jpg/png/webp, meerdere mogelijk)</label><br><input type="file" name="image" accept="image/*" multiple></p>
+<h2>Recept</h2>
+<p><label>Naam</label><br><input type="text" name="name" value="{{ name_value }}" required></p>
   <p>
     <label>Personen</label> <input type="number" name="servings" value="{{ servings_value }}" min="1" size="3">
     &nbsp; <label>Voorbereiden (min, avond ervoor)</label> <input type="number" name="prep_ahead" value="{{ prep_ahead_value }}" min="0" size="3">

@@ -384,6 +384,7 @@ def create_app(
             "parsed": None,
             "has_image": False,
             "image_ext": "",
+            "images": [],
         }
         return {**defaults, **fields}
 
@@ -394,6 +395,9 @@ def create_app(
         except RecipeError as exc:
             raise HTTPException(404, str(exc)) from exc
         image = image_path(slug)
+        images = [
+            {"name": f.name, "featured": f == image, "ext": f.suffix} for f in image_files(slug)
+        ]
         return render(
             request,
             "recipe_edit.html",
@@ -411,6 +415,7 @@ def create_app(
                 steps_text="\n".join(number_steps(recipe.steps)),
                 has_image=image is not None,
                 image_ext=image.suffix if image else "",
+                images=images,
             ),
             original_slug=recipe.slug,
         )
@@ -444,7 +449,7 @@ def create_app(
     ALLOWED_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
 
     def image_path(slug: str) -> Path | None:
-        """Current image file for a recipe slug, if any."""
+        """Featured image file for a recipe slug, if any."""
         directory = data / "recipes" / "img"
         if not directory.is_dir():
             return None
@@ -453,9 +458,34 @@ def create_app(
                 return candidate
         return None
 
-    def _serve_image(slug: str, filename: str):
+    def image_files(slug: str) -> list[Path]:
+        """All images of a recipe: featured first, then the extras."""
+        directory = data / "recipes" / "img"
+        if not directory.is_dir():
+            return []
+        extras = sorted(
+            p for p in directory.glob(f"{slug}--*") if p.suffix.lower() in ALLOWED_IMAGE_EXTS
+        )
+        featured = image_path(slug)
+        return ([featured] if featured else []) + extras
+
+    def _owned_image(slug: str, filename: str) -> Path:
+        """Validate that filename belongs to this slug and return its path."""
+        prefix = f"{slug}." if "--" not in filename else f"{slug}--"
+        if not filename.startswith(prefix) or Path(filename).suffix.lower() not in (
+            ALLOWED_IMAGE_EXTS
+        ):
+            raise HTTPException(400, "Onbekende afbeelding")
         path = data / "recipes" / "img" / filename
-        if not path.is_file() or Path(filename).stem != slug:
+        if not path.is_file():
+            raise HTTPException(404, "Geen afbeelding")
+        return path
+
+    def _serve_image(slug: str, filename: str):
+        if not (filename.startswith(f"{slug}.") or filename.startswith(f"{slug}--")):
+            raise HTTPException(404, "Geen afbeelding")
+        path = data / "recipes" / "img" / filename
+        if not path.is_file():
             raise HTTPException(404, "Geen afbeelding")
         return FileResponse(path)
 
@@ -463,28 +493,39 @@ def create_app(
     def recipe_image(filename: str):
         return _serve_image(Path(filename).stem, filename)
 
-    async def _save_image_upload(slug: str, upload: UploadFile | None) -> None:
-        """Store an uploaded image under data/recipes/img/<slug>.<ext>.
+    async def _save_image_uploads(slug: str, uploads: list[UploadFile]) -> None:
+        """Store uploaded images: first becomes featured, the rest extras.
 
-        Removes stale files with other extensions so exactly one image per
-        slug remains. No upload -> keep the existing image.
+        Removes stale featured files with other extensions. Extras are named
+        <slug>--2.<ext>, <slug>--3.<ext>, ...
         """
-        if upload is None or not upload.filename:
+        uploads = [u for u in uploads if u is not None and u.filename]
+        if not uploads:
             return
-        ext = Path(upload.filename).suffix.lower()
-        if ext not in ALLOWED_IMAGE_EXTS:
-            raise HTTPException(400, "Afbeelding moet jpg, jpeg, png of webp zijn")
         directory = data / "recipes" / "img"
         directory.mkdir(parents=True, exist_ok=True)
-        for stale in directory.glob(f"{slug}.*"):
-            stale.unlink(missing_ok=True)
-        target = directory / f"{slug}{ext}"
-        with target.open("wb") as fh:
-            fh.write(await upload.read())
+        for index, upload in enumerate(uploads):
+            filename = upload.filename or ""
+            ext = Path(filename).suffix.lower()
+            if ext not in ALLOWED_IMAGE_EXTS:
+                raise HTTPException(400, "Afbeelding moet jpg, jpeg, png of webp zijn")
+            if index == 0:
+                for stale in directory.glob(f"{slug}.*"):
+                    stale.unlink(missing_ok=True)
+                name = f"{slug}{ext}"
+            else:
+                number = 2
+                while (directory / f"{slug}--{number}{ext}").exists():
+                    number += 1
+                name = f"{slug}--{number}{ext}"
+            with (directory / name).open("wb") as fh:
+                fh.write(await upload.read())
 
-    def _move_image(old_slug: str, new_slug: str) -> None:
-        for old in (data / "recipes" / "img").glob(f"{old_slug}.*"):
-            old.rename(data / "recipes" / "img" / f"{new_slug}{old.suffix}")
+    def _move_images(old_slug: str, new_slug: str) -> None:
+        for old in (data / "recipes" / "img").glob(f"{old_slug}*"):
+            if old.suffix.lower() not in ALLOWED_IMAGE_EXTS:
+                continue
+            old.rename(data / "recipes" / "img" / f"{new_slug}{old.name[len(old_slug) :]}")
 
     @app.post("/recipes/save")
     async def save_form(
@@ -498,7 +539,7 @@ def create_app(
         protein: str = Form(""),
         ingredients: str = Form(""),
         steps: str = Form(""),
-        image: Annotated[UploadFile | None, File()] = None,
+        image: Annotated[list[UploadFile] | None, File()] = None,
     ):
         ingredient_lines = [line.strip() for line in ingredients.splitlines() if line.strip()]
         parsed_ingredients: list[dict] = []
@@ -543,12 +584,32 @@ def create_app(
         if old_path != new_path and new_path.exists():
             raise HTTPException(400, f"Recept '{recipe.slug}' bestaat al")
         save_recipe(new_path, recipe)
-        await _save_image_upload(recipe.slug, image)
+        await _save_image_uploads(recipe.slug, list(image or []))
         if old_path is not None and old_path != new_path:
             old_path.unlink(missing_ok=True)
             store().rename_recipe(original_slug, recipe.slug)
-            _move_image(original_slug, recipe.slug)
+            _move_images(original_slug, recipe.slug)
         return RedirectResponse("/recipes", status_code=303)
+
+    @app.post("/recipes/img/select")
+    def select_featured_image(
+        slug: str = Form(...), filename: str = Form(...), back: str = Form("")
+    ):
+        """Make the chosen file the featured image (swap names with the current)."""
+        chosen = _owned_image(slug, filename)
+        featured = image_path(slug)
+        if featured is not None and featured.name != chosen.name:
+            tmp = chosen.with_name(chosen.name + ".tmp")
+            featured.rename(tmp)
+            chosen.rename(featured)
+            tmp.rename(chosen)
+        return RedirectResponse(back or f"/recipes/{slug}/edit", status_code=303)
+
+    @app.post("/recipes/img/delete")
+    def delete_image(slug: str = Form(...), filename: str = Form(...), back: str = Form("")):
+        path = _owned_image(slug, filename)
+        path.unlink(missing_ok=True)
+        return RedirectResponse(back or f"/recipes/{slug}/edit", status_code=303)
 
     def parse_ingredient_lines(lines: list[str]) -> list[dict]:
         out: list[dict] = []

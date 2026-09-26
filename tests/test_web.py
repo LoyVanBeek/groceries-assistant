@@ -643,3 +643,54 @@ def test_plan_page_shows_recipe_thumbnail(tmp_path):
         client.get("/plan")
         page = client.get("/plan").text
         assert '<img class="thumb" src="/recipes/img/fotopasta.png"' in page
+
+
+def test_image_picker_multiple_photos_and_featured(tmp_path):
+    with make_client(tmp_path) as client:
+        client.post(
+            "/recipes/save",
+            data={
+                "name": "Galerij",
+                "servings": "4",
+                "ingredients": "400 g spaghetti",
+                "steps": "Kook.",
+            },
+            files=[
+                ("image", ("a.png", _png_bytes(), "image/png")),
+                ("image", ("b.png", _png_bytes(), "image/png")),
+                ("image", ("c.png", _png_bytes(), "image/png")),
+            ],
+            follow_redirects=False,
+        )
+        img_dir = tmp_path / "recipes" / "img"
+        assert (img_dir / "galerij.png").exists()  # featured
+        assert (img_dir / "galerij--2.png").exists()
+        assert (img_dir / "galerij--3.png").exists()
+
+        editor = client.get("/recipes/galerij/edit")
+        assert editor.text.count("img-card") >= 3
+
+        # pick an extra as featured: names swap
+        client.post(
+            "/recipes/img/select",
+            data={"slug": "galerij", "filename": "galerij--2.png"},
+            follow_redirects=False,
+        )
+        assert (img_dir / "galerij--2.png").exists()  # old featured moved aside
+        featured = client.get("/recipes/img/galerij.png")
+        assert featured.status_code == 200
+
+        # delete one extra
+        client.post(
+            "/recipes/img/delete",
+            data={"slug": "galerij", "filename": "galerij--3.png"},
+            follow_redirects=False,
+        )
+        assert not (img_dir / "galerij--3.png").exists()
+
+        # foreign filenames are rejected
+        rogue = client.post(
+            "/recipes/img/delete",
+            data={"slug": "galerij", "filename": "anderrecept.png"},
+        )
+        assert rogue.status_code == 400
