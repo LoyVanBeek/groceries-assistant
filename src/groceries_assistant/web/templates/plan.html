@@ -15,10 +15,9 @@
   <thead>
     <tr>
       <th>Dag</th>
+      <th>Gerecht</th>
       <th>Kok</th>
       {% for m in evenings[0].members %}<th>{{ m.name }}</th>{% endfor %}
-      <th>Gerecht</th>
-      <th></th>
       <th></th>
     </tr>
   </thead>
@@ -32,6 +31,30 @@
         {% if e.kind == 'leftovers' %}restjes{% else %}{{ e.minutes }}/{{ e.budget }} min &middot; {{ e.people }} p{% endif %}
       </span>
       {% if e.over_budget %}<div class="warnings">over!</div>{% endif %}
+    </td>
+    <td class="col-dish">
+      <strong>{{ e.name }}</strong>
+      {% if e.kind == 'leftovers' %}
+      <form method="post" action="/plan/swap" class="inline">
+        <input type="hidden" name="day" value="{{ e.day_iso }}">
+        <input type="hidden" name="choice" value="__cook__">
+        <button>toch koken</button>
+      </form>
+      {% else %}
+      <form method="post" action="/plan/swap" class="inline">
+        <input type="hidden" name="day" value="{{ e.day_iso }}">
+        <select name="choice" aria-label="Wissel {{ e.label }}">
+          <option value="__keep__" selected>{{ e.name }}</option>
+          {% for alt in e.alternatives %}
+          <option value="{{ alt.slug }}">{{ alt.name }}</option>
+          {% endfor %}
+          {% if e.can_leftovers %}
+          <option value="__leftovers__">Restjes (avond ervoor)</option>
+          {% endif %}
+        </select>
+        <button>wissel</button>
+      </form>
+      {% endif %}
     </td>
     <td class="col-cook">
       <form method="post" action="/plan/evening" id="evening-{{ row }}">
@@ -62,30 +85,6 @@
              aria-label="Eet mee {{ p.name }} {{ e.label }}">
     </td>
     {% endfor %}
-    <td class="col-dish">
-      <strong>{{ e.name }}</strong>
-      {% if e.kind == 'leftovers' %}
-      <form method="post" action="/plan/swap" class="inline">
-        <input type="hidden" name="day" value="{{ e.day_iso }}">
-        <input type="hidden" name="choice" value="__cook__">
-        <button>toch koken</button>
-      </form>
-      {% else %}
-      <form method="post" action="/plan/swap" class="inline">
-        <input type="hidden" name="day" value="{{ e.day_iso }}">
-        <select name="choice" aria-label="Wissel {{ e.label }}">
-          <option value="__keep__" selected>{{ e.name }}</option>
-          {% for alt in e.alternatives %}
-          <option value="{{ alt.slug }}">{{ alt.name }}</option>
-          {% endfor %}
-          {% if e.can_leftovers %}
-          <option value="__leftovers__">Restjes (avond ervoor)</option>
-          {% endif %}
-        </select>
-        <button>wissel</button>
-      </form>
-      {% endif %}
-    </td>
     <td class="col-save">
       <button form="evening-{{ row }}" aria-label="Bewaar avond {{ e.label }}">opslaan</button>
     </td>
