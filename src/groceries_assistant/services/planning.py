@@ -25,9 +25,7 @@ def alternatives(
         if recipe.slug == exclude_slug or prefs.never_by(recipe.slug):
             continue
         minutes = (
-            recipe.time.same_day_minutes
-            if recipe.time.prep_ahead
-            else recipe.time.total_minutes
+            recipe.time.same_day_minutes if recipe.time.prep_ahead else recipe.time.total_minutes
         )
         if minutes > evening.free_minutes:
             continue

@@ -96,8 +96,10 @@ def create_app(
 
     @app.post("/theme")
     def toggle_theme(request: Request, back: str = Form("/plan"), to: str = Form("")):
-        target = to if to in ("light", "dark") else (
-            "light" if request.cookies.get("theme") == "dark" else "dark"
+        target = (
+            to
+            if to in ("light", "dark")
+            else ("light" if request.cookies.get("theme") == "dark" else "dark")
         )
         response = RedirectResponse(back or "/plan", status_code=303)
         response.set_cookie("theme", target, max_age=365 * 24 * 3600)
@@ -118,8 +120,12 @@ def create_app(
         prefs = preferences_from_store(store())
         evenings = plan_view(store(), plan_id, all_recipes, prefs, store().people())
         return render(
-            request, "plan.html", plan_id=plan_id, start=start.isoformat(),
-            evenings=evenings, errors=errors,
+            request,
+            "plan.html",
+            plan_id=plan_id,
+            start=start.isoformat(),
+            evenings=evenings,
+            errors=errors,
         )
 
     @app.post("/plan/swap")
@@ -165,9 +171,7 @@ def create_app(
         prefs = preferences_from_store(store())
         all_recipes, _ = load_all()
         source = _previous_cook_slug(rows, target)
-        scored = alternatives(
-            all_recipes, prefs, evening, exclude_slug=source
-        )
+        scored = alternatives(all_recipes, prefs, evening, exclude_slug=source)
         if scored:
             recipe = scored[0][1]
         elif all_recipes:
@@ -330,7 +334,9 @@ def create_app(
             if not used_photo:
                 if url.strip():
                     _recipe, parsed = extract_from_url(url.strip())
-                    raw = "\n".join([parsed.name or "", *parsed.ingredients, *parsed.steps])
+                    raw = "\n".join(
+                        [parsed.name or "", *(i.product for i in parsed.ingredients), *parsed.steps]
+                    )
                 else:
                     raw = text
         except Exception as exc:
@@ -463,9 +469,7 @@ def create_app(
             return
         ext = Path(upload.filename).suffix.lower()
         if ext not in ALLOWED_IMAGE_EXTS:
-            raise HTTPException(
-                400, "Afbeelding moet jpg, jpeg, png of webp zijn"
-            )
+            raise HTTPException(400, "Afbeelding moet jpg, jpeg, png of webp zijn")
         directory = data / "recipes" / "img"
         directory.mkdir(parents=True, exist_ok=True)
         for stale in directory.glob(f"{slug}.*"):

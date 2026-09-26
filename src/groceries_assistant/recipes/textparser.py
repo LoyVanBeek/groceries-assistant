@@ -352,9 +352,10 @@ def parse_recipe_text(text: str) -> ParseResult:
         if mode == "steps" and re.match(r"^\s*voor (de|het)\b", lowered) and stripped.endswith(":"):
             mode = "ingredients"
             continue
-        if re.match(
-            r"^\s*(bereidingstijd|voorbereidingstijd|wachtijd|oventijd)\s*[:=]?", lowered
-        ) and _line_minutes(lowered) is not None:
+        if (
+            re.match(r"^\s*(bereidingstijd|voorbereidingstijd|wachtijd|oventijd)\s*[:=]?", lowered)
+            and _line_minutes(lowered) is not None
+        ):
             continue  # already handled by parse_times
         if _is_servings_line(stripped):
             continue  # already handled by parse_servings
@@ -367,9 +368,9 @@ def parse_recipe_text(text: str) -> ParseResult:
             and not _looks_like_ingredient(stripped)
             and not stripped.endswith((".", "!", "?"))
         ):
-                result.name = stripped.strip(":").strip()
-                first_done = True
-                continue
+            result.name = stripped.strip(":").strip()
+            first_done = True
+            continue
 
         if mode == "ingredients":
             ingredient = parse_ingredient_line(stripped)

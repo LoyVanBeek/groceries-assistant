@@ -255,10 +255,10 @@ def test_split_columns_two_column_layout():
     from groceries_assistant.recipes.extract import OcrLine, split_columns
 
     lines = [
-        OcrLine("Titel van het recept", 50, 950, 10),          # full width -> header
-        OcrLine("400 g spaghetti", 50, 400, 100),              # left column
+        OcrLine("Titel van het recept", 50, 950, 10),  # full width -> header
+        OcrLine("400 g spaghetti", 50, 400, 100),  # left column
         OcrLine("1 ui", 50, 200, 140),
-        OcrLine("Kook de spaghetti.", 600, 950, 100),          # right column
+        OcrLine("Kook de spaghetti.", 600, 950, 100),  # right column
         OcrLine("Fruit de ui.", 600, 940, 140),
     ]
     columns = split_columns(lines)
@@ -286,9 +286,11 @@ def test_reclassify_moves_ingredient_lines_from_steps():
         name=None,
         steps=["Kook de spaghetti.", "2 el olijfolie", "300 g verse spinazie"],
     )
-    parsed.ingredients = [__import__(
-        "groceries_assistant.models", fromlist=["Ingredient"]
-    ).Ingredient(product="spaghetti", amount=500, unit="g")]
+    parsed.ingredients = [
+        __import__("groceries_assistant.models", fromlist=["Ingredient"]).Ingredient(
+            product="spaghetti", amount=500, unit="g"
+        )
+    ]
     result = reclassify_result(parsed)
     products = [i.product for i in result.ingredients]
     assert "olijfolie" in products

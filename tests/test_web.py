@@ -83,9 +83,12 @@ def test_full_flow_to_ah_link(tmp_path):
 def test_import_text_and_save_recipe(tmp_path):
     with make_client(tmp_path) as client:
         editor = client.post(
-            "/recipes/import", data={"text": "Pasta pesto\nVoor 4 personen\n"
-                                       "400 g spaghetti\n25 g basilicum\n"
-                                       "Bereiding:\nKook de pasta."}
+            "/recipes/import",
+            data={
+                "text": "Pasta pesto\nVoor 4 personen\n"
+                "400 g spaghetti\n25 g basilicum\n"
+                "Bereiding:\nKook de pasta."
+            },
         )
         assert editor.status_code == 200
         assert "Pasta pesto" in editor.text
@@ -116,16 +119,22 @@ def test_verdict_and_swap_flow(tmp_path):
     seed_recipe(tmp_path)
     with make_client(tmp_path) as client:
         # add a person
-        assert client.post(
-            "/settings/people",
-            data={"person_id": "kid1", "name": "Kees", "role": "kid", "weight": "1"},
-            follow_redirects=False,
-        ).status_code == 303
-        assert client.post(
-            "/recipes/verdict",
-            data={"slug": "pasta", "person": "kid1", "verdict": "love"},
-            follow_redirects=False,
-        ).status_code == 303
+        assert (
+            client.post(
+                "/settings/people",
+                data={"person_id": "kid1", "name": "Kees", "role": "kid", "weight": "1"},
+                follow_redirects=False,
+            ).status_code
+            == 303
+        )
+        assert (
+            client.post(
+                "/recipes/verdict",
+                data={"slug": "pasta", "person": "kid1", "verdict": "love"},
+                follow_redirects=False,
+            ).status_code
+            == 303
+        )
         page = client.get("/recipes")
         assert 'value="love" selected' in page.text
 
@@ -276,9 +285,7 @@ def test_plan_evening_sets_cook_and_absences(tmp_path):
         assert store.week_override(tuesday) is None
 
         # everyone absent -> all marked absent
-        client.post(
-            "/plan/evening", data={"day": monday.isoformat(), "cook": "", "joined": ""}
-        )
+        client.post("/plan/evening", data={"day": monday.isoformat(), "cook": "", "joined": ""})
         assert store.absences(monday) == {"kid1", "mama"}
 
 
@@ -309,9 +316,7 @@ def test_plan_page_cook_inference(tmp_path):
         assert 'value="kid1"' not in page.text.split("<select")[1].split("</select>")[0]
 
         # only mama joins: auto cook shown as text, never preselected as a value
-        client.post(
-            "/plan/evening", data={"day": monday.isoformat(), "cook": "", "joined": "mama"}
-        )
+        client.post("/plan/evening", data={"day": monday.isoformat(), "cook": "", "joined": "mama"})
         page = client.get("/plan").text
         assert "auto: Mama" in page
         # segment right after Monday's hidden day input contains its selects
@@ -335,9 +340,7 @@ def test_plan_page_warns_when_no_adult_joins(tmp_path):
         from groceries_assistant.store.db import Store
 
         monday = Store(tmp_path / "state.db").load_proposal()[1]
-        client.post(
-            "/plan/evening", data={"day": monday.isoformat(), "cook": "", "joined": "kid1"}
-        )
+        client.post("/plan/evening", data={"day": monday.isoformat(), "cook": "", "joined": "kid1"})
         page = client.get("/plan")
         assert "geen kok" in page.text
 
@@ -448,12 +451,14 @@ def test_swap_with_default_option_is_noop_not_error(tmp_path):
     with make_client(tmp_path) as client:
         client.get("/plan")
         response = client.post(
-            "/plan/swap", data={"day": "2026-09-28", "choice": ""},
+            "/plan/swap",
+            data={"day": "2026-09-28", "choice": ""},
             follow_redirects=False,
         )
         assert response.status_code == 303
         keep = client.post(
-            "/plan/swap", data={"day": "2026-09-28", "choice": "__keep__"},
+            "/plan/swap",
+            data={"day": "2026-09-28", "choice": "__keep__"},
             follow_redirects=False,
         )
         assert keep.status_code == 303
@@ -479,7 +484,8 @@ def test_toch_koken_converts_leftovers_to_best_fit(tmp_path):
         tuesday = monday.replace(day=monday.day + 1)
         # make Tuesday a leftovers evening
         client.post(
-            "/plan/swap", data={"day": tuesday.isoformat(), "choice": "__leftovers__"},
+            "/plan/swap",
+            data={"day": tuesday.isoformat(), "choice": "__leftovers__"},
             follow_redirects=False,
         )
         rows = {(r.day.isoformat()): r for r in s.plan_entries(s.load_proposal()[0])}
@@ -488,7 +494,8 @@ def test_toch_koken_converts_leftovers_to_best_fit(tmp_path):
         # 'toch koken' -> cook evening with the best-fitting dish (only pasta exists,
         # excluded as the source, so the fallback picks it)
         r = client.post(
-            "/plan/swap", data={"day": tuesday.isoformat(), "choice": "__cook__"},
+            "/plan/swap",
+            data={"day": tuesday.isoformat(), "choice": "__cook__"},
             follow_redirects=False,
         )
         assert r.status_code == 303
@@ -553,7 +560,7 @@ def test_recipe_image_upload_and_view(tmp_path):
         assert (tmp_path / "recipes" / "img" / "fotorecept.png").exists()
 
         page = client.get("/recipes/fotorecept")
-        assert '/recipes/img/fotorecept.png' in page.text
+        assert "/recipes/img/fotorecept.png" in page.text
         listing = client.get("/recipes")
         assert '<img class="thumb"' in listing.text
 
@@ -566,8 +573,7 @@ def test_recipe_image_rejected_for_bad_extension(tmp_path):
     with make_client(tmp_path) as client:
         response = client.post(
             "/recipes/save",
-            data={"name": "X", "servings": "4",
-                  "ingredients": "400 g spaghetti", "steps": "Kook."},
+            data={"name": "X", "servings": "4", "ingredients": "400 g spaghetti", "steps": "Kook."},
             files={"image": ("foto.gif", b"GIF89a", "image/gif")},
         )
         assert response.status_code == 400
@@ -577,15 +583,24 @@ def test_recipe_image_moves_on_rename(tmp_path):
     with make_client(tmp_path) as client:
         client.post(
             "/recipes/save",
-            data={"name": "Oud", "servings": "4",
-                  "ingredients": "400 g spaghetti", "steps": "Kook."},
+            data={
+                "name": "Oud",
+                "servings": "4",
+                "ingredients": "400 g spaghetti",
+                "steps": "Kook.",
+            },
             files={"image": ("foto.png", _png_bytes(), "image/png")},
             follow_redirects=False,
         )
         client.post(
             "/recipes/save",
-            data={"original_slug": "oud", "name": "Nieuwe naam", "servings": "4",
-                  "ingredients": "400 g spaghetti", "steps": "Kook."},
+            data={
+                "original_slug": "oud",
+                "name": "Nieuwe naam",
+                "servings": "4",
+                "ingredients": "400 g spaghetti",
+                "steps": "Kook.",
+            },
             follow_redirects=False,
         )
         assert not (tmp_path / "recipes" / "img" / "oud.png").exists()

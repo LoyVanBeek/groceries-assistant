@@ -115,9 +115,7 @@ def apply_absences(
     joiners_by_day: dict[date, int | None] = {}
     for row in rows:
         evening = evenings_for(store, row.day, days=1)[0]
-        joiners_by_day[row.day] = (
-            len(evening.joiners) if evening.joiners is not None else None
-        )
+        joiners_by_day[row.day] = len(evening.joiners) if evening.joiners is not None else None
 
     counts: dict[date, int] = {}
     for row in rows:
@@ -232,17 +230,11 @@ def rows_to_entries(
     return entries
 
 
-def replace_entry(
-    plan: WeeklyPlan, day: date, recipe: Recipe, prefs: Preferences
-) -> PlanEntry:
+def replace_entry(plan: WeeklyPlan, day: date, recipe: Recipe, prefs: Preferences) -> PlanEntry:
     """Swap one evening's dish manually; warn when it exceeds the budget."""
     entry = next(e for e in plan.entries if e.date == day)
-    planned = {
-        e.recipe.slug for e in plan.entries if e.recipe is not None and e.date != day
-    }
-    minutes = (
-        recipe.time.same_day_minutes if recipe.time.prep_ahead else recipe.time.total_minutes
-    )
+    planned = {e.recipe.slug for e in plan.entries if e.recipe is not None and e.date != day}
+    minutes = recipe.time.same_day_minutes if recipe.time.prep_ahead else recipe.time.total_minutes
     score = prefs.recipe_score(recipe.slug) - (REUSE_PENALTY if recipe.slug in planned else 0.0)
     warnings: list[str] = []
     if minutes > entry.availability.free_minutes:
@@ -264,7 +256,10 @@ def replace_entry(
 def replace_with_leftovers(plan: WeeklyPlan, day: date) -> PlanEntry | None:
     """Plan leftovers (yesterday's dish) on one evening."""
     entry = next(e for e in plan.entries if e.date == day)
-    earlier = sorted(e for e in plan.entries if e.date < day and e.kind == "cook")
+    earlier = sorted(
+        (e for e in plan.entries if e.date < day and e.kind == "cook"),
+        key=lambda e: e.date,
+    )
     if not earlier or not getattr(earlier[-1], "recipe", None):
         return None
     source = earlier[-1]
@@ -318,9 +313,7 @@ def build_order(
         ]
         if candidates:
             source = max(candidates, key=lambda e: e.date)
-            people[source.date] = people.get(source.date, servings) + (
-                entry.people or servings
-            )
+            people[source.date] = people.get(source.date, servings) + (entry.people or servings)
 
     work: list[tuple[date, Recipe, int]] = []
     for entry in entries:

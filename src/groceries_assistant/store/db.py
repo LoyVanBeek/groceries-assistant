@@ -121,8 +121,9 @@ class Store:
     def _ensure_default_template(self) -> None:
         if self.conn.execute("SELECT COUNT(*) FROM week_template").fetchone()[0] == 0:
             for weekday, (cook, minutes, leftovers) in DEFAULT_TEMPLATE.items():
-                self.set_evening(weekday, cook=cook, free_minutes=minutes,
-                                 allow_leftovers=leftovers)
+                self.set_evening(
+                    weekday, cook=cook, free_minutes=minutes, allow_leftovers=leftovers
+                )
 
     def close(self) -> None:
         self.conn.close()
@@ -130,9 +131,7 @@ class Store:
     # --- people & verdicts ------------------------------------------------------
 
     def people(self) -> list[dict]:
-        rows = self.conn.execute(
-            "SELECT id, name, role, weight FROM people ORDER BY id"
-        ).fetchall()
+        rows = self.conn.execute("SELECT id, name, role, weight FROM people ORDER BY id").fetchall()
         return [dict(row) for row in rows]
 
     def upsert_person(self, person_id: str, name: str, role: str, weight: float) -> None:
@@ -186,9 +185,7 @@ class Store:
     # --- absences ("not joining for dinner") -------------------------------------
 
     def absences(self, day: date) -> set[str]:
-        rows = self.conn.execute(
-            "SELECT person_id FROM absences WHERE day = ?", (day.isoformat(),)
-        )
+        rows = self.conn.execute("SELECT person_id FROM absences WHERE day = ?", (day.isoformat(),))
         return {row[0] for row in rows}
 
     def set_absence(self, day: date, person_id: str, absent: bool) -> None:
@@ -210,8 +207,10 @@ class Store:
         rows = self.conn.execute(
             "SELECT weekday, cook, free_minutes, allow_leftovers FROM week_template"
         ).fetchall()
-        return {row["weekday"]: (row["cook"], row["free_minutes"], bool(row["allow_leftovers"]))
-                for row in rows}
+        return {
+            row["weekday"]: (row["cook"], row["free_minutes"], bool(row["allow_leftovers"]))
+            for row in rows
+        }
 
     def set_evening(
         self, weekday: int, cook: str, free_minutes: int, allow_leftovers: bool
@@ -249,9 +248,7 @@ class Store:
     # --- staples -----------------------------------------------------------------
 
     def staples(self) -> list[str]:
-        return [
-            row[0] for row in self.conn.execute("SELECT product FROM staples ORDER BY product")
-        ]
+        return [row[0] for row in self.conn.execute("SELECT product FROM staples ORDER BY product")]
 
     def set_staple(self, product: str, on: bool) -> None:
         if on:
@@ -269,8 +266,9 @@ class Store:
         for (old_id,) in cur.fetchall():
             cur.execute("DELETE FROM plan_entries WHERE plan_id = ?", (old_id,))
             cur.execute("DELETE FROM plans WHERE id = ?", (old_id,))
-        cur.execute("INSERT INTO plans(start_date, status) VALUES (?, 'proposed')",
-                    (start.isoformat(),))
+        cur.execute(
+            "INSERT INTO plans(start_date, status) VALUES (?, 'proposed')", (start.isoformat(),)
+        )
         plan_id = cur.lastrowid
         assert plan_id is not None
         for entry in entries:
@@ -291,8 +289,7 @@ class Store:
 
     def load_proposal(self) -> tuple[int, date, list[PlanEntryRow]] | None:
         row = self.conn.execute(
-            "SELECT id, start_date FROM plans WHERE status = 'proposed'"
-            " ORDER BY id DESC LIMIT 1"
+            "SELECT id, start_date FROM plans WHERE status = 'proposed' ORDER BY id DESC LIMIT 1"
         ).fetchone()
         if row is None:
             return None
@@ -300,9 +297,7 @@ class Store:
         return plan_id, date.fromisoformat(row["start_date"]), self.plan_entries(plan_id)
 
     def approve_proposal(self, plan_id: int) -> None:
-        self.conn.execute(
-            "UPDATE plans SET status = 'approved' WHERE id = ?", (plan_id,)
-        )
+        self.conn.execute("UPDATE plans SET status = 'approved' WHERE id = ?", (plan_id,))
         self.conn.commit()
 
     def update_proposal_rows(self, plan_id: int, entries: list[PlanEntryRow]) -> None:

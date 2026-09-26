@@ -18,7 +18,7 @@ class ShoppingItem:
 
 def aggregate_ingredients(
     entries: Sequence[tuple[date, Recipe, int]],
-    ) -> tuple[list[ShoppingItem], list[str]]:
+) -> tuple[list[ShoppingItem], list[str]]:
     """Sum recipe ingredients over the planned days.
 
     Each entry is (date, recipe, people_count); leftovers entries pass the

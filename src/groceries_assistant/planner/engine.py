@@ -189,9 +189,7 @@ def _pick(
         if recipe.time.prep_ahead and recipe.time.prep_ahead <= prep_capacity:
             minutes = recipe.time.same_day_minutes
             prep_ahead_used = recipe.time.prep_ahead
-            warnings.append(
-                f"{recipe.time.prep_ahead} min voorbereiding moet eerder gebeuren"
-            )
+            warnings.append(f"{recipe.time.prep_ahead} min voorbereiding moet eerder gebeuren")
         else:
             minutes = recipe.time.total_minutes
         if minutes > evening.free_minutes:

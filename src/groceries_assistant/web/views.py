@@ -18,9 +18,7 @@ def load_recipes(data_dir: Path) -> tuple[list[Recipe], list[str]]:
     return load_recipes_with_errors(data_dir / "recipes")
 
 
-def cook_view(
-    stored_cook: str, members: list[dict], joiners: list[str]
-) -> dict:
+def cook_view(stored_cook: str, members: list[dict], joiners: list[str]) -> dict:
     """Cook inference for one evening.
 
     Only adults who join can cook. Priority: stored cook (if a joining
@@ -28,9 +26,7 @@ def cook_view(
     as '? (A of B)'). The auto cook is never submitted as a select value so
     unchecking that person can never invalidate a save.
     """
-    available = [
-        m["id"] for m in members if m["role"] == "adult" and m["id"] in joiners
-    ]
+    available = [m["id"] for m in members if m["role"] == "adult" and m["id"] in joiners]
     names = {m["id"]: m["name"] for m in members}
     stored_valid = stored_cook in available
     if stored_valid:
@@ -49,8 +45,7 @@ def cook_view(
         "auto_cook": auto_cook,
         "available_cooks": available,
         "cook_options": [
-            {"id": person_id, "name": names.get(person_id, person_id)}
-            for person_id in available
+            {"id": person_id, "name": names.get(person_id, person_id)} for person_id in available
         ],
         "cook_unset_label": " of ".join(names.get(c, c) for c in available),
         "no_cook_available": not available,
@@ -111,9 +106,7 @@ def plan_view(
                 "name": name,
                 "minutes": minutes,
                 "budget": budget,
-                "people": (
-                    len(evening.joiners) if evening.joiners is not None else row.people
-                ),
+                "people": (len(evening.joiners) if evening.joiners is not None else row.people),
                 "members": members,
                 "cooking": cooking,
                 "alternatives": alts,

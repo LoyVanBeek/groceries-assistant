@@ -141,9 +141,7 @@ def tesseract_tsv_lines(path: Path, binary: str, lang: str) -> list[OcrLine]:
         if level != "5" or not text.strip():
             continue
         key = (int(block), int(par), int(line))
-        lines.setdefault(key, []).append(
-            (int(left), int(top), int(width), text.strip())
-        )
+        lines.setdefault(key, []).append((int(left), int(top), int(width), text.strip()))
     out: list[OcrLine] = []
     for words in lines.values():
         words.sort(key=lambda w: w[0])

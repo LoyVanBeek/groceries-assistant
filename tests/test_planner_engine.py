@@ -11,9 +11,7 @@ D3 = date(2026, 9, 10)
 
 
 def _evening(day, free_minutes, allow_leftovers=False):
-    return EveningAvailability(
-        date=day, free_minutes=free_minutes, allow_leftovers=allow_leftovers
-    )
+    return EveningAvailability(date=day, free_minutes=free_minutes, allow_leftovers=allow_leftovers)
 
 
 def _recipe(slug, minutes=30, name=None):

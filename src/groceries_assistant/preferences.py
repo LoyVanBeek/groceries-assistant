@@ -53,19 +53,13 @@ class Preferences(BaseModel):
             if v == verdict and (joiners is None or person_id in set(joiners))
         ]
 
-    def never_by(
-        self, recipe_slug: str, joiners: Sequence[str] | None = None
-    ) -> list[str]:
+    def never_by(self, recipe_slug: str, joiners: Sequence[str] | None = None) -> list[str]:
         return self._verdicts_by(recipe_slug, "never", joiners)
 
-    def disliked_by(
-        self, recipe_slug: str, joiners: Sequence[str] | None = None
-    ) -> list[str]:
+    def disliked_by(self, recipe_slug: str, joiners: Sequence[str] | None = None) -> list[str]:
         return self._verdicts_by(recipe_slug, "dislike", joiners)
 
-    def recipe_score(
-        self, recipe_slug: str, joiners: Sequence[str] | None = None
-    ) -> float:
+    def recipe_score(self, recipe_slug: str, joiners: Sequence[str] | None = None) -> float:
         """Total verdict points; only `joiners` count when given.
 
         Absent people (not in joiners) don't steer the meal they won't eat.
