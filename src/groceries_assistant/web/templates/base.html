@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="nl"{% if theme %} data-theme="{{ theme }}"{% endif %}>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Boodschappenassistent{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <nav>
+    <a href="/plan" {% if request.url.path == '/plan' %}class="active"{% endif %}>Week</a>
+    <a href="/recipes" {% if request.url.path.startswith('/recipes') %}class="active"{% endif %}>Recepten</a>
+    <a href="/settings" {% if request.url.path == '/settings' %}class="active"{% endif %}>Instellingen</a>
+    <form method="post" action="/theme" class="inline">
+      <input type="hidden" name="back" value="{{ request.url.path }}">
+      <input type="hidden" name="to" value="" id="theme-to">
+      <button>thema</button>
+    </form>
+  </nav>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+  <script>
+    (function () {
+      var html = document.documentElement;
+      var t = html.getAttribute('data-theme');
+      if (!t) {
+        t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        html.setAttribute('data-theme', t);
+      }
+      var target = document.getElementById('theme-to');
+      if (target) target.value = t === 'dark' ? 'light' : 'dark';
+    })();
+  </script>
+</body>
+</html>

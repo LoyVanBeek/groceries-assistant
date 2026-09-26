@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}{{ recipe.name }}{% endblock %}
+{% block content %}
+<h1>{{ recipe.name }}</h1>
+<p class="budget">
+  {{ recipe.servings }} personen
+  {% if recipe.time.total_minutes %} &middot; {{ recipe.time.total_minutes }} min{% endif %}
+  {% if recipe.time.prep_ahead %} &middot; {{ recipe.time.prep_ahead }} min al eerder doen{% endif %}
+  {% if recipe.protein %} &middot; {{ recipe.protein }}{% endif %}
+</p>
+<h2>Ingredi&euml;nten</h2>
+<ul class="plain">
+  {% for line in ingredients %}
+  <li class="item">{{ line }}</li>
+  {% endfor %}
+</ul>
+<h2>Bereiding</h2>
+<ul class="plain">
+  {% for step in recipe.steps %}
+  <li class="item">{{ step }}</li>
+  {% endfor %}
+</ul>
+<p><a href="/recipes/{{ recipe.slug }}/edit">wijzig</a></p>
+{% endblock %}

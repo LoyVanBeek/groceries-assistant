@@ -1,0 +1,500 @@
+"""Web smoke tests: propose -> swap -> approve -> review -> AH deep-link."""
+
+from pathlib import Path
+
+from fastapi.testclient import TestClient
+
+from groceries_assistant.web.app import create_app
+
+PASTA = """\
+name: Pasta
+servings: 4
+time: {cook: 30}
+ingredients:
+  - {product: spaghetti, amount: 500, unit: g}
+  - {product: ui, amount: 1, unit: stuk}
+steps:
+  - Kook de spaghetti.
+"""
+
+
+def make_client(tmp_path: Path, search_fn=None):
+    recipes = tmp_path / "recipes"
+    recipes.mkdir(parents=True, exist_ok=True)
+    return TestClient(create_app(tmp_path, search_fn=search_fn))
+
+
+def seed_recipe(tmp_path: Path) -> None:
+    recipes = tmp_path / "recipes"
+    recipes.mkdir(parents=True, exist_ok=True)
+    (recipes / "pasta.yaml").write_text(PASTA, encoding="utf-8")
+
+
+def test_pages_render(tmp_path):
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        assert client.get("/plan").status_code == 200
+        assert client.get("/recipes").status_code == 200
+        assert client.get("/settings").status_code == 200
+        assert client.get("/recipes/import").status_code == 200
+
+
+def test_empty_recipe_dir_shows_import_hint(tmp_path):
+    (tmp_path / "recipes").mkdir(parents=True, exist_ok=True)
+    with make_client(tmp_path) as client:
+        assert "Importeer" in client.get("/plan").text
+
+
+def test_full_flow_to_ah_link(tmp_path):
+    seed_recipe(tmp_path)
+    search_results = {
+        "spaghetti": [_FakeProduct(123, "AH Spaghetti 500 g")],
+    }
+
+    def search(query: str):
+        return search_results.get(query.lower(), [])
+
+    with make_client(tmp_path, search_fn=search) as client:
+        plan_page = client.get("/plan")
+        assert plan_page.status_code == 200
+        assert "Pasta" in plan_page.text
+
+        approve = client.post("/plan/approve", follow_redirects=False)
+        assert approve.status_code == 303
+
+        order = client.get("/order")
+        assert order.status_code == 200
+        assert "spaghetti" in order.text
+
+        # tick 'ui' as already at home
+        have = client.post(
+            "/order/have",
+            data={"product": "ui", "unit": "stuk", "have": "1"},
+            follow_redirects=False,
+        )
+        assert have.status_code == 303
+
+        link_page = client.get("/order/link")
+        assert link_page.status_code == 200
+        # spaghetti is matched via the stub search; ui is not in the stub
+        assert "/mijnlijst/add-multiple" in link_page.text
+
+
+def test_import_text_and_save_recipe(tmp_path):
+    with make_client(tmp_path) as client:
+        editor = client.post(
+            "/recipes/import", data={"text": "Pasta pesto\nVoor 4 personen\n"
+                                       "400 g spaghetti\n25 g basilicum\n"
+                                       "Bereiding:\nKook de pasta."}
+        )
+        assert editor.status_code == 200
+        assert "Pasta pesto" in editor.text
+
+        saved = client.post(
+            "/recipes/save",
+            data={
+                "name": "Pasta pesto",
+                "servings": "4",
+                "prep": "0",
+                "cook": "25",
+                "prep_ahead": "0",
+                "protein": "vegetarisch",
+                "ingredients": "400 g spaghetti\n25 g basilicum",
+                "steps": "Kook de pasta.",
+            },
+            follow_redirects=False,
+        )
+        assert saved.status_code == 303
+        assert (tmp_path / "recipes" / "pasta-pesto.yaml").exists()
+
+        listing = client.get("/recipes")
+        assert listing.status_code == 200
+        assert "Pasta pesto" in listing.text
+
+
+def test_verdict_and_swap_flow(tmp_path):
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        # add a person
+        assert client.post(
+            "/settings/people",
+            data={"person_id": "kid1", "name": "Kees", "role": "kid", "weight": "1"},
+            follow_redirects=False,
+        ).status_code == 303
+        assert client.post(
+            "/recipes/verdict",
+            data={"slug": "pasta", "person": "kid1", "verdict": "love"},
+            follow_redirects=False,
+        ).status_code == 303
+        page = client.get("/recipes")
+        assert 'value="love" selected' in page.text
+
+
+class _FakeProduct:
+    def __init__(self, webshop_id: int, title: str) -> None:
+        self.webshop_id = webshop_id
+        self.title = title
+
+
+def test_recipe_edit_page_prefills(tmp_path):
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        page = client.get("/recipes/pasta/edit")
+        assert page.status_code == 200
+        assert 'value="Pasta"' in page.text
+        assert 'name="original_slug" value="pasta"' in page.text
+
+
+def test_rename_recipe_updates_files_and_state(tmp_path):
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        client.post(
+            "/settings/people",
+            data={"person_id": "kid1", "name": "Kees", "role": "kid", "weight": "1"},
+        )
+        client.post(
+            "/recipes/verdict",
+            data={"slug": "pasta", "person": "kid1", "verdict": "love"},
+        )
+        # trigger a proposal so plan rows reference the old slug
+        client.get("/plan")
+        saved = client.post(
+            "/recipes/save",
+            data={
+                "original_slug": "pasta",
+                "name": "Pasta alla Norma",
+                "servings": "4",
+                "cook": "30",
+                "ingredients": "500 g spaghetti",
+                "steps": "Kook.",
+            },
+            follow_redirects=False,
+        )
+        assert saved.status_code == 303
+        assert not (tmp_path / "recipes" / "pasta.yaml").exists()
+        assert (tmp_path / "recipes" / "pasta-alla-norma.yaml").exists()
+
+        # verdicts and plan references followed the rename
+        from groceries_assistant.store.db import Store
+
+        store = Store(tmp_path / "state.db")
+        assert store.verdicts() == {"pasta-alla-norma": {"kid1": "love"}}
+        rows = store.plan_entries(store.load_proposal()[0])
+        assert all(row.recipe_slug == "pasta-alla-norma" for row in rows)
+        store.close()
+
+
+def test_rename_collision_rejected(tmp_path):
+    seed_recipe(tmp_path)
+    second = tmp_path / "recipes" / "curry.yaml"
+    second.write_text("name: Curry\nservings: 4\ningredients:\n  - {product: rijst, amount: 1}\n")
+    with make_client(tmp_path) as client:
+        conflict = client.post(
+            "/recipes/save",
+            data={
+                "original_slug": "pasta",
+                "name": "Curry",
+                "servings": "4",
+                "ingredients": "500 g spaghetti",
+                "steps": "Kook.",
+            },
+        )
+        assert conflict.status_code == 400
+        # both files untouched
+        assert (tmp_path / "recipes" / "pasta.yaml").exists()
+        assert second.exists()
+
+
+def test_theme_toggle_sets_cookie_and_attribute(tmp_path):
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        page = client.get("/plan")
+        assert "<html lang=" in page.text  # no cookie: system preference decides
+        flipped = client.post(
+            "/theme", data={"back": "/plan", "to": "dark"}, follow_redirects=False
+        )
+        assert flipped.status_code == 303
+        assert "theme=dark" in flipped.headers.get("set-cookie", "")
+        page = client.get("/plan")
+        assert 'data-theme="dark"' in page.text
+
+
+def test_new_recipe_page_renders_blank_editor(tmp_path):
+    with make_client(tmp_path) as client:
+        page = client.get("/recipes/new")
+        assert page.status_code == 200
+        assert 'value=""' in page.text.replace('value="" ', 'value=""')
+        assert "original_slug" not in page.text or 'name="original_slug"' not in page.text
+
+
+def test_recipe_view_page(tmp_path):
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        page = client.get("/recipes/pasta")
+        assert page.status_code == 200
+        assert "Pasta" in page.text
+        assert "500 g spaghetti" in page.text
+
+
+def test_plan_evening_sets_cook_and_absences(tmp_path):
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        client.post(
+            "/settings/people",
+            data={"person_id": "kid1", "name": "Kees", "role": "kid", "weight": "1"},
+        )
+        client.post(
+            "/settings/people",
+            data={"person_id": "mama", "name": "Mama", "role": "adult", "weight": "1"},
+        )
+        client.get("/plan")  # create proposal
+        from groceries_assistant.store.db import Store
+
+        monday = Store(tmp_path / "state.db").load_proposal()[1]
+
+        # adult cook who joins: saved
+        response = client.post(
+            "/plan/evening",
+            data={"day": monday.isoformat(), "cook": "mama", "joined": ["kid1", "mama"]},
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+        store = Store(tmp_path / "state.db")
+        override = store.week_override(monday)
+        assert override is not None and override[0] == "mama"
+        assert store.absences(monday) == set()
+
+        # kid as cook: rejected, nothing written
+        tuesday = monday.replace(day=monday.day + 1)
+        rejected = client.post(
+            "/plan/evening",
+            data={"day": tuesday.isoformat(), "cook": "kid1", "joined": "kid1"},
+            follow_redirects=False,
+        )
+        assert rejected.status_code == 303
+        assert "error=kok" in rejected.headers["location"]
+        assert store.week_override(tuesday) is None
+
+        # everyone absent -> all marked absent
+        client.post(
+            "/plan/evening", data={"day": monday.isoformat(), "cook": "", "joined": ""}
+        )
+        assert store.absences(monday) == {"kid1", "mama"}
+
+
+def test_plan_page_cook_inference(tmp_path):
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        client.post(
+            "/settings/people",
+            data={"person_id": "kid1", "name": "Kees", "role": "kid", "weight": "1"},
+        )
+        client.post(
+            "/settings/people",
+            data={"person_id": "mama", "name": "Mama", "role": "adult", "weight": "1"},
+        )
+        client.post(
+            "/settings/people",
+            data={"person_id": "papa", "name": "Papa", "role": "adult", "weight": "1"},
+        )
+        client.get("/plan")
+        from groceries_assistant.store.db import Store
+
+        s = Store(tmp_path / "state.db")
+        monday = s.load_proposal()[1]
+        page = client.get("/plan")
+        # two joining adults, no cook set: '?' with both names
+        assert "? (Mama of Papa)" in page.text
+        # kid never appears as a cook option
+        assert 'value="kid1"' not in page.text.split("<select")[1].split("</select>")[0]
+
+        # only mama joins: auto cook shown as text, never preselected as a value
+        client.post(
+            "/plan/evening", data={"day": monday.isoformat(), "cook": "", "joined": "mama"}
+        )
+        page = client.get("/plan").text
+        assert "auto: Mama" in page
+        # segment right after Monday's hidden day input contains its selects
+        after_hidden = page.split(monday.isoformat())[2]
+        cook_select = after_hidden.split("<select")[1].split("</select>")[0]
+        assert 'value="mama" selected' not in cook_select
+
+
+def test_plan_page_warns_when_no_adult_joins(tmp_path):
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        client.post(
+            "/settings/people",
+            data={"person_id": "kid1", "name": "Kees", "role": "kid", "weight": "1"},
+        )
+        client.post(
+            "/settings/people",
+            data={"person_id": "mama", "name": "Mama", "role": "adult", "weight": "1"},
+        )
+        client.get("/plan")
+        from groceries_assistant.store.db import Store
+
+        monday = Store(tmp_path / "state.db").load_proposal()[1]
+        client.post(
+            "/plan/evening", data={"day": monday.isoformat(), "cook": "", "joined": "kid1"}
+        )
+        page = client.get("/plan")
+        assert "geen kok" in page.text
+
+
+def test_settings_template_adults_dropdown(tmp_path):
+    with make_client(tmp_path) as client:
+        client.post(
+            "/settings/people",
+            data={"person_id": "kid1", "name": "Kees", "role": "kid", "weight": "1"},
+        )
+        client.post(
+            "/settings/people",
+            data={"person_id": "mama", "name": "Mama", "role": "adult", "weight": "1"},
+        )
+        page = client.get("/settings")
+        assert 'value="mama"' in page.text
+        assert "per avond bepalen" in page.text
+        # kid is never offered as a cook in the template selects
+        cook_selects = [
+            fragment
+            for fragment in page.text.split("<select")[1:]
+            if 'name="cook_' in fragment.split(">")[0]
+        ]
+        assert len(cook_selects) == 7
+        for select in cook_selects:
+            assert 'value="kid1"' not in select.split("</select>")[0]
+
+
+def test_save_rejects_bad_ingredient_line_with_feedback(tmp_path):
+    with make_client(tmp_path) as client:
+        page = client.post(
+            "/recipes/save",
+            data={
+                "name": "Test",
+                "servings": "4",
+                "ingredients": "400 g spaghetti\nwat groentes",
+                "steps": "Kook.",
+            },
+        )
+        assert page.status_code == 200
+        assert "Niet herkend" in page.text
+        assert "wat groentes" in page.text
+        assert "400 g spaghetti" in page.text  # input preserved
+
+
+def test_steps_renumbered_and_stored(tmp_path):
+    with make_client(tmp_path) as client:
+        client.post(
+            "/recipes/save",
+            data={
+                "name": "Nummertest",
+                "servings": "4",
+                "ingredients": "400 g spaghetti",
+                "steps": "1. Kook de pasta.\nRoer erdoor.\n2. Serveer.",
+            },
+            follow_redirects=False,
+        )
+        import yaml
+
+        data = yaml.safe_load((tmp_path / "recipes" / "nummertest.yaml").read_text())
+        assert data["steps"] == ["1. Kook de pasta.", "2. Roer erdoor.", "3. Serveer."]
+
+
+def test_cook_view_inference_rules():
+    from groceries_assistant.web.views import cook_view
+
+    members = [
+        {"id": "kid1", "name": "Kees", "role": "kid", "absent": False},
+        {"id": "mama", "name": "Mama", "role": "adult", "absent": False},
+        {"id": "papa", "name": "Papa", "role": "adult", "absent": False},
+    ]
+
+    # two joining adults, nothing stored: '?' with both candidates
+    result = cook_view("", members, ["kid1", "mama", "papa"])
+    assert result["effective_cook"] == ""
+    assert result["no_cook_available"] is False
+    assert result["cook_unset_label"] == "Mama of Papa"
+
+    # exactly one joining adult: auto cook
+    result = cook_view("", members, ["mama"])
+    assert result["effective_cook"] == "mama"
+
+    # stored cook who is absent falls through to the single remaining adult
+    result = cook_view("papa", members, ["mama"])
+    assert result["effective_cook"] == "mama"
+    assert result["auto_cook"] == "Mama"  # inferred, display-only
+    assert result["stored_valid"] is False
+
+    # stored kid cook is never accepted
+    result = cook_view("kid1", members, ["kid1", "mama", "papa"])
+    assert result["effective_cook"] == ""
+
+    # explicit stored cook stays selected (not turned into auto text)
+    result = cook_view("mama", members, ["kid1", "mama", "papa"])
+    assert result["effective_cook"] == "mama"
+    assert result["stored_valid"] is True
+    assert result["auto_cook"] is None
+
+    # no joining adults: warning state
+    result = cook_view("", members, ["kid1"])
+    assert result["no_cook_available"] is True
+    assert result["effective_cook"] == ""
+
+
+def test_swap_with_default_option_is_noop_not_error(tmp_path):
+    """Regression: '(behoud)' posts an empty value; FastAPI must not 422."""
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        client.get("/plan")
+        response = client.post(
+            "/plan/swap", data={"day": "2026-09-28", "choice": ""},
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+        keep = client.post(
+            "/plan/swap", data={"day": "2026-09-28", "choice": "__keep__"},
+            follow_redirects=False,
+        )
+        assert keep.status_code == 303
+        # real swap still works
+        swapped = client.post(
+            "/plan/swap",
+            data={"day": "2026-09-28", "choice": "pasta"},
+            follow_redirects=False,
+        )
+        assert swapped.status_code == 303
+        page = client.get("/plan")
+        assert page.text.count("Pasta") >= 1
+
+
+def test_toch_koken_converts_leftovers_to_best_fit(tmp_path):
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        client.get("/plan")
+        from groceries_assistant.store.db import Store
+
+        s = Store(tmp_path / "state.db")
+        monday = s.load_proposal()[1]
+        tuesday = monday.replace(day=monday.day + 1)
+        # make Tuesday a leftovers evening
+        client.post(
+            "/plan/swap", data={"day": tuesday.isoformat(), "choice": "__leftovers__"},
+            follow_redirects=False,
+        )
+        rows = {(r.day.isoformat()): r for r in s.plan_entries(s.load_proposal()[0])}
+        assert rows[tuesday.isoformat()].kind == "leftovers"
+
+        # 'toch koken' -> cook evening with the best-fitting dish (only pasta exists,
+        # excluded as the source, so the fallback picks it)
+        r = client.post(
+            "/plan/swap", data={"day": tuesday.isoformat(), "choice": "__cook__"},
+            follow_redirects=False,
+        )
+        assert r.status_code == 303
+        s2 = Store(tmp_path / "state.db")
+        rows = {r.day.isoformat(): r for r in s2.plan_entries(s2.load_proposal()[0])}
+        assert rows[tuesday.isoformat()].kind == "cook"
+        assert rows[tuesday.isoformat()].recipe_slug == "pasta"
+        page = client.get("/plan")
+        assert "wissel" in page.text

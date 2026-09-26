@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Weekplan{% endblock %}
+{% block content %}
+{% if request.query_params.error == 'kok' %}
+<p class="warnings">Kok moet een volwassene zijn die mee-eet.</p>
+{% endif %}
+<h1>Week van {{ start }}</h1>
+{% if errors %}
+<p class="warnings">Ongeldige receptbestanden: {{ errors|join('; ') }}</p>
+{% endif %}
+{% if no_recipes %}
+<p>Importeer eerst recepten via <a href="/recipes/import">importeren</a>.</p>
+{% else %}
+<table class="plan">
+  {% for e in evenings %}
+  <tr class="evening {% if e.over_budget %}over{% endif %}">
+    <td class="col-day">
+      <strong>{{ e.label }}</strong><br>
+      <span class="budget">
+        {% if e.kind == 'leftovers' %}restjes{% else %}{{ e.minutes }}/{{ e.budget }} min &middot; {{ e.people }} p{% endif %}
+      </span>
+      {% if e.over_budget %}<div class="warnings">over!</div>{% endif %}
+    </td>
+    <td class="col-cook">
+      <form method="post" action="/plan/evening">
+        <input type="hidden" name="day" value="{{ e.day_iso }}">
+        {% if e.cooking.no_cook_available %}
+        <span class="warnings">&#9888; geen kok</span>
+        {% else %}
+        <select name="cook" aria-label="Kok {{ e.label }}">
+          <option value="" {% if not e.cooking.stored_valid %}selected{% endif %}>
+            {%- if e.cooking.auto_cook -%}
+            auto: {{ e.cooking.auto_cook }}
+            {%- else -%}
+            ?{% if e.cooking.cook_unset_label %} ({{ e.cooking.cook_unset_label }}){% endif %}
+            {%- endif -%}
+          </option>
+          {% for opt in e.cooking.cook_options %}
+          <option value="{{ opt.id }}" {% if e.cooking.stored_valid and e.cooking.stored_cook == opt.id %}selected{% endif %}>{{ opt.name }}</option>
+          {% endfor %}
+        </select>
+        {% endif %}
+        {% for p in e.members %}
+        <label class="chip {% if p.absent %}absent{% endif %}">
+          <input type="checkbox" name="joined" value="{{ p.id }}" {% if not p.absent %}checked{% endif %}
+                 onchange="this.form.requestSubmit()">
+          {{ p.name }}
+        </label>
+        {% endfor %}
+        <button aria-label="Bewaar avond {{ e.label }}">opslaan</button>
+      </form>
+    </td>
+    <td class="col-dish">
+      <strong>{{ e.name }}</strong>
+      {% if e.kind == 'leftovers' %}
+      <form method="post" action="/plan/swap" class="inline">
+        <input type="hidden" name="day" value="{{ e.day_iso }}">
+        <input type="hidden" name="choice" value="__cook__">
+        <button>toch koken</button>
+      </form>
+      {% else %}
+      <form method="post" action="/plan/swap" class="inline">
+        <input type="hidden" name="day" value="{{ e.day_iso }}">
+        <select name="choice" aria-label="Wissel {{ e.label }}">
+          <option value="__keep__" selected>{{ e.name }}</option>
+          {% for alt in e.alternatives %}
+          <option value="{{ alt.slug }}">{{ alt.name }}</option>
+          {% endfor %}
+          {% if e.can_leftovers %}
+          <option value="__leftovers__">Restjes (avond ervoor)</option>
+          {% endif %}
+        </select>
+        <button>wissel</button>
+      </form>
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+<form method="post" action="/plan/approve">
+  <p><button type="submit" class="primary">Week goedkeuren &rarr; boodschappenlijst</button></p>
+</form>
+{% endif %}
+{% endblock %}

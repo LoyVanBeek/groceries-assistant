@@ -1,0 +1,144 @@
+/* Light (default) */
+:root {
+  --ink: #111;
+  --bg: #fff;
+  --muted: #666;
+  --border: #888;
+  --warn: #b00;
+  --over-bg: #ffecec;
+  --rule: #ddd;
+}
+
+/* Explicit dark override (max contrast: pure black / pure white) */
+:root[data-theme="dark"] {
+  --ink: #fff;
+  --bg: #000;
+  --muted: #bbb;
+  --border: #fff;
+  --warn: #ff7a7a;
+  --over-bg: #401515;
+  --rule: #fff;
+}
+
+/* Follow the system preference until the user picks explicitly */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --ink: #fff;
+    --bg: #000;
+    --muted: #bbb;
+    --border: #fff;
+    --warn: #ff7a7a;
+    --over-bg: #401515;
+    --rule: #fff;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: Georgia, "Times New Roman", serif;
+  color: var(--ink);
+  background: var(--bg);
+  margin: 0;
+  width: 100%;
+  padding: 0.75rem 1.25rem;
+  font-size: 1.1rem;
+}
+
+nav {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  border-bottom: 2px solid var(--ink);
+  padding-bottom: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+nav a {
+  color: var(--ink);
+  text-decoration: none;
+  padding: 0.4rem 0.8rem;
+  border: 1px solid var(--border);
+  font-size: 1.1rem;
+}
+
+nav a.active { border-width: 3px; font-weight: bold; }
+
+h1 { font-size: 1.4rem; }
+h2 { font-size: 1.15rem; }
+
+a { color: var(--ink); }
+
+table { border-collapse: collapse; width: 100%; }
+th, td { border: 1px solid var(--border); padding: 0.45rem 0.6rem; text-align: left; vertical-align: top; }
+
+/* Plan page: horizontal rows, 7 evenings fit the viewport */
+table.plan td { border-left: none; border-right: none; vertical-align: middle; }
+table.plan tr:first-child td { border-top: none; }
+table.plan tr:last-child td { border-bottom: 2px solid var(--ink); }
+table.plan td { border-bottom: 1px solid var(--rule); }
+table.plan .col-day { white-space: nowrap; width: 10rem; }
+table.plan .col-cook form { display: flex; flex-wrap: nowrap; gap: 0.35rem; align-items: center; }
+table.plan .col-cook select { max-width: 12rem; }
+table.plan .col-cook .chip { white-space: nowrap; }
+table.plan .col-dish { width: 34%; }
+table.plan .col-dish form { display: flex; flex-wrap: nowrap; gap: 0.35rem; margin-top: 0; align-items: center; }
+table.plan .col-dish select { flex: 1; min-width: 12rem; }
+table.plan button { padding: 0.35rem 0.6rem; font-size: 1rem; white-space: nowrap; }
+
+@media (max-width: 700px) {
+  table.plan, table.plan tbody, table.plan tr, table.plan td { display: block; width: 100%; }
+  table.plan tr { border-bottom: 1px solid var(--rule); padding-bottom: 0.5rem; margin-bottom: 0.5rem; }
+  table.plan td { border: none; padding: 0.25rem 0; }
+}
+
+@media (max-width: 700px) {
+  table.plan, table.plan tbody, table.plan tr, table.plan td { display: block; width: 100%; }
+  table.plan tr { border-bottom: 1px solid var(--rule); padding-bottom: 0.5rem; margin-bottom: 0.5rem; }
+  table.plan td { border: none; padding: 0.25rem 0; }
+}
+
+button, select, input[type="number"], input[type="text"], textarea {
+  font-size: 1.05rem;
+  padding: 0.55rem 0.7rem;
+  background: var(--bg);
+  color: var(--ink);
+  border: 2px solid var(--border);
+  border-radius: 4px;
+}
+
+button { cursor: pointer; font-weight: bold; }
+button.primary { border-width: 3px; padding: 0.7rem 1.2rem; }
+form.inline { display: inline; }
+
+.warnings { color: var(--warn); }
+.muted { color: var(--muted); }
+.budget { color: var(--muted); font-size: 0.9rem; }
+
+.evening { margin-bottom: 0.4rem; }
+.over { background: var(--over-bg); }
+
+.chip {
+  display: inline-block;
+  border: 1px solid var(--border);
+  padding: 0.1rem 0.5rem;
+  margin: 0 0.3rem 0.3rem 0;
+  font-size: 0.95rem;
+}
+.chip.absent { text-decoration: line-through; opacity: 0.6; }
+
+.big-link {
+  display: inline-block;
+  margin: 1rem 0;
+  padding: 1rem 1.5rem;
+  border: 3px solid var(--ink);
+  color: var(--ink);
+  text-decoration: none;
+  font-size: 1.2rem;
+}
+
+.qr { background: #fff; padding: 1rem; width: 240px; }
+.qr svg { width: 100%; height: auto; }
+
+ul.plain { list-style: none; padding: 0; }
+li.item { padding: 0.45rem 0; border-bottom: 1px solid var(--rule); }

@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Boodschappenlijst{% endblock %}
+{% block content %}
+<h1>Controle &mdash; week van {{ start }}</h1>
+<p>Vink wat je al in huis hebt; dit komt niet op de lijst.</p>
+<ul class="plain">
+  {% for item in items %}
+  <li class="item">
+    <form method="post" action="/order/have">
+      <input type="hidden" name="product" value="{{ item.product }}">
+      <input type="hidden" name="unit" value="{{ item.unit }}">
+      <input type="hidden" name="have" value="{{ 0 if item.have else 1 }}">
+      <button>{{ '[x]' if item.have else '[ ]' }}</button>
+    </form>
+    {{ fmt(item.amount, item.unit) }} {{ item.product }}
+    {% if not item.webshop_id %}<span class="muted">(niet gevonden in AH)</span>{% endif %}
+  </li>
+  {% endfor %}
+</ul>
+<p><a class="big-link" href="/order/link">Genereer AH-link &rarr;</a></p>
+{% endblock %}

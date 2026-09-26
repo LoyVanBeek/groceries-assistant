@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Recept importeren{% endblock %}
+{% block content %}
+<h1>Recept toevoegen</h1>
+{% if error %}<p class="warnings">{{ error }}</p>{% endif %}
+<form method="post" action="/recipes/import" enctype="multipart/form-data">
+  <p><label>Foto van geprint recept</label><br><input type="file" name="photo" accept="image/*" capture="environment"></p>
+  <p><label>Of plak tekst</label><br><textarea name="text" rows="10" cols="60"></textarea></p>
+  <p><label>Of URL</label><br><input type="text" name="url" size="50"></p>
+  <p><button type="submit" class="primary">Uitlezen &rarr;</button></p>
+</form>
+{% endblock %}

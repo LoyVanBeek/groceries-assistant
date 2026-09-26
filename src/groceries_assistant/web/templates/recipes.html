@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Recepten{% endblock %}
+{% block content %}
+<h1>Recepten</h1>
+<p>
+  <a class="big-link" href="/recipes/new">Nieuw recept</a>
+  <a class="big-link" href="/recipes/import">Importeren (foto / tekst / URL)</a>
+</p>
+{% if errors %}<p class="warnings">{{ errors|join('; ') }}</p>{% endif %}
+<table>
+  <tr><th>Recept</th><th>Tijd</th><th>Protein</th><th></th>{% for p in people %}<th>{{ p['name'] or p['id'] }}</th>{% endfor %}</tr>
+  {% for r in recipes %}
+  <tr>
+    <td><a href="/recipes/{{ r.slug }}">{{ r.name }}</a></td>
+    <td>{{ r.minutes }} min</td>
+    <td>{{ r.protein or '' }}</td>
+    <td><a href="/recipes/{{ r.slug }}/edit">wijzig</a></td>
+    {% for pid, _ in [] %}
+    {% endfor %}
+    {% for p in people %}
+    <td>
+      <form method="post" action="/recipes/verdict">
+        <input type="hidden" name="slug" value="{{ r.slug }}">
+        <input type="hidden" name="person" value="{{ p['id'] }}">
+        <select name="verdict" onchange="this.form.submit()">
+          <option value=""></option>
+          {% for v in ['love','ok','dislike','never'] %}
+          <option value="{{ v }}" {% if r.verdicts[p['id']] == v %}selected{% endif %}>{{ v }}</option>
+          {% endfor %}
+        </select>
+      </form>
+    </td>
+    {% endfor %}
+  </tr>
+  {% else %}
+  <tr><td colspan="9">Nog geen recepten. <a href="/recipes/import">Importeer er een</a>.</td></tr>
+  {% endfor %}
+</table>
+{% endblock %}

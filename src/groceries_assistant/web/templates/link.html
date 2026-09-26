@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}AH-link{% endblock %}
+{% block content %}
+<h1>Naar Albert Heijn</h1>
+<p>Tik de link (telefoon) of scan de QR (scherm). De producten belanden in je AH-lijst; controleer en bestel daar.</p>
+{% for link in links %}
+<p><a class="big-link" href="{{ link }}" rel="noopener">Lijst {{ loop.index }} openen in AH</a></p>
+{% else %}
+<p>Geen gematchte producten. Voeg ze handmatig toe in de AH-app.</p>
+{% endfor %}
+{% if qr %}
+<div class="qr">{{ qr|safe }}</div>
+{% endif %}
+<h2>Handmatig toevoegen</h2>
+<ul class="plain">
+  {% for item in unmatched %}
+  <li class="item">{{ item }}</li>
+  {% else %}
+  <li class="muted">Niets; alles is gevonden.</li>
+  {% endfor %}
+</ul>
+{% endblock %}
