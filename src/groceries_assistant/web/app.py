@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -293,6 +293,7 @@ def create_app(
                 "name": r.name,
                 "minutes": r.time.total_minutes,
                 "protein": r.protein,
+                "image": image_path(r.slug),
                 "verdicts": {p["id"]: verdicts.get(r.slug, {}).get(p["id"], "") for p in people},
             }
             for r in sorted(all_recipes, key=lambda r: r.name.lower())
@@ -371,6 +372,8 @@ def create_app(
             "ingredient_lines": "",
             "steps_text": "",
             "parsed": None,
+            "has_image": False,
+            "image_ext": "",
         }
         return {**defaults, **fields}
 
@@ -380,6 +383,7 @@ def create_app(
             recipe = load_recipe(data / "recipes" / f"{slug}.yaml")
         except RecipeError as exc:
             raise HTTPException(404, str(exc)) from exc
+        image = image_path(slug)
         return render(
             request,
             "recipe_edit.html",
@@ -395,6 +399,8 @@ def create_app(
                     f"{i.amount:g} {i.unit} {i.product}" for i in recipe.ingredients
                 ),
                 steps_text="\n".join(number_steps(recipe.steps)),
+                has_image=image is not None,
+                image_ext=image.suffix if image else "",
             ),
             original_slug=recipe.slug,
         )
@@ -414,14 +420,63 @@ def create_app(
             recipe = load_recipe(data / "recipes" / f"{slug}.yaml")
         except RecipeError as exc:
             raise HTTPException(404, str(exc)) from exc
+        image = image_path(slug)
         return render(
             request,
             "recipe_view.html",
             recipe=recipe,
+            image_url=f"/recipes/img/{image.name}" if image else None,
             ingredients=[
                 format_amount(i.amount, i.unit) + " " + i.product for i in recipe.ingredients
             ],
         )
+
+    ALLOWED_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
+
+    def image_path(slug: str) -> Path | None:
+        """Current image file for a recipe slug, if any."""
+        directory = data / "recipes" / "img"
+        if not directory.is_dir():
+            return None
+        for candidate in sorted(directory.glob(f"{slug}.*")):
+            if candidate.suffix.lower() in ALLOWED_IMAGE_EXTS:
+                return candidate
+        return None
+
+    def _serve_image(slug: str, filename: str):
+        path = data / "recipes" / "img" / filename
+        if not path.is_file() or Path(filename).stem != slug:
+            raise HTTPException(404, "Geen afbeelding")
+        return FileResponse(path)
+
+    @app.get("/recipes/img/{filename}")
+    def recipe_image(filename: str):
+        return _serve_image(Path(filename).stem, filename)
+
+    async def _save_image_upload(slug: str, upload: UploadFile | None) -> None:
+        """Store an uploaded image under data/recipes/img/<slug>.<ext>.
+
+        Removes stale files with other extensions so exactly one image per
+        slug remains. No upload -> keep the existing image.
+        """
+        if upload is None or not upload.filename:
+            return
+        ext = Path(upload.filename).suffix.lower()
+        if ext not in ALLOWED_IMAGE_EXTS:
+            raise HTTPException(
+                400, "Afbeelding moet jpg, jpeg, png of webp zijn"
+            )
+        directory = data / "recipes" / "img"
+        directory.mkdir(parents=True, exist_ok=True)
+        for stale in directory.glob(f"{slug}.*"):
+            stale.unlink(missing_ok=True)
+        target = directory / f"{slug}{ext}"
+        with target.open("wb") as fh:
+            fh.write(await upload.read())
+
+    def _move_image(old_slug: str, new_slug: str) -> None:
+        for old in (data / "recipes" / "img").glob(f"{old_slug}.*"):
+            old.rename(data / "recipes" / "img" / f"{new_slug}{old.suffix}")
 
     @app.post("/recipes/save")
     async def save_form(
@@ -435,6 +490,7 @@ def create_app(
         protein: str = Form(""),
         ingredients: str = Form(""),
         steps: str = Form(""),
+        image: Annotated[UploadFile | None, File()] = None,
     ):
         ingredient_lines = [line.strip() for line in ingredients.splitlines() if line.strip()]
         parsed_ingredients: list[dict] = []
@@ -479,9 +535,11 @@ def create_app(
         if old_path != new_path and new_path.exists():
             raise HTTPException(400, f"Recept '{recipe.slug}' bestaat al")
         save_recipe(new_path, recipe)
+        await _save_image_upload(recipe.slug, image)
         if old_path is not None and old_path != new_path:
             old_path.unlink(missing_ok=True)
             store().rename_recipe(original_slug, recipe.slug)
+            _move_image(original_slug, recipe.slug)
         return RedirectResponse("/recipes", status_code=303)
 
     def parse_ingredient_lines(lines: list[str]) -> list[dict]:

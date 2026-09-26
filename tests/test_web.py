@@ -524,3 +524,69 @@ def test_grid_checkboxes_bound_to_their_own_row(tmp_path):
             chunk for chunk in segment.split("<input") if 'type="checkbox"' in chunk
         )
         assert 'form="evening-5"' in first_checkbox
+
+
+def _png_bytes() -> bytes:
+    from io import BytesIO
+
+    from PIL import Image
+
+    buf = BytesIO()
+    Image.new("RGB", (8, 8), (200, 60, 60)).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def test_recipe_image_upload_and_view(tmp_path):
+    with make_client(tmp_path) as client:
+        saved = client.post(
+            "/recipes/save",
+            data={
+                "name": "Fotorecept",
+                "servings": "4",
+                "ingredients": "400 g spaghetti",
+                "steps": "Kook.",
+            },
+            files={"image": ("foto.png", _png_bytes(), "image/png")},
+            follow_redirects=False,
+        )
+        assert saved.status_code == 303
+        assert (tmp_path / "recipes" / "img" / "fotorecept.png").exists()
+
+        page = client.get("/recipes/fotorecept")
+        assert '/recipes/img/fotorecept.png' in page.text
+        listing = client.get("/recipes")
+        assert '<img class="thumb"' in listing.text
+
+        # serving the image works
+        served = client.get("/recipes/img/fotorecept.png")
+        assert served.status_code == 200
+
+
+def test_recipe_image_rejected_for_bad_extension(tmp_path):
+    with make_client(tmp_path) as client:
+        response = client.post(
+            "/recipes/save",
+            data={"name": "X", "servings": "4",
+                  "ingredients": "400 g spaghetti", "steps": "Kook."},
+            files={"image": ("foto.gif", b"GIF89a", "image/gif")},
+        )
+        assert response.status_code == 400
+
+
+def test_recipe_image_moves_on_rename(tmp_path):
+    with make_client(tmp_path) as client:
+        client.post(
+            "/recipes/save",
+            data={"name": "Oud", "servings": "4",
+                  "ingredients": "400 g spaghetti", "steps": "Kook."},
+            files={"image": ("foto.png", _png_bytes(), "image/png")},
+            follow_redirects=False,
+        )
+        client.post(
+            "/recipes/save",
+            data={"original_slug": "oud", "name": "Nieuwe naam", "servings": "4",
+                  "ingredients": "400 g spaghetti", "steps": "Kook."},
+            follow_redirects=False,
+        )
+        assert not (tmp_path / "recipes" / "img" / "oud.png").exists()
+        assert (tmp_path / "recipes" / "img" / "nieuwe-naam.png").exists()

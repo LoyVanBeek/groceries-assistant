@@ -8,10 +8,14 @@
 {% if parsed and parsed.warnings %}
 <p class="warnings">{{ parsed.warnings|join(' &middot; ') }}</p>
 {% endif %}
-<form method="post" action="/recipes/save">
+<form method="post" action="/recipes/save" enctype="multipart/form-data">
   {% if original_slug %}
   <input type="hidden" name="original_slug" value="{{ original_slug }}">
   {% endif %}
+  {% if has_image %}
+  <p><img class="recipe-img" src="/recipes/img/{{ original_slug }}{{ image_ext }}" alt="{{ name_value }}"></p>
+  {% endif %}
+  <p><label>Afbeelding (jpg/png/webp)</label><br><input type="file" name="image" accept="image/*"></p>
   <p><label>Naam</label><br><input type="text" name="name" value="{{ name_value }}" required></p>
   <p>
     <label>Personen</label> <input type="number" name="servings" value="{{ servings_value }}" min="1" size="3">

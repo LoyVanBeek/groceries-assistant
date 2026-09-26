@@ -1,14 +1,13 @@
 # TODO (OpenCode)
 
-- [ ] Black formatting, ruff en ty checks
+- [ ] Black formatting, ruff and ty checks
 - [ ] Basic CI with the checks above
 - [ ] Pre-commit hooks with the checks above
-- [ ] Nicer theme (current CSS is functional/grayscale; make it more polished —
-      spacing, typography, subtle colors in both light and dark).
-- [ ] Pictures for recipes (photo per recipe, shown on the view page and
-      (later) the kitchen display; store under `data/recipes/img/<slug>.jpg`,
-      upload field in the editor).
+- [x] Nicer theme (sans typography, green accent, softer surfaces, aligned
+      controls; both light and dark).
+- [x] Pictures for recipes (upload in the editor, shown on the list + view
+      pages, stored under `data/recipes/img/<slug>.<ext>`, moves on rename).
 - [ ] Allow to adjust the time available for cooking from the webpage
-- [ ] Add an mage picker for the recipes
-- [ ] Show thumbnail of recipe image on thee week overview webpage
-- [ ] Match up all the items with AH article numbers
+- [ ] Add an image picker for the recipes (multiple photos, pick the featured one)
+- [ ] Show thumbnail of recipe image on the week overview webpage
+- [ ] Match up all the items with AH article numbers (pin UI for unmatched items)

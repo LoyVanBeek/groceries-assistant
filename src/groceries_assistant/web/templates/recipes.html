@@ -11,7 +11,10 @@
   <tr><th>Recept</th><th>Tijd</th><th>Protein</th><th></th>{% for p in people %}<th>{{ p['name'] or p['id'] }}</th>{% endfor %}</tr>
   {% for r in recipes %}
   <tr>
-    <td><a href="/recipes/{{ r.slug }}">{{ r.name }}</a></td>
+    <td>
+      {% if r.image %}<img class="thumb" src="/recipes/img/{{ r.image.name }}" alt="">{% endif %}
+      <a href="/recipes/{{ r.slug }}">{{ r.name }}</a>
+    </td>
     <td>{{ r.minutes }} min</td>
     <td>{{ r.protein or '' }}</td>
     <td><a href="/recipes/{{ r.slug }}/edit">wijzig</a></td>

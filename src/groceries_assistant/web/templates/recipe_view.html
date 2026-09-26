@@ -2,6 +2,9 @@
 {% block title %}{{ recipe.name }}{% endblock %}
 {% block content %}
 <h1>{{ recipe.name }}</h1>
+{% if image_url %}
+<img class="recipe-img" src="{{ image_url }}" alt="{{ recipe.name }}">
+{% endif %}
 <p class="budget">
   {{ recipe.servings }} personen
   {% if recipe.time.total_minutes %} &middot; {{ recipe.time.total_minutes }} min{% endif %}
