@@ -10,4 +10,5 @@
 - [ ] Allow to adjust the time available for cooking from the webpage
 - [ ] Add an image picker for the recipes (multiple photos, pick the featured one)
 - [ ] Show thumbnail of recipe image on the week overview webpage
-- [ ] Match up all the items with AH article numbers (pin UI for unmatched items)
+- [x] Match up all the items with AH article numbers (pin/unpin UI on
+      `/order/match`, confirmed pins persist in `data/ah_mappings.yaml`)

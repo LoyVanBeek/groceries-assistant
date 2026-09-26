@@ -694,3 +694,62 @@ def test_image_picker_multiple_photos_and_featured(tmp_path):
             data={"slug": "galerij", "filename": "anderrecept.png"},
         )
         assert rogue.status_code == 400
+
+
+def test_order_match_pin_unpin(tmp_path):
+    class FakeProduct:
+        def __init__(self, webshop_id, title, unit_size="500 g"):
+            self.webshop_id = webshop_id
+            self.title = title
+            self.unit_size = unit_size
+
+    def search(query):
+        return [FakeProduct(111, "AH Spaghetti 500 g"), FakeProduct(222, "AH Penne 500 g")]
+
+    with make_client(tmp_path, search_fn=search) as client:
+        seed_recipe(tmp_path)
+        client.get("/plan")
+        client.post("/plan/approve", follow_redirects=False)
+
+        page = client.get("/order/match")
+        assert page.status_code == 200
+        assert "AH Spaghetti 500 g" in page.text  # suggestion for spaghetti
+        assert 'action="/order/match/pin"' in page.text
+
+        # pin spaghetti to webshop 111
+        client.post(
+            "/order/match/pin",
+            data={
+                "product": "spaghetti",
+                "unit": "g",
+                "webshop_id": "111",
+                "title": "AH Spaghetti 500 g",
+            },
+            follow_redirects=False,
+        )
+        from groceries_assistant.store.db import Store
+
+        store = Store(tmp_path / "state.db")
+        plan_id = store.latest_plan()[0]
+        items = {(i["product"], i["unit"]): i for i in store.order_items(plan_id)}
+        assert items[("spaghetti", "g")]["webshop_id"] == 111
+
+        # pin persisted in the mapping store as confirmed
+        import yaml
+
+        saved = yaml.safe_load((tmp_path / "ah_mappings.yaml").read_text())
+        assert saved["mappings"]["spaghetti"]["confirmed"] is True
+
+        # link page now includes it
+        link_page = client.get("/order/link")
+        assert "111%3A1" in link_page.text
+
+        # unpin clears both
+        client.post(
+            "/order/match/unpin",
+            data={"product": "spaghetti", "unit": "g"},
+            follow_redirects=False,
+        )
+        items = {(i["product"], i["unit"]): i for i in store.order_items(plan_id)}
+        assert items[("spaghetti", "g")]["webshop_id"] is None
+        assert not (tmp_path / "ah_mappings.yaml").read_text().count("spaghetti")

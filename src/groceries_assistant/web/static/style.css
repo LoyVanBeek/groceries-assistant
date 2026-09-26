@@ -217,6 +217,26 @@ li.item {
   gap: 0.5rem;
 }
 
+.match-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--rule);
+}
+.match-row.even { background: var(--surface); }
+.match-product { min-width: 12rem; }
+.match-suggestions { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.match-suggestions button {
+  font-weight: 400;
+  font-size: 0.92rem;
+  padding: 0.35rem 0.55rem;
+  white-space: normal;
+  text-align: left;
+}
+.match-current { display: flex; align-items: center; gap: 0.4rem; }
+
 ::selection { background: var(--accent-soft); }
 
 /* Plan page: horizontal rows, 7 evenings fit the viewport */

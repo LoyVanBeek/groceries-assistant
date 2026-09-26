@@ -71,6 +71,11 @@ class AHMappingStore:
 
     def put(self, mapping: AHMapping) -> None:
         self._mappings[mapping.product.lower()] = mapping
+        self.save()
+
+    def remove(self, product: str) -> None:
+        self._mappings.pop(product.lower(), None)
+        self.save()
 
     def __len__(self) -> int:
         return len(self._mappings)

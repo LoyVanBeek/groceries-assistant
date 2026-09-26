@@ -15,7 +15,7 @@ from fastapi.templating import Jinja2Templates
 
 from groceries_assistant.ah.client import AHClient
 from groceries_assistant.ah.deeplink import build_add_multiple_url, chunk_items, generate_qr_svg
-from groceries_assistant.ah.matching import AHMappingStore
+from groceries_assistant.ah.matching import AHMapping, AHMappingStore
 from groceries_assistant.models import Recipe, slugify
 from groceries_assistant.recipes.extract import extract_from_images
 from groceries_assistant.recipes.loader import (
@@ -69,8 +69,12 @@ def create_app(
             holder.append(Store(data / "state.db"))
         return holder[0]
 
+    _mappings_cache: list[AHMappingStore] = []
+
     def mappings() -> AHMappingStore:
-        return AHMappingStore(data / "ah_mappings.yaml")
+        if not _mappings_cache:
+            _mappings_cache.append(AHMappingStore(data / "ah_mappings.yaml"))
+        return _mappings_cache[0]
 
     def load_all() -> tuple[list[Recipe], list[str]]:
         return load_recipes_with_errors(data / "recipes")
@@ -272,6 +276,67 @@ def create_app(
             raise HTTPException(404, "Geen actieve week")
         store().set_order_item_have(latest[0], product, unit, bool(have))
         return RedirectResponse("/order", status_code=303)
+
+    @app.get("/order/match", response_class=HTMLResponse)
+    def order_match_page(request: Request):
+        """Pin order items to AH article numbers, with live suggestions."""
+        latest = store().latest_plan()
+        if latest is None:
+            raise HTTPException(404, "Geen actieve week")
+        plan_id = latest[0]
+        items = store().order_items(plan_id)
+        rows = []
+        for item in items:
+            suggestions = []
+            error = ""
+            if not item["webshop_id"]:
+                try:
+                    suggestions = _search(item["product"])[:5]
+                except Exception as exc:
+                    error = f"AH onbereikbaar ({exc})"
+            rows.append({**item, "suggestions": suggestions, "search_error": error})
+        return render(request, "order_match.html", items=rows, fmt=format_amount)
+
+    def _search(query: str) -> list:
+        """AH product search, using the injected stub or the real client."""
+        if search_fn is not None:
+            return search_fn(query)
+        with AHClient() as client:
+            return client.search(query)
+
+    @app.post("/order/match/pin")
+    def order_match_pin(
+        product: str = Form(...),
+        unit: str = Form(...),
+        webshop_id: int = Form(...),
+        title: str = Form(...),
+    ):
+        latest = store().latest_plan()
+        if latest is None:
+            raise HTTPException(404, "Geen actieve week")
+        plan_id = latest[0]
+        mapping_store = mappings()
+        mapping_store.put(
+            AHMapping(
+                product=product,
+                ah_webshop_id=webshop_id,
+                ah_title=title,
+                score=1.0,
+                confirmed=True,
+            )
+        )
+        store().set_order_item_webshop_id(plan_id, product, unit, webshop_id)
+        return RedirectResponse("/order/match", status_code=303)
+
+    @app.post("/order/match/unpin")
+    def order_match_unpin(product: str = Form(...), unit: str = Form(...)):
+        latest = store().latest_plan()
+        if latest is None:
+            raise HTTPException(404, "Geen actieve week")
+        plan_id = latest[0]
+        mappings().remove(product)
+        store().set_order_item_webshop_id(plan_id, product, unit, None)
+        return RedirectResponse("/order/match", status_code=303)
 
     @app.get("/order/link", response_class=HTMLResponse)
     def order_link(request: Request):

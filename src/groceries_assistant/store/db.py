@@ -412,3 +412,12 @@ class Store:
             (int(have), plan_id, product, unit),
         )
         self.conn.commit()
+
+    def set_order_item_webshop_id(
+        self, plan_id: int, product: str, unit: str, webshop_id: int | None
+    ) -> None:
+        self.conn.execute(
+            "UPDATE order_items SET webshop_id = ? WHERE plan_id = ? AND product = ? AND unit = ?",
+            (webshop_id, plan_id, product, unit),
+        )
+        self.conn.commit()
