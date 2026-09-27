@@ -11,6 +11,7 @@ from collections.abc import Sequence
 from urllib.parse import urlencode
 
 BASE = "https://www.ah.nl/mijnlijst/add-multiple"
+PRODUCT_BASE = "https://www.ah.nl/producten/product"
 
 
 def build_add_multiple_url(items: Sequence[tuple[int, int]]) -> str:
@@ -20,6 +21,11 @@ def build_add_multiple_url(items: Sequence[tuple[int, int]]) -> str:
         quantity = max(int(quantity), 1)
         params.append(("p", f"{int(webshop_id)}:{quantity}"))
     return f"{BASE}?{urlencode(params)}"
+
+
+def product_url(webshop_id: int) -> str:
+    """Human-checkable product page for an AH webshop id."""
+    return f"{PRODUCT_BASE}/wa{int(webshop_id)}"
 
 
 def chunk_items(

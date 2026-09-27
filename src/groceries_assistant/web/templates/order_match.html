@@ -12,7 +12,9 @@
   </div>
   {% if item.webshop_id %}
   <div class="match-current">
-    <span class="chip">&#10003; gekoppeld: webshop-id {{ item.webshop_id }}</span>
+    <a class="chip ah-link" href="{{ item.matched_url }}" target="_blank" rel="noopener">
+      &#10003; gekoppeld: webshop-id {{ item.webshop_id }}
+    </a>
     <form method="post" action="/order/match/unpin">
       <input type="hidden" name="product" value="{{ item.product }}">
       <input type="hidden" name="unit" value="{{ item.unit }}">
@@ -31,8 +33,11 @@
       <input type="hidden" name="unit" value="{{ item.unit }}">
       <input type="hidden" name="webshop_id" value="{{ s.webshop_id }}">
       <input type="hidden" name="title" value="{{ s.title }}">
-      <button>{{ s.title }}{% if s.unit_size %} ({{ s.unit_size }}){% endif %}</button>
+      <button>koppel</button>
     </form>
+    <a class="ah-link" href="{{ s.url }}" target="_blank" rel="noopener">
+      {{ s.title }}{% if s.unit_size %} ({{ s.unit_size }}){% endif %}
+    </a>
     {% else %}
     <span class="muted">geen suggesties</span>
     {% endfor %}

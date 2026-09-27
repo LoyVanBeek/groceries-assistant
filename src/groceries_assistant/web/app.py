@@ -14,7 +14,12 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from groceries_assistant.ah.client import AHClient
-from groceries_assistant.ah.deeplink import build_add_multiple_url, chunk_items, generate_qr_svg
+from groceries_assistant.ah.deeplink import (
+    build_add_multiple_url,
+    chunk_items,
+    generate_qr_svg,
+    product_url,
+)
 from groceries_assistant.ah.matching import AHMapping, AHMappingStore
 from groceries_assistant.models import Recipe, slugify
 from groceries_assistant.recipes.extract import extract_from_images
@@ -249,8 +254,8 @@ def create_app(
         return RedirectResponse("/order", status_code=303)
 
     def _match(product_names: list[str]) -> dict[str, tuple[int, str]]:
-        if search_fn is None:
-            return {}
+        if search_fn is not None:
+            return match_products(product_names, search_fn, mappings())
         with AHClient() as client:
             return match_products(product_names, client.search, mappings())
 
@@ -291,10 +296,26 @@ def create_app(
             error = ""
             if not item["webshop_id"]:
                 try:
-                    suggestions = _search(item["product"])[:5]
+                    suggestions = [
+                        {
+                            "webshop_id": s.webshop_id,
+                            "title": s.title,
+                            "unit_size": s.unit_size,
+                            "url": product_url(s.webshop_id),
+                        }
+                        for s in _search(item["product"])[:5]
+                    ]
                 except Exception as exc:
                     error = f"AH onbereikbaar ({exc})"
-            rows.append({**item, "suggestions": suggestions, "search_error": error})
+            matched_url = product_url(item["webshop_id"]) if item["webshop_id"] else None
+            rows.append(
+                {
+                    **item,
+                    "suggestions": suggestions,
+                    "search_error": error,
+                    "matched_url": matched_url,
+                }
+            )
         return render(request, "order_match.html", items=rows, fmt=format_amount)
 
     def _search(query: str) -> list:
