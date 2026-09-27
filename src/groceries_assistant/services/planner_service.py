@@ -448,6 +448,7 @@ def match_products(
                 ah_webshop_id=hit.webshop_id,
                 ah_title=hit.title,
                 score=score,
+                ah_unit_size=getattr(hit, "unit_size", None),
             )
         )
     return matched

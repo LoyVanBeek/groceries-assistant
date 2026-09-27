@@ -485,11 +485,13 @@ def create_app(
         webshop_id: str = Form(...),
         title: str = Form(""),
         image: str = Form(""),
+        unit_size: str = Form(""),
     ):
         """Pin an order item to an AH product.
 
         `webshop_id` accepts a bare id or a pasted ah.nl product URL; the id is
         taken from the URL and its slug fills in the title when none is given.
+        AH's own pack size is kept alongside, to offer as a suggestion later.
         """
         ref = parse_product_ref(webshop_id)
         if ref is None:
@@ -509,6 +511,7 @@ def create_app(
                 score=1.0,
                 confirmed=True,
                 ah_image_url=image.strip() or None,
+                ah_unit_size=unit_size.strip() or None,
             )
         )
         store().set_order_item_webshop_id(plan_id, product, unit, article_id)

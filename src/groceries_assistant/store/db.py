@@ -10,6 +10,8 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import date
 
+from groceries_assistant.models import ProductFact
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS people (
     id TEXT PRIMARY KEY,
@@ -79,6 +81,17 @@ CREATE TABLE IF NOT EXISTS plan_picks (
 );
 
 CREATE INDEX IF NOT EXISTS idx_plan_picks_slug ON plan_picks(recipe_slug);
+
+-- What one purchase of a product looks like, and how long the rest keeps.
+-- Opt-in: a product without a row is bought as the summed need, as before.
+CREATE TABLE IF NOT EXISTS product_facts (
+    product TEXT PRIMARY KEY,
+    pack_qty REAL NOT NULL,
+    pack_unit TEXT NOT NULL DEFAULT 'stuk',
+    unit_qty REAL,
+    unit_measure TEXT,
+    shelf_life_days INTEGER NOT NULL DEFAULT 3
+);
 
 CREATE TABLE IF NOT EXISTS order_items (
     plan_id INTEGER NOT NULL REFERENCES plans(id) ON DELETE CASCADE,
@@ -451,6 +464,62 @@ class Store:
                     "INSERT INTO plan_picks(plan_id, day, part_key, recipe_slug) VALUES (?,?,?,?)",
                     (plan_id, day.isoformat(), part_key, recipe_slug),
                 )
+        self.conn.commit()
+
+    # --- product facts --------------------------------------------------------------
+
+    def product_facts(self) -> dict[str, ProductFact]:
+        """Every declared fact, by lowercased product name."""
+        rows = self.conn.execute(
+            "SELECT product, pack_qty, pack_unit, unit_qty, unit_measure, shelf_life_days"
+            " FROM product_facts ORDER BY product"
+        ).fetchall()
+        return {
+            row["product"].lower(): ProductFact(
+                product=row["product"],
+                pack_qty=row["pack_qty"],
+                pack_unit=row["pack_unit"],
+                unit_qty=row["unit_qty"],
+                unit_measure=row["unit_measure"],
+                shelf_life_days=row["shelf_life_days"],
+            )
+            for row in rows
+        }
+
+    def product_fact(self, product: str) -> ProductFact | None:
+        return self.product_facts().get(product.lower())
+
+    def set_product_fact(self, fact: ProductFact) -> None:
+        """Declare (or replace) how one purchase of a product looks.
+
+        Product names are matched case-insensitively (recipes are written in
+        whatever case), so an older differently-cased row is replaced, not
+        shadowed.
+        """
+        self.conn.execute(
+            "DELETE FROM product_facts WHERE lower(product) = ?", (fact.product.lower(),)
+        )
+        self.conn.execute(
+            "INSERT INTO product_facts"
+            " (product, pack_qty, pack_unit, unit_qty, unit_measure, shelf_life_days)"
+            " VALUES (?,?,?,?,?,?)"
+            " ON CONFLICT(product) DO UPDATE SET pack_qty=excluded.pack_qty,"
+            " pack_unit=excluded.pack_unit, unit_qty=excluded.unit_qty,"
+            " unit_measure=excluded.unit_measure, shelf_life_days=excluded.shelf_life_days",
+            (
+                fact.product.strip(),
+                fact.pack_qty,
+                fact.pack_unit.strip(),
+                fact.unit_qty,
+                fact.unit_measure.strip() if fact.unit_measure else None,
+                fact.shelf_life_days,
+            ),
+        )
+        self.conn.commit()
+
+    def delete_product_fact(self, product: str) -> None:
+        """Forget a fact; the product goes back to being bought as its need."""
+        self.conn.execute("DELETE FROM product_facts WHERE lower(product) = ?", (product.lower(),))
         self.conn.commit()
 
     # --- order review ------------------------------------------------------------

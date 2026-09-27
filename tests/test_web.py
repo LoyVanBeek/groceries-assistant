@@ -1146,6 +1146,7 @@ def test_order_match_pin_unpin(tmp_path):
                 "unit": "g",
                 "webshop_id": "111",
                 "title": "AH Spaghetti 500 g",
+                "unit_size": "500 g",  # sent along by the suggestion form
             },
             follow_redirects=False,
         )
@@ -1156,11 +1157,12 @@ def test_order_match_pin_unpin(tmp_path):
         items = {(i["product"], i["unit"]): i for i in store.order_items(plan_id)}
         assert items[("spaghetti", "g")]["webshop_id"] == 111
 
-        # pin persisted in the mapping store as confirmed
+        # pin persisted in the mapping store as confirmed, with AH's own size
         import yaml
 
         saved = yaml.safe_load((tmp_path / "ah_mappings.yaml").read_text())
         assert saved["mappings"]["spaghetti"]["confirmed"] is True
+        assert saved["mappings"]["spaghetti"]["ah_unit_size"] == "500 g"
 
         # matched row now links to the pinned article
         matched = client.get("/order/match")

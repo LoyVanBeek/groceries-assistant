@@ -9,6 +9,7 @@ from groceries_assistant.ah.deeplink import (
     parse_product_ref,
     product_url,
 )
+from groceries_assistant.models import ProductFact
 from groceries_assistant.store.db import DEFAULT_TEMPLATE, PlanEntryRow, Store
 
 
@@ -175,6 +176,44 @@ def test_renaming_a_recipe_repoints_its_picks(store):
 def test_build_add_multiple_url():
     url = build_add_multiple_url([(609371, 1), (61010, 2)])
     assert url == "https://www.ah.nl/mijnlijst/add-multiple?p=609371%3A1&p=61010%3A2"
+
+
+def test_a_product_fact_round_trips(store):
+    store.set_product_fact(
+        ProductFact(
+            product="broccoli", pack_qty=1, pack_unit="stuk", unit_qty=350, unit_measure="g"
+        )
+    )
+
+    fact = store.product_fact("BROCCOLI")
+    assert fact is not None
+    assert fact.pack_contents == 350
+    assert fact.shelf_life_days == 3  # the default: fresh produce keeps a few days
+
+
+def test_a_product_without_a_fact_keeps_its_plain_need(store):
+    assert store.product_facts() == {}
+    assert store.product_fact("broccoli") is None
+
+
+def test_redeclaring_a_fact_replaces_it_instead_of_shadowing_it(store):
+    store.set_product_fact(ProductFact(product="broccoli", pack_qty=1, pack_unit="stuk"))
+    store.set_product_fact(
+        ProductFact(product="Broccoli", pack_qty=2, pack_unit="stuk", shelf_life_days=5)
+    )
+
+    facts = store.product_facts()
+    assert len(facts) == 1
+    assert facts["broccoli"].pack_qty == 2
+    assert facts["broccoli"].shelf_life_days == 5
+
+
+def test_forgetting_a_fact_puts_the_product_back_on_its_own(store):
+    store.set_product_fact(ProductFact(product="broccoli", pack_qty=1, pack_unit="stuk"))
+
+    store.delete_product_fact("BROCCOLI")
+
+    assert store.product_facts() == {}
 
 
 def test_build_add_multiple_url_min_quantity():

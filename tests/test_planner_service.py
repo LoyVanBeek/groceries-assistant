@@ -2,12 +2,15 @@
 
 from datetime import date
 
+from groceries_assistant.ah.client import AHProduct
+from groceries_assistant.ah.matching import AHMappingStore, fact_from_unit_size
 from groceries_assistant.models import ComposedDish, Recipe
 from groceries_assistant.planner.availability import EveningAvailability
 from groceries_assistant.preferences import Person, Preferences
 from groceries_assistant.services.planner_service import (
     apply_absences,
     build_order,
+    match_products,
     plan_to_rows,
     plan_week,
     rows_to_entries,
@@ -237,3 +240,16 @@ def test_plain_recipes_keep_their_entry_shape():
     assert entry.dishes == [recipe]
     assert entry.combined_minutes == entry.total_minutes == 30
     assert entry.missing == []
+
+
+def test_a_fresh_match_keeps_ahs_pack_size_for_a_later_suggestion(tmp_path):
+    """The unit size is only ever a suggestion, but it has to survive to be one."""
+    mappings = AHMappingStore(tmp_path / "mappings.yaml")
+    candidates = [AHProduct(webshop_id=7, title="AH Broccoli 350 g", unit_size="350 g")]
+
+    assert match_products(["broccoli"], lambda _query: candidates, mappings) == {
+        "broccoli": (7, "AH Broccoli 350 g")
+    }
+
+    fact = fact_from_unit_size("broccoli", mappings.get("broccoli").ah_unit_size)
+    assert (fact.pack_qty, fact.pack_unit) == (350, "g")

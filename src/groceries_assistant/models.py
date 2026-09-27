@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from datetime import timedelta
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -148,3 +149,53 @@ class ComposedDish(BaseModel):
 
     def part(self, key: str) -> DishPart | None:
         return next((p for p in self.parts if p.key == key), None)
+
+
+class ProductFact(BaseModel):
+    """How one purchase of a product looks, and how long what is left over keeps.
+
+    This is what turns leftovers into arithmetic instead of bookkeeping: you buy
+    whole packs, the meal uses part of one, and the rest is stock until it
+    expires. Opt-in per product -- a product without a fact behaves exactly as
+    before (buy the summed need, in the demand's own unit).
+
+    `pack_qty`/`pack_unit` is one purchase: 1 stuk broccoli, 500 g mince.
+    `unit_qty`/`unit_measure` is the weight of one piece, for products sold by
+    piece (1 stuk = 350 g); leave it empty for a pack that is a plain weight.
+    """
+
+    product: str
+    pack_qty: float = Field(gt=0)
+    pack_unit: str = "stuk"
+    unit_qty: float | None = Field(default=None, gt=0)
+    unit_measure: str | None = None
+    shelf_life_days: int = Field(default=3, ge=0, le=365)
+
+    @field_validator("product", "pack_unit")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value.strip()
+
+    @model_validator(mode="after")
+    def _piece_needs_its_weight(self) -> ProductFact:
+        if (self.unit_qty is None) != (self.unit_measure is None):
+            raise ValueError("unit_qty and unit_measure go together")
+        return self
+
+    @property
+    def pack_measure(self) -> str:
+        """The unit a pack's contents are measured in: its weight, or 'stuk'."""
+        return self.unit_measure or self.pack_unit
+
+    @property
+    def pack_contents(self) -> float:
+        """How much the pack holds, in `pack_measure` (350 g for 1 stuk broccoli)."""
+        if self.unit_measure and self.unit_qty is not None:
+            return self.pack_qty * self.unit_qty
+        return self.pack_qty
+
+    @property
+    def shelf_life(self) -> timedelta:
+        return timedelta(days=self.shelf_life_days)
