@@ -53,8 +53,22 @@ class Recipe(BaseModel):
     steps: list[str] = Field(default_factory=list)
     ingredients: list[Ingredient] = Field(min_length=1)
     notes: str | None = None
+    url: str | None = None
+    """Optional link to the original recipe (e.g. the page it was copied from)."""
     barcode: str | None = None
     """Optional EAN for the future barcode-scanner add-on."""
+
+    @field_validator("url")
+    @classmethod
+    def _url_is_http(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            return None
+        if not value.startswith(("http://", "https://")):
+            raise ValueError("must be an http(s) url")
+        return value
 
     @field_validator("name")
     @classmethod

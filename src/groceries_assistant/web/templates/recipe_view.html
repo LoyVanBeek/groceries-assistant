@@ -11,6 +11,9 @@
   {% if recipe.time.prep_ahead %} &middot; {{ recipe.time.prep_ahead }} min al eerder doen{% endif %}
   {% if recipe.protein %} &middot; {{ recipe.protein }}{% endif %}
 </p>
+{% if recipe.url %}
+<p><a class="source-link" href="{{ recipe.url }}" target="_blank" rel="noopener">Originele recept &#8599;</a></p>
+{% endif %}
 <h2>Ingredi&euml;nten</h2>
 <ul class="plain">
   {% for line in ingredients %}

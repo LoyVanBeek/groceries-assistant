@@ -52,8 +52,12 @@
     <label>Cook (min)</label> <input type="number" name="cook" value="{{ cook_value }}" min="0" size="3">
     <label>Protein</label> <input type="text" name="protein" value="{{ protein_value }}" placeholder="kip, rund, vis, vegetarisch">
   </p>
-  <p><label>Ingredi&euml;nten (hoeveelheid + eenheid + product, per regel)</label><br>
+  <p>
+    <label>Ingredi&euml;nten (hoeveelheid + eenheid + product, per regel)</label><br>
      <textarea name="ingredients" rows="10" cols="60">{{ ingredient_lines }}</textarea></p>
+  <p><label>Link naar het originele recept</label><br>
+     <input type="url" name="url" value="{{ url_value }}" size="60"
+            placeholder="https://..."></p>
   <p><label>Bereiding</label><br><textarea name="steps" rows="8" cols="60">{{ steps_text }}</textarea></p>
   <p><button type="submit" class="primary">Opslaan</button></p>
 </form>

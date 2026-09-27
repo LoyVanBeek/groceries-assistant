@@ -17,7 +17,9 @@
 - [x] Combine the dropdown with the selected menu item to take up less screen real estate
       (details/summary: the summary is the current dish, alternatives open below).
 - [x] On the koppel page, add a custom entry option as well (manual AH-id + title).
-- [ ] Recipes need an optional URL field where I can paste an URL to the original recipe
+- [x] Recipes need an optional URL field where I can paste an URL to the original recipe
+      (optional `url` in the YAML, edit-form field, 'Originele recept' link on the
+      recipe page, auto-filled when importing by URL).
 - [ ] I also need a way to indicate we don'ty have to cook at all due to eating elsewhere etc. 
 - [ ] Paste a AH.nl product URL to match the products
 - [ ] Include thumbnail of the AH-item. Just crosslinking to the image on AH.nl should be fine right?

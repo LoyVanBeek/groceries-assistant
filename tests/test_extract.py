@@ -186,6 +186,7 @@ def test_extract_from_url_parses_schema_recipe(respx_mock):
     assert [i.product for i in recipe.ingredients] == ["pasta penne", "courgette", "olijfolie"]
     assert recipe.ingredients[0].amount == 400
     assert len(recipe.steps) == 2
+    assert recipe.url == "https://example.com/recept"
 
 
 def test_extract_from_url_invalid_html_raises():

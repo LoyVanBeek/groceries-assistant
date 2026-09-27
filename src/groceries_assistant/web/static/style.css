@@ -236,6 +236,7 @@ li.item {
   text-align: left;
 }
 .ah-link { font-size: 0.92rem; color: var(--accent); }
+.source-link { color: var(--accent); }
 form.custom-pin {
   display: inline-flex;
   gap: 0.3rem;

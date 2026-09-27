@@ -116,6 +116,7 @@ def extract_from_url(url: str, html: str | None = None) -> tuple[Recipe, UrlPars
             "servings": result.servings,
             "time": {"prep": result.prep_minutes or 0, "cook": result.cook_minutes or 0},
             "steps": result.steps,
+            "url": result.source_url or None,
             "ingredients": [
                 {"product": i.product, "amount": i.amount, "unit": i.unit}
                 for i in result.ingredients

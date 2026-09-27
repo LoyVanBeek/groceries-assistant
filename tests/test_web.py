@@ -117,6 +117,38 @@ def test_import_text_and_save_recipe(tmp_path):
         assert "Pasta pesto" in listing.text
 
 
+def test_import_from_url_prefills_source_url(tmp_path, monkeypatch):
+    """Importing by URL keeps that URL in the editor's source-link field."""
+    import groceries_assistant.web.app as app_module
+    from groceries_assistant.models import Recipe
+    from groceries_assistant.recipes.textparser import parse_recipe_text
+    from groceries_assistant.recipes.urlimport import UrlParseResult
+
+    def fake_extract(url: str):
+        parsed = parse_recipe_text(
+            "Pasta pesto\nVoor 4 personen\n400 g spaghetti\nBereiding:\nKook de pasta."
+        )
+        recipe = Recipe(
+            slug="pasta-pesto",
+            name=parsed.name or "Pasta pesto",
+            servings=parsed.servings or 4,
+            steps=parsed.steps,
+            ingredients=[
+                {"product": i.product, "amount": i.amount, "unit": i.unit}
+                for i in parsed.ingredients
+            ]
+            or [{"product": "spaghetti", "amount": 400, "unit": "g"}],
+        )
+        return recipe, UrlParseResult(source_url=url)
+
+    monkeypatch.setattr(app_module, "extract_from_url", fake_extract)
+
+    with make_client(tmp_path) as client:
+        editor = client.post("/recipes/import", data={"url": "https://example.com/pasta-pesto"})
+        assert editor.status_code == 200
+        assert 'value="https://example.com/pasta-pesto"' in editor.text
+
+
 def test_verdict_and_swap_flow(tmp_path):
     seed_recipe(tmp_path)
     with make_client(tmp_path) as client:
@@ -245,6 +277,59 @@ def test_recipe_view_page(tmp_path):
         assert page.status_code == 200
         assert "Pasta" in page.text
         assert "500 g spaghetti" in page.text
+
+
+def test_recipe_source_url_round_trip(tmp_path):
+    """The optional source-URL field saves, prefills and shows up as a link."""
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        saved = client.post(
+            "/recipes/save",
+            data={
+                "original_slug": "pasta",
+                "name": "Pasta",
+                "servings": "4",
+                "prep": "0",
+                "cook": "30",
+                "prep_ahead": "0",
+                "protein": "",
+                "url": "https://example.com/pasta-met-tomaten",
+                "ingredients": "500 g spaghetti\n1 stuk ui",
+                "steps": "Kook de spaghetti.",
+            },
+            follow_redirects=False,
+        )
+        assert saved.status_code == 303
+        yaml_text = (tmp_path / "recipes" / "pasta.yaml").read_text(encoding="utf-8")
+        assert "url: https://example.com/pasta-met-tomaten" in yaml_text
+
+        view = client.get("/recipes/pasta").text
+        assert 'href="https://example.com/pasta-met-tomaten"' in view
+        assert "Originele recept" in view
+
+        editor = client.get("/recipes/pasta/edit").text
+        assert 'value="https://example.com/pasta-met-tomaten"' in editor
+
+    # clearing the field removes the link
+    with make_client(tmp_path) as client:
+        client.post(
+            "/recipes/save",
+            data={
+                "original_slug": "pasta",
+                "name": "Pasta",
+                "servings": "4",
+                "prep": "0",
+                "cook": "30",
+                "prep_ahead": "0",
+                "protein": "",
+                "url": "",
+                "ingredients": "500 g spaghetti",
+                "steps": "Kook de spaghetti.",
+            },
+            follow_redirects=False,
+        )
+        assert "url:" not in (tmp_path / "recipes" / "pasta.yaml").read_text(encoding="utf-8")
+        assert "Originele recept" not in client.get("/recipes/pasta").text
 
 
 def test_plan_evening_sets_cook_and_absences(tmp_path):

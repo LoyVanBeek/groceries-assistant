@@ -447,6 +447,7 @@ def create_app(
                 ),
                 steps_text="\n".join(number_steps(parsed.steps)),
                 protein_value="",
+                url_value=url.strip(),
             ),
             original_slug=None,
         )
@@ -465,6 +466,7 @@ def create_app(
             "cook_value": 0,
             "prep_ahead_value": 0,
             "protein_value": "",
+            "url_value": "",
             "ingredient_lines": "",
             "steps_text": "",
             "parsed": None,
@@ -495,6 +497,7 @@ def create_app(
                 cook_value=recipe.time.cook,
                 prep_ahead_value=recipe.time.prep_ahead,
                 protein_value=recipe.protein or "",
+                url_value=recipe.url or "",
                 ingredient_lines="\n".join(
                     f"{i.amount:g} {i.unit} {i.product}" for i in recipe.ingredients
                 ),
@@ -623,6 +626,7 @@ def create_app(
         cook: int = Form(0),
         prep_ahead: int = Form(0),
         protein: str = Form(""),
+        url: str = Form(""),
         ingredients: str = Form(""),
         steps: str = Form(""),
         image: Annotated[list[UploadFile] | None, File()] = None,
@@ -649,6 +653,7 @@ def create_app(
                     cook_value=cook,
                     prep_ahead_value=prep_ahead,
                     protein_value=protein,
+                    url_value=url,
                     ingredient_lines=ingredients,
                     steps_text=steps,
                 ),
@@ -662,6 +667,7 @@ def create_app(
             servings=max(servings, 1),
             time={"prep": prep, "cook": cook, "prep_ahead": prep_ahead},
             protein=protein.strip() or None,
+            url=url.strip() or None,
             steps=number_steps(steps.splitlines()),
             ingredients=parsed_ingredients,
         )
