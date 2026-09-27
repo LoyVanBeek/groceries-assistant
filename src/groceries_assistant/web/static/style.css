@@ -205,8 +205,44 @@ tbody tr.over:hover { background: var(--over-bg); }
 }
 .img-card.featured { border-color: var(--accent); border-width: 2.5px; }
 .img-card img { width: 9rem; height: 7rem; object-fit: cover; border-radius: 6px; display: block; }
+.img-card select { width: 100%; margin: 0.35rem 0 0.2rem; font-size: 0.9rem; padding: 0.3rem; }
 .img-actions { display: flex; justify-content: space-between; align-items: center; margin-top: 0.3rem; }
 .img-actions button { min-width: 2.2rem; padding: 0.2rem 0.4rem; }
+
+/* photo picking: drag & drop zone plus the camera button (both feed one input) */
+.photo-drop {
+  border: 2px dashed var(--border);
+  border-radius: 10px;
+  padding: 0.7rem 0.8rem;
+  margin: 0.5rem 0 0.8rem;
+}
+.photo-drop.dragging { border-color: var(--accent); background: var(--accent-soft); }
+.photo-pick { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin: 0; }
+.btn-file {
+  display: inline-block;
+  padding: 0.5rem 0.7rem;
+  border: 1.5px solid var(--border);
+  border-radius: 7px;
+  font-weight: 600;
+  cursor: pointer;
+  background: var(--bg);
+  color: var(--ink);
+}
+.btn-file:hover { border-color: var(--ink); }
+.btn-file:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* the real input stays focusable (so the label is clickable) but invisible */
+.btn-file input[type="file"] { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.drop-hint { color: var(--muted); font-size: 0.92rem; margin: 0.4rem 0 0; }
+.file-list { list-style: none; padding: 0; margin: 0.4rem 0 0; display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.file-list:empty { display: none; }
+.file-list li {
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  padding: 0.1rem 0.55rem;
+  font-size: 0.88rem;
+}
+.file-warn { margin: 0.3rem 0 0; font-size: 0.9rem; }
+.file-warn:empty { display: none; }
 
 ul.plain { list-style: none; padding: 0; margin: 0.25rem 0; }
 li.item {

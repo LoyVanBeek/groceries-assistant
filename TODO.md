@@ -29,3 +29,12 @@
 - [x] Include thumbnail of the AH-item. Just crosslinking to the image on AH.nl should be fine right?
       (yes - AH's static.ah.nl CDN is public; suggestions and pinned items show a
       lazy-loaded thumb, image url remembered in `ah_mappings.yaml`).
+- [x] Camera picker for the web UI when adding recipes
+      ('Maak foto' button next to the file picker; opens the rear camera on
+      phone, falls back to the normal picker on desktop)
+- [x] Bulk photo import
+      (`/recipes/photos`: drop/pick a pile of photos, then assign them one by
+      one to a recipe; leftovers stay staged, unwanted ones are discarded)
+- [x] Drag and drop photo import
+      (drop zone on the recipe editor and the bulk page, plus a drag-over
+      highlight; dropped files land in the same input as a hand-picked set)

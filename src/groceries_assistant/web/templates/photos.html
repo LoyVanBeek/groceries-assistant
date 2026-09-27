@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Foto's toewijzen{% endblock %}
+{% block content %}
+<h1>Foto's toewijzen</h1>
+{% if errors %}<p class="warnings">{{ errors|join('; ') }}</p>{% endif %}
+<p class="muted">Sleep een stapel foto's naar beneden en wijs ze daarna per stuk toe aan een recept.</p>
+{% if request.query_params.toegevoegd %}
+<p class="muted">{{ request.query_params.toegevoegd }} foto('s) toegevoegd{% if request.query_params.genegeerd %}, {{ request.query_params.genegeerd }} genegeerd (geen jpg/png/webp){% endif %}.</p>
+{% endif %}
+{% if request.query_params.toegewezen %}
+<p class="muted">{{ request.query_params.toegewezen }} foto('s) toegewezen.</p>
+{% endif %}
+<form method="post" action="/recipes/photos/add" enctype="multipart/form-data" class="photo-drop">
+  <p class="photo-pick">
+    <label class="btn-file">Kies foto's<input type="file" name="photos" accept="image/*" multiple></label>
+    <button type="button" class="camera-button">Maak foto</button>
+    <input type="file" class="camera-input" accept="image/*" capture="environment" hidden>
+  </p>
+  <p class="drop-hint">Sleep foto's hierheen (of tik op &lsquo;Kies foto&rsquo;s&rsquo; / &lsquo;Maak foto&rsquo;).</p>
+  <ul class="file-list"></ul>
+  <p class="file-warn warnings"></p>
+  <p><button type="submit" class="primary">Toevoegen</button></p>
+</form>
+{% if staged %}
+<form method="post" action="/recipes/photos/assign">
+  <div class="img-grid">
+    {% for p in staged %}
+    <div class="img-card">
+      <img src="/recipes/photos/staged/{{ p.name }}" alt="">
+      <select name="photo_{{ p.stem }}">
+        <option value="">niet toewijzen</option>
+        {% for r in recipes %}
+        <option value="{{ r.slug }}">{{ r.name }}</option>
+        {% endfor %}
+      </select>
+      <label class="chip"><input type="checkbox" name="drop_{{ p.stem }}"> weggooien</label>
+    </div>
+    {% endfor %}
+  </div>
+  <p><button type="submit" class="primary">Toewijzen</button></p>
+</form>
+<form method="post" action="/recipes/photos/assign">
+  <button name="clear" value="1">Alles weggooien</button>
+</form>
+{% else %}
+<p class="muted">Nog geen foto's gekozen.</p>
+{% endif %}
+<p><a href="/recipes">&larr; terug naar de recepten</a></p>
+{% endblock %}
+{% block scripts %}
+<script src="/static/photos.js" defer></script>
+{% endblock %}

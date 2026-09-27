@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import os
+import re
 import tempfile
 from datetime import date
 from pathlib import Path
 from typing import Annotated
+from uuid import uuid4
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
@@ -56,6 +58,16 @@ COOK_CHOICE = "__cook__"
 NO_COOK_CHOICE = "__no_cook__"
 KEEP_CHOICE = ""
 
+ALLOWED_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
+# staged photos get a random id as name, so their uploads can never collide
+STAGED_UID_RE = re.compile(r"[0-9a-f]{32}\Z")
+
+
+def _image_ext(filename: str | None) -> str:
+    """Lowercase extension of an upload, if we serve that type."""
+    ext = Path(filename or "").suffix.lower()
+    return ext if ext in ALLOWED_IMAGE_EXTS else ""
+
 
 def create_app(
     data_dir: str | os.PathLike[str],
@@ -65,6 +77,9 @@ def create_app(
     """search_fn: injectable AH search(product) -> candidates; None = real client."""
     data = Path(data_dir)
     (data / "recipes").mkdir(parents=True, exist_ok=True)
+    # staged photos are scratch space for the current run only
+    for stale in (data / "photo-staging").glob("*"):
+        stale.unlink(missing_ok=True)
     app = FastAPI(title="Groceries Assistant")
     templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
     app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
@@ -397,6 +412,67 @@ def create_app(
 
     # --- recipes ---------------------------------------------------------------
 
+    @app.get("/recipes/photos", response_class=HTMLResponse)
+    def photos_page(request: Request):
+        """Bulk photo import: stage a pile of photos, then assign them."""
+        all_recipes, errors = load_all()
+        return render(
+            request,
+            "photos.html",
+            staged=staged_photos(),
+            recipes=sorted(all_recipes, key=lambda r: r.name.lower()),
+            errors=errors,
+        )
+
+    @app.post("/recipes/photos/add")
+    async def photos_add(photos: Annotated[list[UploadFile] | None, File()] = None):
+        """Stage uploads; wrong types are skipped instead of failing the batch."""
+        added = skipped = 0
+        for upload in photos or []:
+            ext = _image_ext(upload.filename)
+            if not ext:
+                skipped += 1
+                continue
+            (_staging() / f"{uuid4().hex}{ext}").write_bytes(await upload.read())
+            added += 1
+        query = f"toegevoegd={added}" + (f"&genegeerd={skipped}" if skipped else "")
+        return RedirectResponse(f"/recipes/photos?{query}", status_code=303)
+
+    @app.post("/recipes/photos/assign")
+    async def photos_assign(request: Request):
+        """Move staged photos into the chosen recipes; others wait for next time."""
+        form = await request.form()
+        if form.get("clear"):
+            for path in staged_photos():
+                path.unlink(missing_ok=True)
+            return RedirectResponse("/recipes/photos", status_code=303)
+        known = set(recipes_by_slug())
+        assigned = 0
+        for field, slug in form.multi_items():
+            if not field.startswith("photo_") or slug not in known:
+                continue
+            photo = _staged(field[len("photo_") :])
+            if photo is None:
+                continue
+            _store_image(
+                slug, photo.read_bytes(), photo.suffix, as_featured=image_path(slug) is None
+            )
+            photo.unlink(missing_ok=True)
+            assigned += 1
+        for field in form:
+            if field.startswith("drop_"):
+                photo = _staged(field[len("drop_") :])
+                if photo is not None:
+                    photo.unlink(missing_ok=True)
+        return RedirectResponse(f"/recipes/photos?toegewezen={assigned}", status_code=303)
+
+    @app.get("/recipes/photos/staged/{name}")
+    def staged_photo(name: str):
+        photo = _staged(Path(name).stem)
+        if photo is None:
+            raise HTTPException(404, "Geen foto")
+        return FileResponse(photo)
+
     @app.get("/recipes", response_class=HTMLResponse)
     def recipes_page(request: Request):
         all_recipes, errors = load_all()
@@ -556,8 +632,6 @@ def create_app(
             ],
         )
 
-    ALLOWED_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
-
     def image_path(slug: str) -> Path | None:
         """Featured image file for a recipe slug, if any."""
         directory = data / "recipes" / "img"
@@ -603,33 +677,56 @@ def create_app(
     def recipe_image(filename: str):
         return _serve_image(Path(filename).stem, filename)
 
-    async def _save_image_uploads(slug: str, uploads: list[UploadFile]) -> None:
-        """Store uploaded images: first becomes featured, the rest extras.
+    def _store_image(slug: str, content: bytes, ext: str, *, as_featured: bool) -> None:
+        """Write one photo into the recipe's image dir.
 
-        Removes stale featured files with other extensions. Extras are named
-        <slug>--2.<ext>, <slug>--3.<ext>, ...
+        As featured it replaces the current one (any extension); otherwise it is
+        appended as an extra: <slug>--2.<ext>, <slug>--3.<ext>, ...
         """
-        uploads = [u for u in uploads if u is not None and u.filename]
-        if not uploads:
-            return
         directory = data / "recipes" / "img"
         directory.mkdir(parents=True, exist_ok=True)
+        if as_featured:
+            for stale in directory.glob(f"{slug}.*"):
+                stale.unlink(missing_ok=True)
+            name = f"{slug}{ext}"
+        else:
+            number = 2
+            while (directory / f"{slug}--{number}{ext}").exists():
+                number += 1
+            name = f"{slug}--{number}{ext}"
+        (directory / name).write_bytes(content)
+
+    async def _save_image_uploads(slug: str, uploads: list[UploadFile]) -> None:
+        """Store uploaded images: first becomes featured, the rest extras."""
+        uploads = [u for u in uploads if u is not None and u.filename]
         for index, upload in enumerate(uploads):
-            filename = upload.filename or ""
-            ext = Path(filename).suffix.lower()
-            if ext not in ALLOWED_IMAGE_EXTS:
+            ext = _image_ext(upload.filename)
+            if not ext:
                 raise HTTPException(400, "Afbeelding moet jpg, jpeg, png of webp zijn")
-            if index == 0:
-                for stale in directory.glob(f"{slug}.*"):
-                    stale.unlink(missing_ok=True)
-                name = f"{slug}{ext}"
-            else:
-                number = 2
-                while (directory / f"{slug}--{number}{ext}").exists():
-                    number += 1
-                name = f"{slug}--{number}{ext}"
-            with (directory / name).open("wb") as fh:
-                fh.write(await upload.read())
+            _store_image(slug, await upload.read(), ext, as_featured=index == 0)
+
+    def _staging() -> Path:
+        directory = data / "photo-staging"
+        directory.mkdir(parents=True, exist_ok=True)
+        return directory
+
+    def staged_photos() -> list[Path]:
+        """Photos waiting to be assigned, oldest first."""
+        directory = data / "photo-staging"
+        if not directory.is_dir():
+            return []
+        return sorted(
+            (p for p in directory.glob("*") if STAGED_UID_RE.match(p.stem) and _image_ext(p.name)),
+            key=lambda p: p.stat().st_mtime,
+        )
+
+    def _staged(uid: str) -> Path | None:
+        """Path of a staged photo by id, if the id is one of ours and it exists."""
+        if not STAGED_UID_RE.match(uid):
+            return None
+        return next(
+            (p for p in (data / "photo-staging").glob(f"{uid}.*") if _image_ext(p.name)), None
+        )
 
     def _move_images(old_slug: str, new_slug: str) -> None:
         for old in (data / "recipes" / "img").glob(f"{old_slug}*"):

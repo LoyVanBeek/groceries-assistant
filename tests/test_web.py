@@ -1,5 +1,6 @@
 """Web smoke tests: propose -> swap -> approve -> review -> AH deep-link."""
 
+import re
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -791,6 +792,144 @@ def test_image_picker_multiple_photos_and_featured(tmp_path):
             data={"slug": "galerij", "filename": "anderrecept.png"},
         )
         assert rogue.status_code == 400
+
+
+def _save_recipe(client, name: str) -> None:
+    client.post(
+        "/recipes/save",
+        data={"name": name, "servings": "4", "ingredients": "400 g spaghetti", "steps": "Kook."},
+        follow_redirects=False,
+    )
+
+
+def _staged_names(page_text: str) -> list[str]:
+    return re.findall(r'name="photo_([0-9a-f]{32})"', page_text)
+
+
+def test_editor_offers_camera_and_drop_zone(tmp_path):
+    with make_client(tmp_path) as client:
+        _save_recipe(client, "Fotorecept")
+        client.post(
+            "/recipes/save",
+            data={
+                "original_slug": "fotorecept",
+                "name": "Fotorecept",
+                "servings": "4",
+                "ingredients": "400 g spaghetti",
+                "steps": "Kook.",
+            },
+            files=[
+                ("image", ("a.png", _png_bytes(), "image/png")),
+                ("image", ("b.png", _png_bytes(), "image/png")),
+            ],
+            follow_redirects=False,
+        )
+        page = client.get("/recipes/fotorecept/edit").text
+
+        # drag & drop zone plus the camera button, both feeding the one file input
+        assert 'class="photo-drop"' in page
+        assert 'class="drop-hint"' in page
+        assert 'class="camera-button"' in page
+        assert 'class="camera-input" accept="image/*" capture="environment"' in page
+        assert '<input type="file" name="image" accept="image/*" multiple>' in page
+        assert "/static/photos.js" in page
+
+        # the gallery's pick/delete controls live outside the save form: a nested
+        # <form> is dropped by the browser, which would post to /recipes/save
+        assert 'form="img-featured"' in page
+        assert 'form="img-delete"' in page
+        assert page.index('id="img-featured"') > page.index("</form>")
+        assert page.index('id="img-delete"') > page.index("</form>")
+
+
+def test_bulk_photo_import_assigns_photos_to_recipes(tmp_path):
+    with make_client(tmp_path) as client:
+        _save_recipe(client, "Pasta")
+        _save_recipe(client, "Curry")
+        added = client.post(
+            "/recipes/photos/add",
+            files=[
+                ("photos", ("a.png", _png_bytes(), "image/png")),
+                ("photos", ("b.png", _png_bytes(), "image/png")),
+                ("photos", ("c.png", _png_bytes(), "image/png")),
+            ],
+            follow_redirects=False,
+        )
+        assert added.status_code == 303
+        assert added.headers["location"] == "/recipes/photos?toegevoegd=3"
+
+        page = client.get("/recipes/photos").text
+        uids = _staged_names(page)
+        assert len(uids) == 3
+        # each staged photo is offered as a thumbnail with a recipe to pick
+        for uid in uids:
+            assert f"/recipes/photos/staged/{uid}.png" in page
+        assert '<option value="pasta">Pasta</option>' in page
+        assert '<option value="curry">Curry</option>' in page
+
+        assigned = client.post(
+            "/recipes/photos/assign",
+            data={f"photo_{uids[0]}": "pasta", f"photo_{uids[1]}": "curry"},
+            follow_redirects=False,
+        )
+        assert assigned.headers["location"] == "/recipes/photos?toegewezen=2"
+        img_dir = tmp_path / "recipes" / "img"
+        assert (img_dir / "pasta.png").exists()
+        assert (img_dir / "curry.png").exists()
+
+        # the unassigned photo stays staged, the assigned ones are gone
+        left = _staged_names(client.get("/recipes/photos").text)
+        assert left == [uids[2]]
+        assert client.get(f"/recipes/photos/staged/{left[0]}.png").status_code == 200
+
+        # a recipe that already has a photo gets the next one as an extra
+        client.post(
+            "/recipes/photos/assign",
+            data={f"photo_{left[0]}": "pasta"},
+            follow_redirects=False,
+        )
+        assert (img_dir / "pasta--2.png").exists()
+        assert list((tmp_path / "photo-staging").glob("*")) == []
+
+
+def test_bulk_photo_import_skips_unsupported_and_can_discard(tmp_path):
+    with make_client(tmp_path) as client:
+        _save_recipe(client, "Pasta")
+        added = client.post(
+            "/recipes/photos/add",
+            files=[
+                ("photos", ("a.png", _png_bytes(), "image/png")),
+                ("photos", ("b.gif", b"GIF89a", "image/gif")),
+            ],
+            follow_redirects=False,
+        )
+        assert added.headers["location"] == "/recipes/photos?toegevoegd=1&genegeerd=1"
+
+        uid = _staged_names(client.get("/recipes/photos").text)[0]
+        # discard it, then stage another and wipe everything
+        client.post("/recipes/photos/assign", data={f"drop_{uid}": "on"}, follow_redirects=False)
+        assert _staged_names(client.get("/recipes/photos").text) == []
+
+        client.post(
+            "/recipes/photos/add",
+            files=[("photos", ("a.png", _png_bytes(), "image/png"))],
+            follow_redirects=False,
+        )
+        client.post("/recipes/photos/assign", data={"clear": "1"}, follow_redirects=False)
+        assert "Nog geen foto's gekozen" in client.get("/recipes/photos").text
+
+
+def test_staged_photo_route_rejects_foreign_names(tmp_path):
+    with make_client(tmp_path) as client:
+        for name in ("../state.db", "notastagedphoto.png", "a" * 32 + ".png"):
+            assert client.get(f"/recipes/photos/staged/{name}").status_code == 404
+
+
+def test_recipes_page_links_to_bulk_photo_import(tmp_path):
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        assert 'href="/recipes/photos"' in client.get("/recipes").text
+        assert client.get("/recipes/photos").status_code == 200
 
 
 def test_order_match_pin_unpin(tmp_path):

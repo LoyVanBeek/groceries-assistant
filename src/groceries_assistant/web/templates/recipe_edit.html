@@ -22,25 +22,28 @@
   <div class="img-card {% if img.featured %}featured{% endif %}">
     <img src="/recipes/img/{{ img.name }}" alt="">
     <div class="img-actions">
-      <form method="post" action="/recipes/img/select">
-        <input type="hidden" name="slug" value="{{ original_slug }}">
-        <input type="hidden" name="filename" value="{{ img.name }}">
-        <label class="chip">
-          <input type="radio" name="pick" {% if img.featured %}checked{% endif %}
-                 onchange="this.form.requestSubmit()"> hoofd
-        </label>
-      </form>
-      <form method="post" action="/recipes/img/delete">
-        <input type="hidden" name="slug" value="{{ original_slug }}">
-        <input type="hidden" name="filename" value="{{ img.name }}">
-        <button>&times;</button>
-      </form>
+      <label class="chip">
+        <input type="radio" name="pick" form="img-featured" {% if img.featured %}checked{% endif %}
+               onchange="document.getElementById('img-featured').requestSubmit()"> hoofd
+        <input type="hidden" form="img-featured" name="filename" value="{{ img.name }}">
+      </label>
+      <button type="submit" form="img-delete">&times;</button>
+      <input type="hidden" form="img-delete" name="filename" value="{{ img.name }}">
     </div>
   </div>
   {% endfor %}
 </div>
 {% endif %}
-<p><label>Afbeelding (jpg/png/webp, meerdere mogelijk)</label><br><input type="file" name="image" accept="image/*" multiple></p>
+<div class="photo-drop">
+  <p class="photo-pick">
+    <label class="btn-file">Kies foto's<input type="file" name="image" accept="image/*" multiple></label>
+    <button type="button" class="camera-button">Maak foto</button>
+    <input type="file" class="camera-input" accept="image/*" capture="environment" hidden>
+  </p>
+  <p class="drop-hint">Sleep foto's hierheen, of tik op &lsquo;Maak foto&rsquo; om de camera te openen (jpg/png/webp, meerdere mogelijk).</p>
+  <ul class="file-list"></ul>
+  <p class="file-warn warnings"></p>
+</div>
 <h2>Recept</h2>
 <p><label>Naam</label><br><input type="text" name="name" value="{{ name_value }}" required></p>
   <p>
@@ -61,4 +64,15 @@
   <p><label>Bereiding</label><br><textarea name="steps" rows="8" cols="60">{{ steps_text }}</textarea></p>
   <p><button type="submit" class="primary">Opslaan</button></p>
 </form>
+{% if original_slug %}
+<form id="img-featured" method="post" action="/recipes/img/select">
+  <input type="hidden" name="slug" value="{{ original_slug }}">
+</form>
+<form id="img-delete" method="post" action="/recipes/img/delete">
+  <input type="hidden" name="slug" value="{{ original_slug }}">
+</form>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script src="/static/photos.js" defer></script>
 {% endblock %}
