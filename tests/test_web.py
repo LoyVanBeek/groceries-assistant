@@ -797,3 +797,35 @@ def test_dish_picker_shows_images_and_combines_current_dish(tmp_path):
         assert "laten staan" in tuesday_options
         # wissel select is gone; only the 7 cook selects remain
         assert page.count("<select") == 7
+
+
+def test_order_match_custom_entry(tmp_path):
+    """The koppel page allows pinning a manually looked-up AH id."""
+    with make_client(tmp_path, search_fn=lambda q: []) as client:
+        seed_recipe(tmp_path)
+        client.get("/plan")
+        client.post("/plan/approve", follow_redirects=False)
+
+        page = client.get("/order/match")
+        assert 'action="/order/match/pin"' in page.text
+        assert 'name="webshop_id"' in page.text  # custom entry fields
+
+        client.post(
+            "/order/match/pin",
+            data={
+                "product": "spaghetti",
+                "unit": "g",
+                "webshop_id": "999",
+                "title": "Spaghetti uit de AH-app",
+            },
+            follow_redirects=False,
+        )
+        from groceries_assistant.store.db import Store
+
+        store = Store(tmp_path / "state.db")
+        plan_id = store.latest_plan()[0]
+        items = {(i["product"], i["unit"]): i for i in store.order_items(plan_id)}
+        assert items[("spaghetti", "g")]["webshop_id"] == 999
+        # the custom pin flows through to the deep-link
+        link_page = client.get("/order/link")
+        assert "999%3A1" in link_page.text

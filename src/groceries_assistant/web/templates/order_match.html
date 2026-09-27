@@ -41,6 +41,13 @@
     {% else %}
     <span class="muted">geen suggesties</span>
     {% endfor %}
+    <form method="post" action="/order/match/pin" class="custom-pin">
+      <input type="hidden" name="product" value="{{ item.product }}">
+      <input type="hidden" name="unit" value="{{ item.unit }}">
+      <input type="number" name="webshop_id" placeholder="AH-id" required size="8">
+      <input type="text" name="title" placeholder="omschrijving (uit de AH-app)" size="24">
+      <button>eigen id koppelen</button>
+    </form>
   </div>
   {% endif %}
 </div>

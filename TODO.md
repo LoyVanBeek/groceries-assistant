@@ -12,8 +12,9 @@
 - [x] Show thumbnail of recipe image on the week overview webpage
 - [x] Match up all the items with AH article numbers (pin/unpin UI on
       `/order/match`, confirmed pins persist in `data/ah_mappings.yaml`)
-- [ ] On the 'koppel' page, add links to the actual article on ah.nl so I can check.
-- [ ] Include the recipe image in the dropdown.
-- [ ] Combine the dropdown with the sdelected menu item to take up less screen real estate
-- [ ] On the koppel page, add a custom entry option as well
+- [x] On the 'koppel' page, add links to the actual article on ah.nl so I can check.
+- [x] Include the recipe image in the dropdown (dish picker with thumbs).
+- [x] Combine the dropdown with the selected menu item to take up less screen real estate
+      (details/summary: the summary is the current dish, alternatives open below).
+- [x] On the koppel page, add a custom entry option as well (manual AH-id + title).
 - [ ] Recipes need an optional URL field where I can paste an URL to the original recipe

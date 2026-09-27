@@ -236,6 +236,16 @@ li.item {
   text-align: left;
 }
 .ah-link { font-size: 0.92rem; color: var(--accent); }
+form.custom-pin {
+  display: inline-flex;
+  gap: 0.3rem;
+  align-items: center;
+  margin-left: 0.75rem;
+  padding: 0.3rem 0.4rem;
+  border: 1px dashed var(--border);
+  border-radius: 7px;
+}
+form.custom-pin button { font-size: 0.9rem; padding: 0.35rem 0.55rem; white-space: nowrap; }
 .match-current { display: flex; align-items: center; gap: 0.4rem; }
 
 ::selection { background: var(--accent-soft); }
