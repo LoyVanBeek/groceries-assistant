@@ -2,7 +2,13 @@ from datetime import date
 
 import pytest
 
-from groceries_assistant.ah.deeplink import build_add_multiple_url, chunk_items, generate_qr_svg
+from groceries_assistant.ah.deeplink import (
+    build_add_multiple_url,
+    chunk_items,
+    generate_qr_svg,
+    parse_product_ref,
+    product_url,
+)
 from groceries_assistant.store.db import DEFAULT_TEMPLATE, PlanEntryRow, Store
 
 
@@ -86,3 +92,23 @@ def test_generate_qr_svg():
 
 def test_store_defaults_match_expected_shape():
     assert DEFAULT_TEMPLATE[0][1] == 25
+
+
+def test_product_url_uses_wi_prefix():
+    assert product_url(4137) == "https://www.ah.nl/producten/product/wi4137"
+
+
+def test_parse_product_ref_accepts_ids_and_urls():
+    assert parse_product_ref("4137") == (4137, "")
+    assert parse_product_ref("wi4137") == (4137, "")
+    assert parse_product_ref("https://www.ah.nl/producten/product/wi58169") == (58169, "")
+    assert parse_product_ref(
+        "https://www.ah.nl/producten/product/wi58169/ah-volkoren-spaghetti"
+    ) == (58169, "volkoren spaghetti")
+    # the old wa-style links still parse (id space is the same)
+    assert parse_product_ref("https://www.ah.nl/producten/product/wa4137/ah-tomaten") == (
+        4137,
+        "tomaten",
+    )
+    assert parse_product_ref("geen id") is None
+    assert parse_product_ref("") is None

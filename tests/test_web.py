@@ -1029,3 +1029,44 @@ def test_koppel_page_shows_ah_thumbnails(tmp_path):
         matched = client.get("/order/match").text
         assert f'src="{image}"' in matched
         assert "AH Pasta" in matched  # title instead of the raw webshop-id
+
+
+def test_order_match_custom_entry_accepts_pasted_url(tmp_path):
+    """Pasting an ah.nl product link in the custom field pins the right article."""
+    with make_client(tmp_path, search_fn=lambda q: []) as client:
+        seed_recipe(tmp_path)
+        client.get("/plan")
+        client.post("/plan/approve", follow_redirects=False)
+
+        # the field is free text now, so a full URL fits
+        assert "AH-id of product-URL" in client.get("/order/match").text
+
+        client.post(
+            "/order/match/pin",
+            data={
+                "product": "spaghetti",
+                "unit": "g",
+                "webshop_id": "https://www.ah.nl/producten/product/wi58169/ah-volkoren-spaghetti",
+                "title": "",
+            },
+            follow_redirects=False,
+        )
+        from groceries_assistant.store.db import Store
+
+        store = Store(tmp_path / "state.db")
+        plan_id = store.latest_plan()[0]
+        items = {(i["product"], i["unit"]): i for i in store.order_items(plan_id)}
+        assert items[("spaghetti", "g")]["webshop_id"] == 58169
+        # the slug filled in the title, and the deep-link points at the right article
+        assert "volkoren spaghetti" in client.get("/order/match").text
+        assert "58169%3A1" in client.get("/order/link").text
+
+        # an unparseable reference is rejected with a hint
+        rejected = client.post(
+            "/order/match/pin",
+            data={"product": "ui", "unit": "stuk", "webshop_id": "geen id", "title": "x"},
+            follow_redirects=False,
+        )
+        assert rejected.headers["location"] == "/order/match?error=id"
+        items = {(i["product"], i["unit"]): i for i in store.order_items(plan_id)}
+        assert items[("ui", "stuk")]["webshop_id"] is None

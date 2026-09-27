@@ -18,6 +18,7 @@ from groceries_assistant.ah.deeplink import (
     build_add_multiple_url,
     chunk_items,
     generate_qr_svg,
+    parse_product_ref,
     product_url,
 )
 from groceries_assistant.ah.matching import AHMapping, AHMappingStore
@@ -337,10 +338,20 @@ def create_app(
     def order_match_pin(
         product: str = Form(...),
         unit: str = Form(...),
-        webshop_id: int = Form(...),
-        title: str = Form(...),
+        webshop_id: str = Form(...),
+        title: str = Form(""),
         image: str = Form(""),
     ):
+        """Pin an order item to an AH product.
+
+        `webshop_id` accepts a bare id or a pasted ah.nl product URL; the id is
+        taken from the URL and its slug fills in the title when none is given.
+        """
+        ref = parse_product_ref(webshop_id)
+        if ref is None:
+            return RedirectResponse("/order/match?error=id", status_code=303)
+        article_id, slug_title = ref
+        label = title.strip() or slug_title or f"webshop-id {article_id}"
         latest = store().latest_plan()
         if latest is None:
             raise HTTPException(404, "Geen actieve week")
@@ -349,14 +360,14 @@ def create_app(
         mapping_store.put(
             AHMapping(
                 product=product,
-                ah_webshop_id=webshop_id,
-                ah_title=title,
+                ah_webshop_id=article_id,
+                ah_title=label,
                 score=1.0,
                 confirmed=True,
                 ah_image_url=image.strip() or None,
             )
         )
-        store().set_order_item_webshop_id(plan_id, product, unit, webshop_id)
+        store().set_order_item_webshop_id(plan_id, product, unit, article_id)
         return RedirectResponse("/order/match", status_code=303)
 
     @app.post("/order/match/unpin")
