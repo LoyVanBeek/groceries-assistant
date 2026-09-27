@@ -194,9 +194,15 @@ def plan_to_rows(plan: WeeklyPlan, servings: int = DEFAULT_SERVINGS) -> list[Pla
 def rows_to_entries(
     rows: list[PlanEntryRow], recipes_by_slug: dict[str, Recipe]
 ) -> list[PlanEntry]:
-    """Rehydrate stored rows into planner entries (dropping deleted recipes)."""
+    """Rehydrate stored rows into planner entries (dropping deleted recipes).
+
+    'no_cook' evenings (eating elsewhere) carry no dish and no groceries, so
+    they are skipped here.
+    """
     entries: list[PlanEntry] = []
     for row in rows:
+        if row.kind == "no_cook":
+            continue
         if row.kind == "leftovers":
             entries.append(
                 PlanEntry(

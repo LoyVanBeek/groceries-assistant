@@ -914,3 +914,73 @@ def test_order_match_custom_entry(tmp_path):
         # the custom pin flows through to the deep-link
         link_page = client.get("/order/link")
         assert "999%3A1" in link_page.text
+
+
+def test_no_cook_evening(tmp_path):
+    """'Niet koken' (eating elsewhere) drops the dish and its groceries."""
+    seed_recipe(tmp_path)
+    (tmp_path / "recipes" / "soep.yaml").write_text(
+        "name: Soep\nservings: 4\ntime: {cook: 10}\n"
+        "ingredients:\n  - {product: ui, amount: 2, unit: stuk}\n",
+        encoding="utf-8",
+    )
+    with make_client(tmp_path) as client:
+        client.post(
+            "/settings/people",
+            data={"person_id": "mama", "name": "Mama", "role": "adult", "weight": "1"},
+        )
+        client.get("/plan")  # create proposal
+        from groceries_assistant.store.db import Store
+
+        store = Store(tmp_path / "state.db")
+        plan_id, start, _rows = store.load_proposal()
+        monday = start
+
+        # every evening offers the option
+        page = client.get("/plan").text
+        assert page.count('value="__no_cook__"') == 7
+
+        swapped = client.post(
+            "/plan/swap",
+            data={"day": monday.isoformat(), "choice": "__no_cook__"},
+            follow_redirects=False,
+        )
+        assert swapped.status_code == 303
+
+        rows = {row.day: row for row in store.plan_entries(plan_id)}
+        assert rows[monday].kind == "no_cook"
+        assert rows[monday].recipe_slug is None
+
+        # the evening shows as niet-koken, without cook/attendance controls
+        page = client.get("/plan").text
+        assert "Niet koken (we eten elders)" in page
+        assert "Geen kok nodig" in page  # kok cell replaced
+        assert "Niet van toepassing" in page  # attendance cells replaced
+        # its picker offers fitting dishes to switch back to cooking
+        # (Monday only has 25 minutes, so the 10-minute soup fits, pasta does not)
+        options = page.split('class="dish-options"')[1].split("</details>")[0]
+        assert 'value="soep"' in options
+        assert 'value="pasta"' not in options
+        # ... and no 'niet koken' option on that row itself
+        assert "__no_cook__" not in options
+
+        # switching back to cooking works and the dish returns
+        client.post(
+            "/plan/swap",
+            data={"day": monday.isoformat(), "choice": "pasta"},
+            follow_redirects=False,
+        )
+        rows = {row.day: row for row in store.plan_entries(plan_id)}
+        assert rows[monday].kind == "cook"
+        assert rows[monday].recipe_slug == "pasta"
+
+        # mark it again and approve: no groceries for that evening
+        client.post(
+            "/plan/swap",
+            data={"day": monday.isoformat(), "choice": "__no_cook__"},
+            follow_redirects=False,
+        )
+        assert client.post("/plan/approve", follow_redirects=False).status_code == 303
+        items = {i["product"] for i in store.order_items(plan_id)}
+        assert items == {"spaghetti", "ui"}
+        assert store.plan_entries(plan_id)[0].kind == "no_cook"

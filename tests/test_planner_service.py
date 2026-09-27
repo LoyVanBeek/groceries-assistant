@@ -71,3 +71,17 @@ def test_no_people_configured_falls_back_to_servings(tmp_path):
     rows = [PlanEntryRow(day=D1, kind="cook", recipe_slug="pasta", people=4)]
     fresh = apply_absences(store, rows)
     assert fresh[0].people == 4
+
+
+def test_no_cook_rows_contribute_no_groceries():
+    """An evening marked 'niet koken' (eating elsewhere) adds nothing to the order."""
+    recipes = {"pasta": _recipe()}
+    rows = [
+        PlanEntryRow(day=D1, kind="no_cook", people=0),
+        PlanEntryRow(day=D2, kind="cook", recipe_slug="pasta", people=2),
+    ]
+    entries = rows_to_entries(rows, recipes)
+    assert [entry.date for entry in entries] == [D2]
+    order = build_order(entries, recipes, staples=[])
+    assert len(order.shopping) == 1
+    assert order.shopping[0].amount == 250.0

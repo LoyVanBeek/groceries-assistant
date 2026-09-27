@@ -52,6 +52,7 @@ from groceries_assistant.web.views import WEEKDAYS, format_amount, plan_view
 SERVINGS = 4
 LEFTOVERS_CHOICE = "__leftovers__"
 COOK_CHOICE = "__cook__"
+NO_COOK_CHOICE = "__no_cook__"
 KEEP_CHOICE = ""
 
 
@@ -169,6 +170,9 @@ def create_app(
                 new_rows.append(
                     PlanEntryRow(day=target, kind="leftovers", source_slug=source, people=4)
                 )
+            elif choice == NO_COOK_CHOICE:
+                # eating elsewhere: no dish, no groceries, no cook needed
+                new_rows.append(PlanEntryRow(day=target, kind="no_cook", people=0))
             else:
                 new_rows.append(PlanEntryRow(day=target, kind="cook", recipe_slug=choice, people=4))
         store().update_proposal_rows(plan_id, new_rows)

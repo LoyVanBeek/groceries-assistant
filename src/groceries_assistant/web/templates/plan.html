@@ -28,7 +28,9 @@
     <td class="col-day">
       <strong>{{ e.label }}</strong><br>
       <span class="budget">
-        {% if e.kind == 'leftovers' %}restjes{% else %}{{ e.minutes }}/{{ e.budget }} min &middot; {{ e.people }} p{% endif %}
+        {% if e.kind == 'leftovers' %}restjes
+        {% elif e.kind == 'no_cook' %}niet koken
+        {% else %}{{ e.minutes }}/{{ e.budget }} min &middot; {{ e.people }} p{% endif %}
       </span>
       {% if e.over_budget %}<div class="warnings">over!</div>{% endif %}
     </td>
@@ -44,7 +46,7 @@
       <details class="dish-picker">
         <summary aria-label="Gerecht wisselen voor {{ e.label }}">
           {% if e.image %}<img class="thumb" src="/recipes/img/{{ e.image.name }}" alt="">{% endif %}
-          <strong>{{ e.name }}</strong>
+          <strong{% if e.kind == 'no_cook' %} class="muted"{% endif %}>{{ e.name }}</strong>
         </summary>
         <div class="dish-options">
           {% for alt in e.alternatives %}
@@ -64,6 +66,13 @@
             <button class="dish-option">Restjes (avond ervoor)</button>
           </form>
           {% endif %}
+          {% if e.kind != 'no_cook' %}
+          <form method="post" action="/plan/swap">
+            <input type="hidden" name="day" value="{{ e.day_iso }}">
+            <input type="hidden" name="choice" value="__no_cook__">
+            <button class="dish-option muted">niet koken (eten elders)</button>
+          </form>
+          {% endif %}
           <form method="post" action="/plan/swap">
             <input type="hidden" name="day" value="{{ e.day_iso }}">
             <input type="hidden" name="choice" value="__keep__">
@@ -74,6 +83,9 @@
       {% endif %}
     </td>
     <td class="col-cook">
+      {% if e.kind == 'no_cook' %}
+      <span class="muted" aria-label="Geen kok nodig">&mdash;</span>
+      {% else %}
       <form method="post" action="/plan/evening" id="evening-{{ row }}">
         <input type="hidden" name="day" value="{{ e.day_iso }}">
         <input type="number" name="minutes" value="{{ e.budget }}" min="0" max="300"
@@ -95,17 +107,24 @@
         </select>
         {% endif %}
       </form>
+      {% endif %}
     </td>
     {% for p in e.members %}
     <td class="col-attend">
+      {% if e.kind == 'no_cook' %}
+      <span class="muted" aria-label="Niet van toepassing">&mdash;</span>
+      {% else %}
       <span class="cell-name">{{ p.name }}</span>
       <input type="checkbox" form="evening-{{ row }}" name="joined" value="{{ p.id }}"
              {% if not p.absent %}checked{% endif %} onchange="this.form.requestSubmit()"
              aria-label="Eet mee {{ p.name }} {{ e.label }}">
+      {% endif %}
     </td>
     {% endfor %}
     <td class="col-save">
+      {% if e.kind != 'no_cook' %}
       <button form="evening-{{ row }}" aria-label="Bewaar avond {{ e.label }}">opslaan</button>
+      {% endif %}
     </td>
   </tr>
   {% endfor %}

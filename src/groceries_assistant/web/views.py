@@ -70,7 +70,19 @@ def plan_view(
         name = ""
         minutes = 0
         alts: list[dict] = []
-        if row.kind == "cook":
+        if row.kind == "no_cook":
+            name = "Niet koken (we eten elders)"
+            minutes = 0
+            # offer dishes again so the evening can be switched back to cooking
+            alts = [
+                {
+                    "slug": r.slug,
+                    "name": r.name,
+                    "image": image_for(r.slug) if image_for else None,
+                }
+                for _s, r in alternatives(list(recipes), prefs, evening)
+            ]
+        elif row.kind == "cook":
             recipe = by_slug.get(row.recipe_slug) if row.recipe_slug else None
             if recipe is None:
                 name = "(recept verwijderd)"
@@ -112,11 +124,11 @@ def plan_view(
                 "minutes": minutes,
                 "budget": budget,
                 "people": (len(evening.joiners) if evening.joiners is not None else row.people),
-                "image": image_for(row.recipe_slug) if image_for else None,
+                "image": (image_for(row.recipe_slug) if image_for and row.recipe_slug else None),
                 "members": members,
                 "cooking": cooking,
                 "alternatives": alts,
-                "can_leftovers": row.kind == "cook" and last_cook_slug is not None,
+                "can_leftovers": (row.kind in ("cook", "no_cook") and last_cook_slug is not None),
                 "over_budget": row.kind == "cook" and minutes > budget,
             }
         )
