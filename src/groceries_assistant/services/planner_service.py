@@ -11,7 +11,7 @@ from dataclasses import dataclass, replace
 from datetime import date, timedelta
 
 from groceries_assistant.ah.matching import AHMapping, AHMappingStore, suggest_match
-from groceries_assistant.models import Recipe
+from groceries_assistant.models import ComposedDish, Recipe
 from groceries_assistant.planner.availability import EveningAvailability
 from groceries_assistant.planner.engine import REUSE_PENALTY, PlanEntry, WeeklyPlan, plan_week
 from groceries_assistant.planner.shopping import ShoppingItem, aggregate_ingredients
@@ -192,13 +192,23 @@ def plan_to_rows(plan: WeeklyPlan, servings: int = DEFAULT_SERVINGS) -> list[Pla
 
 
 def rows_to_entries(
-    rows: list[PlanEntryRow], recipes_by_slug: dict[str, Recipe]
+    rows: list[PlanEntryRow],
+    recipes_by_slug: dict[str, Recipe],
+    dishes_by_slug: dict[str, ComposedDish] | None = None,
+    picks: dict[date, dict[str, str]] | None = None,
 ) -> list[PlanEntry]:
     """Rehydrate stored rows into planner entries (dropping deleted recipes).
 
     'no_cook' evenings (eating elsewhere) carry no dish and no groceries, so
     they are skipped here.
+
+    A row whose slug is a composed dish resolves into that dish's parts, using
+    the plan's picks (day -> {part_key: recipe_slug}). Parts without a pick are
+    reported in `missing` rather than silently dropped. A dish with nothing
+    filled at all falls back to being treated as an unknown slug.
     """
+    dishes_by_slug = dishes_by_slug or {}
+    picks = picks or {}
     entries: list[PlanEntry] = []
     for row in rows:
         if row.kind == "no_cook":
@@ -217,6 +227,12 @@ def rows_to_entries(
                 )
             )
             continue
+        dish = dishes_by_slug.get(row.recipe_slug or "")
+        if dish is not None:
+            entry = _dish_entry(row, dish, picks.get(row.day, {}), recipes_by_slug)
+            if entry is not None:
+                entries.append(entry)
+            continue
         recipe = recipes_by_slug.get(row.recipe_slug or "")
         if recipe is None:
             continue  # recipe deleted since; drop the evening
@@ -234,6 +250,38 @@ def rows_to_entries(
             )
         )
     return entries
+
+
+def _dish_entry(
+    row: PlanEntryRow,
+    dish: ComposedDish,
+    day_picks: dict[str, str],
+    recipes_by_slug: dict[str, Recipe],
+) -> PlanEntry | None:
+    """One evening of a composed dish: the picked parts, plus what is missing."""
+    parts: list[Recipe] = []
+    missing: list[str] = []
+    for part in dish.parts:
+        recipe = recipes_by_slug.get(day_picks.get(part.key, ""))
+        if recipe is None:
+            missing.append(part.label)
+        else:
+            parts.append(recipe)
+    if not parts:
+        return None  # nothing picked (yet): no groceries for this evening
+    minutes = max(part.time.same_day_minutes for part in parts)
+    return PlanEntry(
+        date=row.day,
+        recipe=None,
+        availability=EveningAvailability(date=row.day, free_minutes=minutes),
+        minutes=minutes,
+        score=0.0,
+        reason="",
+        people=row.people,
+        dish_slug=dish.slug,
+        parts=parts,
+        missing=missing,
+    )
 
 
 def replace_entry(plan: WeeklyPlan, day: date, recipe: Recipe, prefs: Preferences) -> PlanEntry:
@@ -289,6 +337,13 @@ class Order:
     warnings: list[str]
 
 
+def _entry_slug(entry: PlanEntry) -> str | None:
+    """The slug a plan row points at: a composed dish, or the recipe itself."""
+    if entry.dish_slug:
+        return entry.dish_slug
+    return entry.recipe.slug if entry.recipe is not None else None
+
+
 def build_order(
     entries: list[PlanEntry],
     recipes_by_slug: dict[str, Recipe],
@@ -300,11 +355,16 @@ def build_order(
     Each cook evening is planned for its stored people count (its joiners;
     leftovers evenings already added theirs). Falls back to `servings` when
     entries carry no people count. Staple products are split out.
+
+    A composed dish contributes one entry per chosen part, each scaled by its
+    own `servings` -- a 2-person side dish next to a 4-person main stays a
+    2-person side dish. A dish with unfilled parts warns instead of quietly
+    under-buying.
     """
     entries = sorted(entries, key=lambda e: e.date)
     people: dict[date, int] = {}
     for entry in entries:
-        if entry.kind == "cook" and entry.recipe is not None:
+        if entry.kind == "cook" and entry.dishes:
             people[entry.date] = entry.people or servings
     for entry in entries:
         if entry.kind != "leftovers" or not entry.source_slug:
@@ -312,23 +372,29 @@ def build_order(
         candidates = [
             e
             for e in entries
-            if e.kind == "cook"
-            and e.recipe is not None
-            and e.recipe.slug == entry.source_slug
-            and e.date < entry.date
+            if e.kind == "cook" and _entry_slug(e) == entry.source_slug and e.date < entry.date
         ]
         if candidates:
             source = max(candidates, key=lambda e: e.date)
             people[source.date] = people.get(source.date, servings) + (entry.people or servings)
 
     work: list[tuple[date, Recipe, int]] = []
+    warnings: list[str] = []
     for entry in entries:
-        if entry.kind != "cook" or entry.recipe is None:
+        if entry.kind != "cook":
             continue
-        recipe = recipes_by_slug.get(entry.recipe.slug, entry.recipe)
-        work.append((entry.date, recipe, people.get(entry.date, servings)))
+        count = people.get(entry.date, servings)
+        for recipe in entry.dishes:
+            work.append((entry.date, recipes_by_slug.get(recipe.slug, recipe), count))
+        if entry.missing:
+            name = entry.dish_slug or _entry_slug(entry) or ""
+            warnings.append(
+                f"{entry.date}: '{name}' zonder {' en '.join(entry.missing)}; "
+                "die boodschappen ontbreken op de lijst"
+            )
 
-    items, warnings = aggregate_ingredients(work)
+    items, item_warnings = aggregate_ingredients(work)
+    warnings += item_warnings
     staple_set = {s.lower() for s in staples}
     shopping: list[ShoppingItem] = []
     staple_items: list[ShoppingItem] = []

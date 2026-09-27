@@ -75,6 +75,103 @@ def test_chunk_items_splits():
     assert [len(c) for c in chunks] == [25, 25, 10]
 
 
+# --- composed-dish picks ------------------------------------------------------
+
+
+def test_picks_round_trip_per_day_and_part(store):
+    day = date(2026, 9, 28)
+    plan_id = store.approve_plan(
+        day, [PlanEntryRow(day=day, recipe_slug="aardappel-groente-vlees")]
+    )
+
+    store.set_pick(plan_id, day, "groente", "boerenkool")
+    store.set_pick(plan_id, day, "vlees", "kip")
+
+    assert store.plan_picks(plan_id) == {day: {"groente": "boerenkool", "vlees": "kip"}}
+
+
+def test_setting_a_pick_twice_overwrites_it(store):
+    day = date(2026, 9, 28)
+    plan_id = store.approve_plan(day, [PlanEntryRow(day=day, recipe_slug="agv")])
+
+    store.set_pick(plan_id, day, "groente", "boerenkool")
+    store.set_pick(plan_id, day, "groente", "sperziebonen")
+
+    assert store.plan_picks(plan_id) == {day: {"groente": "sperziebonen"}}
+
+
+def test_an_empty_pick_clears_the_part(store):
+    day = date(2026, 9, 28)
+    plan_id = store.approve_plan(day, [PlanEntryRow(day=day, recipe_slug="agv")])
+    store.set_pick(plan_id, day, "groente", "boerenkool")
+
+    store.set_pick(plan_id, day, "groente", "")
+
+    assert store.plan_picks(plan_id) == {}
+
+
+def test_clear_pick_and_clear_day_picks(store):
+    day = date(2026, 9, 28)
+    plan_id = store.approve_plan(
+        day,
+        [
+            PlanEntryRow(day=day, recipe_slug="agv"),
+            PlanEntryRow(day=date(2026, 9, 29), recipe_slug="agv"),
+        ],
+    )
+    store.set_picks(plan_id, day, {"groente": "boerenkool", "vlees": "kip"})
+    store.set_pick(plan_id, date(2026, 9, 29), "groente", "boerenkool")
+
+    store.clear_pick(plan_id, day, "vlees")
+    assert store.plan_picks(plan_id)[day] == {"groente": "boerenkool"}
+
+    store.clear_day_picks(plan_id, day)
+    assert day not in store.plan_picks(plan_id)
+    assert date(2026, 9, 29) in store.plan_picks(plan_id)  # other evenings untouched
+
+
+def test_set_picks_replaces_the_whole_evening(store):
+    day = date(2026, 9, 28)
+    plan_id = store.approve_plan(day, [PlanEntryRow(day=day, recipe_slug="agv")])
+    store.set_picks(plan_id, day, {"groente": "boerenkool", "vlees": "kip"})
+
+    store.set_picks(plan_id, day, {"groente": "sperziebonen"})
+
+    assert store.plan_picks(plan_id) == {day: {"groente": "sperziebonen"}}
+
+
+def test_replacing_a_proposal_cascades_its_picks_away(store):
+    day = date(2026, 9, 28)
+    first = store.save_proposal(day, [PlanEntryRow(day=day, recipe_slug="agv")])
+    store.set_pick(first, day, "groente", "boerenkool")
+
+    second = store.save_proposal(day, [PlanEntryRow(day=day, recipe_slug="agv")])
+
+    assert store.plan_picks(first) == {}
+    assert store.plan_picks(second) == {}
+
+
+def test_updating_the_entries_of_a_proposal_keeps_its_picks(store):
+    """Approving a week rewrites the entry rows; the picks must survive it."""
+    day = date(2026, 9, 28)
+    plan_id = store.save_proposal(day, [PlanEntryRow(day=day, recipe_slug="agv", people=3)])
+    store.set_pick(plan_id, day, "groente", "boerenkool")
+
+    store.update_proposal_rows(plan_id, [PlanEntryRow(day=day, recipe_slug="agv", people=4)])
+
+    assert store.plan_picks(plan_id) == {day: {"groente": "boerenkool"}}
+
+
+def test_renaming_a_recipe_repoints_its_picks(store):
+    day = date(2026, 9, 28)
+    plan_id = store.approve_plan(day, [PlanEntryRow(day=day, recipe_slug="agv")])
+    store.set_pick(plan_id, day, "groente", "boerenkool")
+
+    store.rename_recipe("boerenkool", "boerenkool-met-knoflook")
+
+    assert store.plan_picks(plan_id) == {day: {"groente": "boerenkool-met-knoflook"}}
+
+
 def test_build_add_multiple_url():
     url = build_add_multiple_url([(609371, 1), (61010, 2)])
     assert url == "https://www.ah.nl/mijnlijst/add-multiple?p=609371%3A1&p=61010%3A2"

@@ -50,6 +50,33 @@ class PlanEntry:
     people: int | None = None
     """Portions stored with the entry (joiners); None = use the default."""
     warnings: list[str] = field(default_factory=list)
+    dish_slug: str | None = None
+    """Composed dish planned for this evening; `recipe` is then unset."""
+    parts: list[Recipe] = field(default_factory=list)
+    """Recipes filling the dish's parts, in the order the dish declares them."""
+    missing: list[str] = field(default_factory=list)
+    """Labels of dish parts that have no pick yet."""
+
+    @property
+    def dishes(self) -> list[Recipe]:
+        """Every recipe to cook this evening: the dish parts, or the recipe."""
+        if self.parts:
+            return list(self.parts)
+        return [self.recipe] if self.recipe is not None else []
+
+    @property
+    def combined_minutes(self) -> int:
+        """Minutes on the evening itself: the longest part (they run in parallel)."""
+        if not self.parts:
+            return self.minutes
+        return max(part.time.same_day_minutes for part in self.parts)
+
+    @property
+    def total_minutes(self) -> int:
+        """Sum over the parts -- what you are actually busy with."""
+        if not self.parts:
+            return self.minutes
+        return sum(part.time.total_minutes for part in self.parts)
 
 
 @dataclass

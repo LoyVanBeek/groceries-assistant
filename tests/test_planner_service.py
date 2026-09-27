@@ -2,7 +2,7 @@
 
 from datetime import date
 
-from groceries_assistant.models import Recipe
+from groceries_assistant.models import ComposedDish, Recipe
 from groceries_assistant.planner.availability import EveningAvailability
 from groceries_assistant.preferences import Person, Preferences
 from groceries_assistant.services.planner_service import (
@@ -26,6 +26,28 @@ def _recipe(slug="pasta", minutes=30):
             "servings": 4,
             "time": {"cook": minutes},
             "ingredients": [{"product": "spaghetti", "amount": 500, "unit": "g"}],
+        }
+    )
+
+
+def _part_recipe(slug, amount, unit, minutes=10, servings=4):
+    return Recipe.model_validate(
+        {
+            "slug": slug,
+            "name": slug,
+            "servings": servings,
+            "time": {"cook": minutes},
+            "ingredients": [{"product": slug, "amount": amount, "unit": unit}],
+        }
+    )
+
+
+def _dish(*parts):
+    return ComposedDish.model_validate(
+        {
+            "slug": "aardappel-groente-vlees",
+            "name": "Aardappel-groente-vlees",
+            "parts": [{"label": label, "options": [option]} for label, option in parts],
         }
     )
 
@@ -85,3 +107,133 @@ def test_no_cook_rows_contribute_no_groceries():
     order = build_order(entries, recipes, staples=[])
     assert len(order.shopping) == 1
     assert order.shopping[0].amount == 250.0
+
+
+# --- composed dishes ----------------------------------------------------------
+
+
+def test_a_dish_evening_resolves_into_its_picked_parts():
+    dish = _dish(("Aardappels", "aardappels"), ("Groente", "boerenkool"))
+    recipes = {
+        "aardappels": _part_recipe("aardappels", 1000, "g", minutes=30),
+        "boerenkool": _part_recipe("boerenkool", 300, "g", minutes=20),
+    }
+    rows = [PlanEntryRow(day=D1, kind="cook", recipe_slug="aardappel-groente-vlees", people=4)]
+    picks = {D1: {"aardappels": "aardappels", "groente": "boerenkool"}}
+
+    entry = rows_to_entries(rows, recipes, {dish.slug: dish}, picks)[0]
+
+    assert entry.dish_slug == "aardappel-groente-vlees"
+    assert entry.recipe is None
+    assert [r.slug for r in entry.parts] == ["aardappels", "boerenkool"]
+    assert entry.dishes == entry.parts
+    assert entry.missing == []
+    # longest part, not the sum
+    assert entry.minutes == entry.combined_minutes == 30
+    assert entry.total_minutes == 50
+
+
+def test_each_part_is_scaled_by_its_own_servings():
+    """A 2-person side dish next to a 4-person main stays a 2-person side dish."""
+    dish = _dish(("Vlees", "kip"), ("Groente", "sperzieboontjes"))
+    recipes = {
+        "kip": _part_recipe("kip", 600, "g", servings=4),  # 4 people -> 4 portions
+        "sperzieboontjes": _part_recipe("sperzieboontjes", 200, "g", servings=2),  # x2
+    }
+    rows = [PlanEntryRow(day=D1, kind="cook", recipe_slug=dish.slug, people=4)]
+    picks = {D1: {"vlees": "kip", "groente": "sperzieboontjes"}}
+    entries = rows_to_entries(rows, recipes, {dish.slug: dish}, picks)
+
+    order = build_order(entries, recipes, staples=[])
+
+    amounts = {item.product: item.amount for item in order.shopping}
+    assert amounts == {"kip": 600.0, "sperzieboontjes": 400.0}
+    assert order.warnings == []
+
+
+def test_an_unfilled_part_is_reported_and_only_filled_parts_are_bought():
+    dish = _dish(("Aardappels", "aardappels"), ("Groente", "boerenkool"), ("Vlees", "kip"))
+    recipes = {
+        "aardappels": _part_recipe("aardappels", 1000, "g"),
+        "boerenkool": _part_recipe("boerenkool", 300, "g"),
+        "kip": _part_recipe("kip", 600, "g"),
+    }
+    rows = [PlanEntryRow(day=D1, kind="cook", recipe_slug=dish.slug, people=4)]
+    picks = {D1: {"aardappels": "aardappels"}}
+    entries = rows_to_entries(rows, recipes, {dish.slug: dish}, picks)
+
+    assert entries[0].missing == ["Groente", "Vlees"]
+
+    order = build_order(entries, recipes, staples=[])
+    assert [item.product for item in order.shopping] == ["aardappels"]
+    assert len(order.warnings) == 1
+    assert "zonder Groente en Vlees" in order.warnings[0]
+
+
+def test_a_dish_with_nothing_picked_contributes_nothing():
+    dish = _dish(("Groente", "boerenkool"))
+    recipes = {"boerenkool": _part_recipe("boerenkool", 300, "g")}
+    rows = [PlanEntryRow(day=D1, kind="cook", recipe_slug=dish.slug, people=4)]
+
+    assert rows_to_entries(rows, recipes, {dish.slug: dish}, {D1: {}}) == []
+
+
+def test_a_pick_of_a_deleted_recipe_leaves_the_part_unfilled():
+    dish = _dish(("Groente", "boerenkool"), ("Vlees", "kip"))
+    recipes = {
+        "boerenkool": _part_recipe("boerenkool", 300, "g"),
+        "kip": _part_recipe("kip", 600, "g"),
+    }
+    rows = [PlanEntryRow(day=D1, kind="cook", recipe_slug=dish.slug, people=4)]
+    picks = {D1: {"groente": "weg", "vlees": "kip"}}
+
+    entry = rows_to_entries(rows, recipes, {dish.slug: dish}, picks)[0]
+
+    assert [r.slug for r in entry.parts] == ["kip"]
+    assert entry.missing == ["Groente"]
+
+
+def test_a_dish_slug_is_never_mistaken_for_a_recipe():
+    """Both a recipe and a dish may carry the same slug; the dish wins."""
+    dish = _dish(("Groente", "boerenkool"))
+    recipes = {
+        "aardappel-groente-vlees": _recipe("aardappel-groente-vlees"),
+        "boerenkool": _part_recipe("boerenkool", 300, "g"),
+    }
+    rows = [PlanEntryRow(day=D1, kind="cook", recipe_slug="aardappel-groente-vlees", people=4)]
+
+    entry = rows_to_entries(rows, recipes, {dish.slug: dish}, {D1: {"groente": "boerenkool"}})[0]
+
+    assert entry.dish_slug == "aardappel-groente-vlees"
+    assert [r.slug for r in entry.parts] == ["boerenkool"]
+
+
+def test_a_leftovers_evening_of_a_dish_doubles_every_part():
+    """Cook once, eat twice: both parts of the dish get extra portions."""
+    dish = _dish(("Vlees", "kip"), ("Groente", "boerenkool"))
+    recipes = {
+        "kip": _part_recipe("kip", 600, "g"),
+        "boerenkool": _part_recipe("boerenkool", 300, "g"),
+    }
+    rows = [
+        PlanEntryRow(day=D1, kind="cook", recipe_slug=dish.slug, people=4),
+        PlanEntryRow(day=D2, kind="leftovers", source_slug=dish.slug, people=4),
+    ]
+    picks = {D1: {"vlees": "kip", "groente": "boerenkool"}}
+    entries = rows_to_entries(rows, recipes, {dish.slug: dish}, picks)
+
+    amounts = {
+        item.product: item.amount for item in build_order(entries, recipes, staples=[]).shopping
+    }
+    assert amounts == {"kip": 1200.0, "boerenkool": 600.0}
+
+
+def test_plain_recipes_keep_their_entry_shape():
+    recipe = _recipe()
+    entry = rows_to_entries(
+        [PlanEntryRow(day=D1, kind="cook", recipe_slug="pasta")], {"pasta": recipe}
+    )[0]
+
+    assert entry.dishes == [recipe]
+    assert entry.combined_minutes == entry.total_minutes == 30
+    assert entry.missing == []

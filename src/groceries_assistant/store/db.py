@@ -68,6 +68,18 @@ CREATE TABLE IF NOT EXISTS plan_entries (
 
 CREATE INDEX IF NOT EXISTS idx_plan_entries_slug ON plan_entries(recipe_slug);
 
+-- Which recipe fills which part of a composed dish, per evening.
+-- plan_entries.recipe_slug holds the dish slug for such an evening.
+CREATE TABLE IF NOT EXISTS plan_picks (
+    plan_id INTEGER NOT NULL REFERENCES plans(id) ON DELETE CASCADE,
+    day TEXT NOT NULL,
+    part_key TEXT NOT NULL,
+    recipe_slug TEXT NOT NULL,
+    PRIMARY KEY (plan_id, day, part_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_plan_picks_slug ON plan_picks(recipe_slug);
+
 CREATE TABLE IF NOT EXISTS order_items (
     plan_id INTEGER NOT NULL REFERENCES plans(id) ON DELETE CASCADE,
     product TEXT NOT NULL,
@@ -179,6 +191,9 @@ class Store:
         cur.execute(
             "UPDATE plan_entries SET source_slug = ? WHERE source_slug = ?",
             (new_slug, old_slug),
+        )
+        cur.execute(
+            "UPDATE plan_picks SET recipe_slug = ? WHERE recipe_slug = ?", (new_slug, old_slug)
         )
         self.conn.commit()
 
@@ -381,6 +396,62 @@ class Store:
             )
             for row in rows
         ]
+
+    # --- composed-dish picks -------------------------------------------------------
+
+    def plan_picks(self, plan_id: int) -> dict[date, dict[str, str]]:
+        """day -> {part_key: recipe_slug}; only for composed-dish evenings."""
+        rows = self.conn.execute(
+            "SELECT day, part_key, recipe_slug FROM plan_picks WHERE plan_id = ? ORDER BY day",
+            (plan_id,),
+        ).fetchall()
+        picks: dict[date, dict[str, str]] = {}
+        for row in rows:
+            picks.setdefault(date.fromisoformat(row["day"]), {})[row["part_key"]] = row[
+                "recipe_slug"
+            ]
+        return picks
+
+    def set_pick(self, plan_id: int, day: date, part_key: str, recipe_slug: str) -> None:
+        """Set (or clear, with an empty slug) the recipe filling one part."""
+        if recipe_slug:
+            self.conn.execute(
+                "INSERT INTO plan_picks(plan_id, day, part_key, recipe_slug) VALUES (?,?,?,?)"
+                " ON CONFLICT(plan_id, day, part_key) DO UPDATE SET"
+                " recipe_slug=excluded.recipe_slug",
+                (plan_id, day.isoformat(), part_key, recipe_slug),
+            )
+        else:
+            self.clear_pick(plan_id, day, part_key)
+        self.conn.commit()
+
+    def clear_pick(self, plan_id: int, day: date, part_key: str) -> None:
+        self.conn.execute(
+            "DELETE FROM plan_picks WHERE plan_id = ? AND day = ? AND part_key = ?",
+            (plan_id, day.isoformat(), part_key),
+        )
+        self.conn.commit()
+
+    def clear_day_picks(self, plan_id: int, day: date) -> None:
+        """Forget every pick of one evening (its dish changed or is gone)."""
+        self.conn.execute(
+            "DELETE FROM plan_picks WHERE plan_id = ? AND day = ?", (plan_id, day.isoformat())
+        )
+        self.conn.commit()
+
+    def set_picks(self, plan_id: int, day: date, picks: dict[str, str]) -> None:
+        """Replace every pick of one evening in one transaction."""
+        cur = self.conn.cursor()
+        cur.execute(
+            "DELETE FROM plan_picks WHERE plan_id = ? AND day = ?", (plan_id, day.isoformat())
+        )
+        for part_key, recipe_slug in picks.items():
+            if recipe_slug:
+                cur.execute(
+                    "INSERT INTO plan_picks(plan_id, day, part_key, recipe_slug) VALUES (?,?,?,?)",
+                    (plan_id, day.isoformat(), part_key, recipe_slug),
+                )
+        self.conn.commit()
 
     # --- order review ------------------------------------------------------------
 
