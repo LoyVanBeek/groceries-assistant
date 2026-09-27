@@ -747,6 +747,7 @@ def test_order_match_pin_unpin(tmp_path):
         matched = client.get("/order/match")
         assert "/producten/product/wa111" in matched.text
         link_page = client.get("/order/link")
+        assert link_page.status_code == 200
         assert "111%3A1" in link_page.text
 
         # unpin clears both
@@ -764,24 +765,35 @@ def test_dish_picker_shows_images_and_combines_current_dish(tmp_path):
     """The dish cell is one control: summary = current dish (thumb + name),
     body = alternatives with thumbs (regression for the two picker TODOs)."""
     with make_client(tmp_path) as client:
-        for name in ("Pasta", "Curry"):
-            (tmp_path / "recipes" / f"{name.lower()}.yaml").write_text(
-                f"name: {name}\nservings: 4\ntime: {{cook: 30}}\n"
-                "ingredients:\n  - {product: spaghetti, amount: 500, unit: g}\n",
-                encoding="utf-8",
-            )
-        # give Pasta an image
+        client.post(
+            "/settings/people",
+            data={"person_id": "mama", "name": "Mama", "role": "adult", "weight": "1"},
+        )
+        (tmp_path / "recipes" / "pasta.yaml").write_text(
+            "name: Pasta\nservings: 4\ntime: {cook: 20}\n"
+            "ingredients:\n  - {product: spaghetti, amount: 500, unit: g}\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "recipes" / "curry.yaml").write_text(
+            "name: Curry\nservings: 4\ntime: {cook: 30}\n"
+            "ingredients:\n  - {product: rijst, amount: 400, unit: g}\n",
+            encoding="utf-8",
+        )
         (tmp_path / "recipes" / "img").mkdir()
         (tmp_path / "recipes" / "img" / "pasta.png").write_bytes(_png_bytes())
 
         page = client.get("/plan").text
-        # summary = current dish, with thumb
         assert '<details class="dish-picker">' in page
+        # Monday (25 min) picks pasta; the summary IS the selected dish
         summary = page.split("<summary")[1].split("</summary>")[0]
-        assert "Pasta" in summary and "pasta.png" in summary
-        # alternatives rendered as option rows with their own thumbs (Curry has none)
-        options = page.split("dish-options")[1].split("</details>")[0]
-        assert "Curry" in options
-        assert 'src="/recipes/img/pasta.png"' not in options  # current dish not re-listed
-        # wissel select is gone; dish picker replaces it
-        assert 'name="choice"' in options  # option rows post the swap directly
+        assert "Pasta" in summary
+        assert 'src="/recipes/img/pasta.png"' in summary
+        # Tuesday (45 min) is a curry evening: its picker lists pasta (with
+        # thumb) as an alternative option row
+        tuesday_options = page.split("dish-options")[2].split("</details>")[0]
+        assert "Pasta" in tuesday_options
+        assert 'src="/recipes/img/pasta.png"' in tuesday_options
+        assert 'name="choice"' in tuesday_options
+        assert "laten staan" in tuesday_options
+        # wissel select is gone; only the 7 cook selects remain
+        assert page.count("<select") == 7
