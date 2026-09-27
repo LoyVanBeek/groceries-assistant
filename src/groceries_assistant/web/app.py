@@ -59,6 +59,7 @@ from groceries_assistant.services.planner_service import (
     last_weeks_stock,
     match_products,
     parse_start,
+    plan_to_picks,
     plan_to_rows,
     preferences_from_store,
     propose,
@@ -183,13 +184,9 @@ def create_app(
         proposal = store().load_proposal()
         if proposal is None:
             start = parse_start(None)
-            plan = propose(
-                all_recipes,
-                store(),
-                start,
-                dishes=list(dishes_by_slug().values()),
-            )
-            plan_id = store().save_proposal(start, plan_to_rows(plan))
+            dishes = dishes_by_slug()
+            plan = propose(all_recipes, store(), start, dishes=list(dishes.values()))
+            plan_id = store().save_proposal(start, plan_to_rows(plan), plan_to_picks(plan, dishes))
             proposal = (plan_id, start)
         plan_id, start = proposal[0], proposal[1]
         prefs = preferences_from_store(store())
@@ -641,13 +638,16 @@ def create_app(
         form_action: str = "/dishes",
     ) -> dict:
         """The dish page with its form filled in (also used to redisplay errors)."""
-        dishes, errors = load_dishes_with_errors(dishes_dir())
+        loaded, errors = load_dishes_with_errors(dishes_dir())
+        dishes = sorted(loaded, key=lambda d: d.name.lower())
         known = {r.slug: r.name for r in load_all()[0]}
         missing: list[str] = []
-        for dish in dishes:
+        for dish in loaded:
             missing += [slug for slug in sorted(dish.option_slugs) if slug not in known]
+        people = store().people()
+        verdicts = store().verdicts()
         return {
-            "dishes": sorted(dishes, key=lambda d: d.name.lower()),
+            "dishes": dishes,
             "errors": errors,
             "recipe_names": known,
             "unknown": missing,
@@ -656,6 +656,16 @@ def create_app(
             "name": name,
             "parts": parts,
             "error": error,
+            "people": people,
+            # A verdict on a dish is a verdict on the combination, and it is keyed
+            # by the dish's slug: the same slug space as a recipe.
+            "verdicts": {
+                dish.slug: {
+                    person["id"]: verdicts.get(dish.slug, {}).get(person["id"], "")
+                    for person in people
+                }
+                for dish in dishes
+            },
         }
 
     @app.get("/dishes", response_class=HTMLResponse)
@@ -676,7 +686,21 @@ def create_app(
                 "dishes.html",
                 **_dish_form_ctx(name, parts, f"'{slug}' bestaat al"),
             )
+        if slug in recipes_by_slug():
+            # A dish shares its slug space with the recipes (verdicts, history),
+            # so a name clash would make the two indistinguishable.
+            return render(
+                request,
+                "dishes.html",
+                **_dish_form_ctx(name, parts, f"'{slug}' is al een recept; kies een andere naam"),
+            )
         _save_dish_file(slug, name, parsed)
+        return RedirectResponse("/dishes", status_code=303)
+
+    @app.post("/dishes/verdict")
+    def dish_verdict_route(slug: str = Form(...), person: str = Form(...), verdict: str = Form("")):
+        """Say something about a whole dish, the combination and not its parts."""
+        _set_verdict(slug, person, verdict)
         return RedirectResponse("/dishes", status_code=303)
 
     @app.get("/dishes/{slug}", response_class=HTMLResponse)
@@ -1266,12 +1290,16 @@ def create_app(
                 )
         return out
 
-    @app.post("/recipes/verdict")
-    def set_verdict_route(slug: str = Form(...), person: str = Form(...), verdict: str = Form("")):
+    def _set_verdict(slug: str, person: str, verdict: str) -> None:
+        """Store a verdict, or clear it when the field is back to empty."""
         if verdict in ("love", "ok", "dislike", "never"):
             store().set_verdict(slug, person, verdict)
         else:
             store().clear_verdict(slug, person)
+
+    @app.post("/recipes/verdict")
+    def set_verdict_route(slug: str = Form(...), person: str = Form(...), verdict: str = Form("")):
+        _set_verdict(slug, person, verdict)
         return RedirectResponse("/recipes", status_code=303)
 
     # --- settings ---------------------------------------------------------------

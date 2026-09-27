@@ -304,8 +304,17 @@ class Store:
 
     # --- proposals & approved plans ---------------------------------------------------
 
-    def save_proposal(self, start: date, entries: list[PlanEntryRow]) -> int:
-        """Replace the active proposal (plans with status 'proposed')."""
+    def save_proposal(
+        self,
+        start: date,
+        entries: list[PlanEntryRow],
+        picks: dict[date, dict[str, str]] | None = None,
+    ) -> int:
+        """Replace the active proposal (plans with status 'proposed').
+
+        `picks` are the parts the planner chose for its composed dishes: a
+        proposal lands fully formed, and `/plan/picks` can overwrite them.
+        """
         cur = self.conn.cursor()
         cur.execute("SELECT id FROM plans WHERE status = 'proposed'")
         for (old_id,) in cur.fetchall():
@@ -329,6 +338,14 @@ class Store:
                     entry.people,
                 ),
             )
+        for day, day_picks in (picks or {}).items():
+            for part_key, recipe_slug in day_picks.items():
+                if not recipe_slug:
+                    continue
+                cur.execute(
+                    "INSERT INTO plan_picks(plan_id, day, part_key, recipe_slug) VALUES (?,?,?,?)",
+                    (plan_id, day.isoformat(), part_key, recipe_slug),
+                )
         self.conn.commit()
         return plan_id
 

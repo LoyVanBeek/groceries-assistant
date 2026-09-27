@@ -173,6 +173,40 @@ def test_replacing_a_proposal_cascades_its_picks_away(store):
     assert store.plan_picks(second) == {}
 
 
+def test_a_proposal_can_be_saved_with_its_picks(store):
+    """The planner's own parts land in the store, ready for the week view."""
+    day = date(2026, 9, 28)
+    plan_id = store.save_proposal(
+        day,
+        [PlanEntryRow(day=day, recipe_slug="agv")],
+        {day: {"groente": "boerenkool", "vlees": "kip"}},
+    )
+
+    assert store.plan_picks(plan_id) == {day: {"groente": "boerenkool", "vlees": "kip"}}
+
+
+def test_a_new_proposal_takes_the_picks_with_it(store):
+    day = date(2026, 9, 28)
+    store.save_proposal(
+        day, [PlanEntryRow(day=day, recipe_slug="agv")], {day: {"groente": "boerenkool"}}
+    )
+
+    second = store.save_proposal(
+        day, [PlanEntryRow(day=day, recipe_slug="agv")], {day: {"groente": "sperziebonen"}}
+    )
+
+    assert store.plan_picks(second) == {day: {"groente": "sperziebonen"}}
+
+
+def test_an_empty_part_is_left_open_in_a_saved_proposal(store):
+    day = date(2026, 9, 28)
+    plan_id = store.save_proposal(
+        day, [PlanEntryRow(day=day, recipe_slug="agv")], {day: {"groente": "", "vlees": "kip"}}
+    )
+
+    assert store.plan_picks(plan_id) == {day: {"vlees": "kip"}}
+
+
 def test_updating_the_entries_of_a_proposal_keeps_its_picks(store):
     """Approving a week rewrites the entry rows; the picks must survive it."""
     day = date(2026, 9, 28)

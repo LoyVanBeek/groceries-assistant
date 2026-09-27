@@ -11,7 +11,12 @@
 
 {% if dishes %}
 <table>
-  <tr><th>Gerecht</th><th>Onderdelen</th><th></th></tr>
+  <tr>
+    <th>Gerecht</th>
+    <th>Onderdelen</th>
+    <th></th>
+    {% for p in people %}<th>{{ p['name'] or p['id'] }}</th>{% endfor %}
+  </tr>
   {% for d in dishes %}
   <tr>
     <td><a href="/dishes/{{ d.slug }}">{{ d.name }}</a></td>
@@ -28,9 +33,30 @@
         <button class="muted" aria-label="Verwijder {{ d.name }}">&times;</button>
       </form>
     </td>
+    {% for p in people %}
+    <td>
+      <form method="post" action="/dishes/verdict">
+        <input type="hidden" name="slug" value="{{ d.slug }}">
+        <input type="hidden" name="person" value="{{ p['id'] }}">
+        <select name="verdict" onchange="this.form.submit()">
+          <option value=""></option>
+          {% for v in ['love','ok','dislike','never'] %}
+          <option value="{{ v }}" {% if verdicts[d.slug][p['id']] == v %}selected{% endif %}>{{ v }}</option>
+          {% endfor %}
+        </select>
+      </form>
+    </td>
+    {% endfor %}
   </tr>
   {% endfor %}
 </table>
+{% if people %}
+<p class="muted">
+  Ook over het gerecht zelf kun je iets zeggen, net als over een recept. Dat weegt
+  zwaarder dan de onderdelen samen: &quot;never&quot; op een gerecht haalt het hele
+  gerecht uit de planning.
+</p>
+{% endif %}
 {% else %}
 <p class="muted">Nog geen gerechten.</p>
 {% endif %}

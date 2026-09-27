@@ -12,6 +12,7 @@ from groceries_assistant.services.planner_service import (
     build_order,
     last_weeks_stock,
     match_products,
+    plan_to_picks,
     plan_to_rows,
     plan_week,
     rows_to_entries,
@@ -413,3 +414,80 @@ def test_a_dish_evening_buys_the_parts_it_chose(tmp_path):
     lines = {item.product: item for item in order.shopping}
     assert lines["broccoli"].pack_count == 1  # 300 g of a 350 g pack
     assert lines["kip"].amount == 600 and lines["kip"].pack_count is None
+
+
+# --- the planner's own picks ---------------------------------------------------
+
+
+def _plan_with_a_dish_filled():
+    """What plan_week returns for a dish evening, without going through the UI."""
+    dish = ComposedDish.model_validate(
+        {
+            "slug": "aardappel-groente-vlees",
+            "name": "Aardappel-groente-vlees",
+            "parts": [
+                {"label": "Aardappels", "options": ["aardappels"]},
+                {"label": "Groente", "options": ["sperziebonen", "boerenkool"]},
+            ],
+        }
+    )
+    recipes = [
+        _part_recipe("aardappels", 1000, "g", minutes=30),
+        _part_recipe("sperziebonen", 300, "g"),
+        _part_recipe("boerenkool", 300, "g"),
+    ]
+    prefs = Preferences(
+        people=[Person(id="a", role="adult")],
+        verdicts={"aardappel-groente-vlees": {"a": "love"}},
+    )
+    evening = EveningAvailability(date=D1, free_minutes=60, joiners=("a",))
+    plan = plan_week(recipes, prefs, [evening], dishes=[dish])
+    return plan, {dish.slug: dish}
+
+
+def test_the_parts_the_planner_chose_become_picks():
+    plan, dishes = _plan_with_a_dish_filled()
+
+    # boerenkool wins the groente part: the parts score the same, so the slug decides
+    assert plan_to_picks(plan, dishes) == {
+        D1: {"aardappels": "aardappels", "groente": "boerenkool"}
+    }
+
+
+def test_a_plain_evening_has_no_picks():
+    plan = plan_week(
+        [_recipe("pasta")], _four_people(), [EveningAvailability(date=D1, free_minutes=60)]
+    )
+
+    assert plan_to_picks(plan, {}) == {}
+
+
+def test_a_dish_evening_is_stored_under_the_dish_slug():
+    plan, dishes = _plan_with_a_dish_filled()
+    rows = plan_to_rows(plan)
+
+    assert [(row.kind, row.recipe_slug) for row in rows] == [("cook", "aardappel-groente-vlees")]
+    entries = rows_to_entries(
+        rows,
+        {part.slug: part for part in plan.entries[0].parts},
+        dishes,
+        plan_to_picks(plan, dishes),
+    )
+    assert entries[0].dish_slug == "aardappel-groente-vlees"
+    assert [part.slug for part in entries[0].parts] == ["aardappels", "boerenkool"]
+    assert entries[0].missing == []
+
+
+def test_a_dish_evening_with_half_the_picks_says_which_part_is_open():
+    plan, dishes = _plan_with_a_dish_filled()
+    rows = plan_to_rows(plan)
+
+    entries = rows_to_entries(
+        rows,
+        {part.slug: part for part in plan.entries[0].parts},
+        dishes,
+        {D1: {"aardappels": "aardappels"}},
+    )
+
+    assert [part.slug for part in entries[0].parts] == ["aardappels"]
+    assert entries[0].missing == ["Groente"]

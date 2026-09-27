@@ -2050,3 +2050,128 @@ def test_a_chosen_dish_buys_the_parts_of_that_evening(tmp_path):
             )
         }
         assert {"aardappels", "sperziebonen", "kip"} <= items
+
+
+# --- the planner's own picks, and a verdict on a dish --------------------------
+
+
+def add_person(client, person_id: str = "ma", name: str = "Mar", role: str = "adult") -> None:
+    client.post(
+        "/settings/people",
+        data={"person_id": person_id, "name": name, "role": role, "weight": "1"},
+        follow_redirects=False,
+    )
+
+
+def judge_dish(client, slug: str, verdict: str, person: str = "ma") -> None:
+    client.post(
+        "/dishes/verdict",
+        data={"slug": slug, "person": person, "verdict": verdict},
+        follow_redirects=False,
+    )
+
+
+def cook_every_evening(client, minutes: int = 60) -> None:
+    """A week where every evening has room for the dish (30 min) and someone cooks."""
+    client.post(
+        "/settings/template",
+        data={
+            **{f"cook_{weekday}": "ma" for weekday in range(7)},
+            **{f"minutes_{weekday}": str(minutes) for weekday in range(7)},
+        },
+        follow_redirects=False,
+    )
+
+
+def test_the_planner_fills_a_dish_and_the_week_view_shows_it_filled(tmp_path):
+    """Loved dish, first visit to /plan: the parts are already chosen."""
+    seed_part_recipes(tmp_path)
+    seed_dish(tmp_path)
+    with make_client(tmp_path) as client:
+        add_person(client)
+        judge_dish(client, "aardappel-groente-vlees", "love")
+        cook_every_evening(client)
+
+        client.get("/plan")
+
+        store, plan_id = _proposal(tmp_path)
+        dish_days = [
+            row.day
+            for row in store.plan_entries(plan_id)
+            if row.recipe_slug == "aardappel-groente-vlees"
+        ]
+        assert dish_days  # the planner used the dish
+        picks = store.plan_picks(plan_id)
+        assert set(picks) >= set(dish_days)  # every dish evening has its parts
+        assert picks[dish_days[0]] == {
+            "aardappels": "aardappels-uit-de-oven",
+            "groente": "sperziebonen",
+            "vlees": "kip-doner",
+        }
+        assert "Aardappels uit de oven + Sperziebonen + Kipdoner" in client.get("/plan").text
+
+
+def test_approving_a_planned_dish_buys_its_parts(tmp_path):
+    """The whole path: the planner fills the dish, approve, and its parts are bought."""
+    seed_part_recipes(tmp_path)
+    seed_dish(tmp_path)
+    with make_client(tmp_path) as client:
+        add_person(client)
+        judge_dish(client, "aardappel-groente-vlees", "love")
+        cook_every_evening(client)
+        client.get("/plan")
+        client.post("/plan/approve", follow_redirects=False)
+
+        store = Store(tmp_path / "state.db")
+        items = {i["product"] for i in store.order_items(store.latest_plan()[0])}
+        assert {"aardappels", "sperziebonen", "kip"} <= items
+        assert "nog te kiezen" not in client.get("/order").text  # nothing left open
+
+
+def test_never_on_a_dish_keeps_the_planner_off_it(tmp_path):
+    seed_part_recipes(tmp_path)
+    seed_dish(tmp_path)
+    with make_client(tmp_path) as client:
+        add_person(client)
+        judge_dish(client, "aardappel-groente-vlees", "love")
+        assert 'value="love" selected' in client.get("/dishes").text
+
+        judge_dish(client, "aardappel-groente-vlees", "never")
+        cook_every_evening(client)
+        client.get("/plan")
+
+        store, plan_id = _proposal(tmp_path)
+        assert "aardappel-groente-vlees" not in {
+            row.recipe_slug for row in store.plan_entries(plan_id)
+        }
+
+
+def test_a_dish_verdict_can_be_undone(tmp_path):
+    seed_part_recipes(tmp_path)
+    seed_dish(tmp_path)
+    with make_client(tmp_path) as client:
+        add_person(client)
+        judge_dish(client, "aardappel-groente-vlees", "dislike")
+        assert 'value="dislike" selected' in client.get("/dishes").text
+
+        judge_dish(client, "aardappel-groente-vlees", "")
+
+        page = client.get("/dishes").text
+        assert 'value="dislike" selected' not in page
+        assert Store(tmp_path / "state.db").verdicts() == {}
+
+
+def test_a_dish_may_not_take_a_recipes_name(tmp_path):
+    """Both share one slug space for verdicts and history: keep them apart."""
+    seed_recipe(tmp_path)
+    (tmp_path / "dishes").mkdir(parents=True, exist_ok=True)
+    with make_client(tmp_path) as client:
+        page = client.post(
+            "/dishes",
+            data={"name": "Pasta", "parts": "Groente: sperziebonen"},
+            follow_redirects=False,
+        )
+
+        assert page.status_code == 200
+        assert "al een recept" in page.text
+        assert not (tmp_path / "dishes" / "pasta.yaml").exists()

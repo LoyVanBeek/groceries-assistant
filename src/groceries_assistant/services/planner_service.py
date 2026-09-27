@@ -196,6 +196,28 @@ def plan_to_rows(plan: WeeklyPlan, servings: int = DEFAULT_SERVINGS) -> list[Pla
     return rows
 
 
+def plan_to_picks(
+    plan: WeeklyPlan, dishes_by_slug: dict[str, ComposedDish]
+) -> dict[date, dict[str, str]]:
+    """The parts the planner chose per evening: day -> {part_key: recipe_slug}.
+
+    A composed dish is stored under its own slug with its parts beside it, so
+    without this a proposed dish would land in the week view with every part
+    still to be chosen.
+    """
+    picks: dict[date, dict[str, str]] = {}
+    for entry in plan.entries:
+        if not entry.dish_slug or not entry.parts:
+            continue
+        dish = dishes_by_slug.get(entry.dish_slug)
+        if dish is None:
+            continue
+        picks[entry.date] = {
+            part.key: recipe.slug for part, recipe in zip(dish.parts, entry.parts, strict=True)
+        }
+    return picks
+
+
 def rows_to_entries(
     rows: list[PlanEntryRow],
     recipes_by_slug: dict[str, Recipe],

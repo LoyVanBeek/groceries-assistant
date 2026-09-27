@@ -54,7 +54,9 @@
       decides the time you need -- with the total shown next to it.
       The planner fills the parts itself too: dishes compete with every recipe,
       'never' on a dish slug skips the whole dish, and a verdict on the dish
-      counts more than the mean of its parts)
+      counts more than the mean of its parts. A proposal lands filled: the
+      planner's own picks show up as chosen in the week plan. On `/dishes` you
+      can say something about a dish per person, just like about a recipe)
 - [x] Leftovers as arithmetic instead of a planner feature
       (declare how one purchase looks and how long it keeps per product: you buy
       whole things, what a purchase leaves over is stock with a shelf life, usable
