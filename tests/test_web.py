@@ -1,10 +1,14 @@
 """Web smoke tests: propose -> swap -> approve -> review -> AH deep-link."""
 
 import re
+from datetime import date, timedelta
 from pathlib import Path
 
+import yaml
 from fastapi.testclient import TestClient
 
+from groceries_assistant.models import slugify
+from groceries_assistant.store.db import Store
 from groceries_assistant.web.app import create_app
 
 PASTA = """\
@@ -1558,3 +1562,264 @@ def test_a_broken_dish_file_does_not_hide_the_page(tmp_path):
         page = client.get("/dishes")
         assert page.status_code == 200
         assert "Ongeldige gerechtbestanden" in page.text
+
+
+# --- composed dishes in the week view ------------------------------------------
+
+
+def seed_dish(tmp_path: Path, name: str = "Aardappel-groente-vlees", parts: str = "") -> None:
+    """Write a dish definition next to the seeded part recipes."""
+    default = "Aardappels: aardappels-uit-de-oven\nGroente: sperziebonen\nVlees: kip-doner"
+    rows = [
+        {
+            "key": slugify(label),
+            "label": label.strip(),
+            "options": [s.strip() for s in opts.split(",")],
+        }
+        for label, opts in (
+            line.split(":", 1) for line in (parts or default).splitlines() if line.strip()
+        )
+    ]
+    directory = tmp_path / "dishes"
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / f"{slugify(name)}.yaml").write_text(
+        yaml.safe_dump({"slug": slugify(name), "name": name, "parts": rows}, allow_unicode=True),
+        encoding="utf-8",
+    )
+
+
+def _proposal(tmp_path: Path):
+    store = Store(tmp_path / "state.db")
+    return store, store.load_proposal()[0]
+
+
+def _open_week(client, tmp_path: Path):
+    """The proposal is created on the first /plan visit."""
+    client.get("/plan")
+    return _proposal(tmp_path)
+
+
+def plan_a_dish(
+    client, tmp_path: Path, index: int = 0, dish: str = "aardappel-groente-vlees"
+) -> date:
+    """Swap one evening of the proposal onto a dish; returns that day."""
+    store, plan_id = _open_week(client, tmp_path)
+    day = store.plan_entries(plan_id)[index].day
+    client.post("/plan/swap", data={"day": day.isoformat(), "choice": dish}, follow_redirects=False)
+    return day
+
+
+def pick(client, day: date, **parts: str):
+    return client.post(
+        "/plan/picks",
+        data={"day": day.isoformat(), **{f"part_{key}": slug for key, slug in parts.items()}},
+        follow_redirects=False,
+    )
+
+
+def test_a_dish_can_be_planned_and_its_parts_chosen(tmp_path):
+    seed_part_recipes(tmp_path)
+    seed_dish(tmp_path)
+    with make_client(tmp_path) as client:
+        day = plan_a_dish(client, tmp_path)
+
+        page = client.get("/plan")
+        assert "Aardappel-groente-vlees" in page.text
+        assert "nog te kiezen" in page.text
+        for key in ("aardappels", "groente", "vlees"):
+            assert f'name="part_{key}"' in page.text
+
+        assert (
+            pick(
+                client,
+                day,
+                aardappels="aardappels-uit-de-oven",
+                groente="sperziebonen",
+                vlees="kip-doner",
+            ).status_code
+            == 303
+        )
+
+        # the row shows the parts joined with ' + ', under the dish name
+        assert "Aardappels uit de oven + Sperziebonen + Kipdoner" in client.get("/plan").text
+
+
+def test_picking_partly_shows_only_the_chosen_parts(tmp_path):
+    seed_part_recipes(tmp_path)
+    seed_dish(tmp_path)
+    with make_client(tmp_path) as client:
+        day = plan_a_dish(client, tmp_path)
+        pick(client, day, aardappels="aardappels-uit-de-oven", groente="")
+
+        text = client.get("/plan").text
+        assert "Aardappels uit de oven" in text
+        # the row names what is still missing
+        assert "nog te kiezen: Groente, Vlees" in text
+
+
+def test_clearing_a_part_removes_it_from_the_row(tmp_path):
+    seed_part_recipes(tmp_path)
+    seed_dish(tmp_path)
+    with make_client(tmp_path) as client:
+        day = plan_a_dish(client, tmp_path)
+        pick(
+            client,
+            day,
+            aardappels="aardappels-uit-de-oven",
+            groente="sperziebonen",
+            vlees="kip-doner",
+        )
+        assert (
+            pick(
+                client, day, aardappels="aardappels-uit-de-oven", groente="sperziebonen"
+            ).status_code
+            == 303
+        )
+
+        store, plan_id = _proposal(tmp_path)
+        assert store.plan_picks(plan_id)[day] == {
+            "aardappels": "aardappels-uit-de-oven",
+            "groente": "sperziebonen",
+        }
+
+
+def test_an_option_that_is_not_on_offer_is_ignored(tmp_path):
+    seed_part_recipes(tmp_path)
+    seed_dish(tmp_path)
+    with make_client(tmp_path) as client:
+        day = plan_a_dish(client, tmp_path)
+
+        pick(client, day, groente="kip-doner")  # a real recipe, but not a part option
+
+        store, plan_id = _proposal(tmp_path)
+        assert store.plan_picks(plan_id).get(day, {}) == {}
+
+
+def test_picks_on_a_plain_recipe_evening_are_refused(tmp_path):
+    seed_part_recipes(tmp_path)
+    seed_dish(tmp_path)
+    with make_client(tmp_path) as client:
+        store, plan_id = _open_week(client, tmp_path)
+        day = store.plan_entries(plan_id)[0].day
+
+        assert pick(client, day, groente="sperziebonen").status_code == 303
+
+        assert store.plan_picks(plan_id).get(day, {}) == {}
+
+
+def test_swapping_the_evening_to_another_dish_drops_the_picks(tmp_path):
+    seed_part_recipes(tmp_path)
+    seed_dish(tmp_path)
+    seed_dish(tmp_path, "Alleen groente", parts="Groente: sperziebonen")
+    with make_client(tmp_path) as client:
+        day = plan_a_dish(client, tmp_path)
+        pick(client, day, aardappels="aardappels-uit-de-oven", groente="sperziebonen")
+
+        client.post(
+            "/plan/swap",
+            data={"day": day.isoformat(), "choice": "alleen-groente"},
+            follow_redirects=False,
+        )
+
+        store, plan_id = _proposal(tmp_path)
+        assert store.plan_picks(plan_id).get(day, {}) == {}  # 'aardappels' is not a part now
+        assert "Alleen groente" in client.get("/plan").text
+
+
+def test_swapping_the_evening_to_a_plain_recipe_drops_the_picks(tmp_path):
+    seed_part_recipes(tmp_path)
+    seed_dish(tmp_path)
+    with make_client(tmp_path) as client:
+        day = plan_a_dish(client, tmp_path)
+        pick(client, day, groente="sperziebonen")
+
+        client.post(
+            "/plan/swap",
+            data={"day": day.isoformat(), "choice": "kip-doner"},
+            follow_redirects=False,
+        )
+
+        store, plan_id = _proposal(tmp_path)
+        assert store.plan_picks(plan_id).get(day, {}) == {}
+
+
+def test_a_leftovers_evening_of_a_dish_copies_its_picks(tmp_path):
+    seed_part_recipes(tmp_path)
+    seed_dish(tmp_path)
+    with make_client(tmp_path) as client:
+        day = plan_a_dish(client, tmp_path)
+        pick(client, day, aardappels="aardappels-uit-de-oven", groente="sperziebonen")
+        following = day + timedelta(days=1)
+
+        client.post(
+            "/plan/swap",
+            data={"day": following.isoformat(), "choice": "__leftovers__"},
+            follow_redirects=False,
+        )
+
+        store, plan_id = _proposal(tmp_path)
+        picks = store.plan_picks(plan_id)
+        assert picks[following] == picks[day]
+        text = client.get("/plan").text
+        assert "Restjes (Aardappel-groente-vlees)" in text
+        assert "Aardappels uit de oven + Sperziebonen" in text
+
+
+def test_approving_a_week_keeps_the_picks(tmp_path):
+    seed_part_recipes(tmp_path)
+    seed_dish(tmp_path)
+    with make_client(tmp_path) as client:
+        day = plan_a_dish(client, tmp_path)
+        pick(client, day, groente="sperziebonen")
+
+        assert client.post("/plan/approve", follow_redirects=False).status_code == 303
+
+        store = Store(tmp_path / "state.db")
+        assert store.plan_picks(store.latest_plan()[0])[day]["groente"] == "sperziebonen"
+
+
+def test_the_week_row_shows_the_longest_part_and_the_total(tmp_path):
+    seed_part_recipes(tmp_path)
+    seed_dish(tmp_path)
+    with make_client(tmp_path) as client:
+        day = plan_a_dish(client, tmp_path)
+        pick(
+            client,
+            day,
+            aardappels="aardappels-uit-de-oven",  # 30 min
+            groente="sperziebonen",  # 10 min
+            vlees="kip-doner",  # 20 min
+        )
+        # 60 minutes of parts in a 45-minute evening
+        client.post(
+            "/plan/evening", data={"day": day.isoformat(), "minutes": 45}, follow_redirects=False
+        )
+
+        text = client.get("/plan").text
+        assert "30/45 min" in text  # the longest part decides the evening
+        assert "60 min samen" in text  # the sum is shown as a note
+
+
+def test_a_dish_appears_in_the_picker_with_its_part_labels(tmp_path):
+    seed_part_recipes(tmp_path)
+    seed_dish(tmp_path)
+    with make_client(tmp_path) as client:
+        text = client.get("/plan").text
+        assert "Aardappel-groente-vlees" in text
+        assert "(Aardappels + Groente + Vlees)" in text
+
+
+def test_an_unfilled_dish_buys_only_the_filled_parts_and_warns(tmp_path):
+    seed_part_recipes(tmp_path)
+    seed_dish(tmp_path)
+    with make_client(tmp_path) as client:
+        day = plan_a_dish(client, tmp_path)
+        pick(client, day, groente="sperziebonen")
+
+        client.post("/plan/approve", follow_redirects=False)
+
+        store = Store(tmp_path / "state.db")
+        items = {i["product"] for i in store.order_items(store.latest_plan()[0])}
+        assert "sperziebonen" in items
+        # the order says what is missing, so the list is not silently short
+        assert "zonder Aardappels en Vlees" in client.get("/order").text

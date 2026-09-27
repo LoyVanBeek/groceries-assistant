@@ -3,6 +3,11 @@
 {% block content %}
 <h1>Controle &mdash; week van {{ start }}</h1>
 <p>Vink wat je al in huis hebt; dit komt niet op de lijst.</p>
+{% if warnings %}
+<ul class="plain warnings">
+  {% for w in warnings %}<li>{{ w }}</li>{% endfor %}
+</ul>
+{% endif %}
 <ul class="plain">
   {% for item in items %}
   <li class="item">

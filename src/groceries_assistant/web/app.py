@@ -53,6 +53,7 @@ from groceries_assistant.services.planner_service import (
     apply_absences,
     build_order,
     evenings_for,
+    incomplete_dish_warnings,
     match_products,
     parse_start,
     plan_to_rows,
@@ -183,7 +184,13 @@ def create_app(
         plan_id, start = proposal[0], proposal[1]
         prefs = preferences_from_store(store())
         evenings = plan_view(
-            store(), plan_id, all_recipes, prefs, store().people(), image_for=image_path
+            store(),
+            plan_id,
+            all_recipes,
+            prefs,
+            store().people(),
+            image_for=image_path,
+            dishes=list(dishes_by_slug().values()),
         )
         return render(
             request,
@@ -230,10 +237,79 @@ def create_app(
             else:
                 new_rows.append(PlanEntryRow(day=target, kind="cook", recipe_slug=choice, people=4))
         store().update_proposal_rows(plan_id, new_rows)
+        _reconcile_picks(plan_id, new_rows, target, _row_dish_slug(rows, target))
+        return RedirectResponse("/plan", status_code=303)
+
+    def _row_dish_slug(rows: list[PlanEntryRow], day: date) -> str:
+        """The composed dish (if any) an evening had before the swap."""
+        row = next((r for r in rows if r.day == day), None)
+        return (row.recipe_slug or row.source_slug or "") if row else ""
+
+    def _reconcile_picks(plan_id: int, rows: list[PlanEntryRow], day: date, was: str) -> None:
+        """Keep this evening's picks in step with the dish it now has.
+
+        Swapping to another dish (or to a plain recipe, or to no cooking at all)
+        drops the picks: they described a combination that is no longer planned.
+        A leftovers evening eats what its source evening cooks, so it copies
+        those picks instead -- display only, the extra portions are bought on
+        the source evening.
+        """
+        row = next((r for r in rows if r.day == day), None)
+        dishes = dishes_by_slug()
+        current = store().plan_picks(plan_id).get(day, {})
+        if row is not None and row.kind == "leftovers":
+            source = next(
+                (
+                    r
+                    for r in rows
+                    if r.kind == "cook" and r.day < day and r.recipe_slug == row.source_slug
+                ),
+                None,
+            )
+            copied = store().plan_picks(plan_id).get(source.day, {}) if source else {}
+            if copied != current:
+                store().set_picks(plan_id, day, copied)
+            return
+        if row is None or row.recipe_slug not in dishes or row.recipe_slug != was:
+            store().clear_day_picks(plan_id, day)
+            return
+        kept = {k: v for k, v in current.items() if dishes[row.recipe_slug].part(k) is not None}
+        if kept != current:
+            store().set_picks(plan_id, day, kept)
+
+    @app.post("/plan/picks")
+    async def plan_picks(request: Request, day: str = Form(...)):
+        """Choose which recipe fills each part of one evening's dish.
+
+        One `<select name="part_<key>">` per part, so an empty value clears that
+        part. Only a cook evening of a composed dish takes picks; anything else
+        is ignored rather than half-applied.
+        """
+        proposal = store().load_proposal()
+        if proposal is None:
+            raise HTTPException(404, "Geen voorstel om te wijzigen")
+        plan_id = proposal[0]
+        target = date.fromisoformat(day)
+        row = next((r for r in store().plan_entries(plan_id) if r.day == target), None)
+        dish = dishes_by_slug().get(row.recipe_slug or "") if row and row.kind == "cook" else None
+        if dish is None:
+            return RedirectResponse("/plan", status_code=303)
+        form = await request.form()
+        picks: dict[str, str] = {}
+        for part in dish.parts:
+            chosen = str(form.get(f"part_{part.key}", "")).strip()
+            # an option that is not on offer is ignored, not stored
+            if chosen and chosen in part.options:
+                picks[part.key] = chosen
+        store().set_picks(plan_id, target, picks)
         return RedirectResponse("/plan", status_code=303)
 
     def _best_cook_row(rows: list[PlanEntryRow], target: date) -> PlanEntryRow:
-        """Convert a leftovers evening into a cook evening with the best fit."""
+        """Convert a leftovers evening into a cook evening with the best fit.
+
+        Only plain recipes: a composed dish would still need its parts filled, and
+        an empty dish would buy nothing.
+        """
         from groceries_assistant.services.planning import alternatives
 
         evening = evenings_for(store(), target, days=1)[0]
@@ -242,12 +318,12 @@ def create_app(
         source = _previous_cook_slug(rows, target)
         scored = alternatives(all_recipes, prefs, evening, exclude_slug=source)
         if scored:
-            recipe = scored[0][1]
+            slug = scored[0].slug
         elif all_recipes:
-            recipe = min(all_recipes, key=lambda r: (r.time.same_day_minutes, r.slug))
+            slug = min(all_recipes, key=lambda r: (r.time.same_day_minutes, r.slug)).slug
         else:
             raise HTTPException(400, "Geen recepten om te koken")
-        return PlanEntryRow(day=target, kind="cook", recipe_slug=recipe.slug, people=4)
+        return PlanEntryRow(day=target, kind="cook", recipe_slug=slug, people=4)
 
     @app.post("/plan/evening")
     async def plan_evening(request: Request, day: str = Form(...)):
@@ -329,8 +405,23 @@ def create_app(
             request,
             "order.html",
             items=store().order_items(plan_id),
+            warnings=_plan_warnings(plan_id),
             fmt=format_amount,
         )
+
+    def _plan_warnings(plan_id: int) -> list[str]:
+        """What the approved plan is still missing, read straight from the plan.
+
+        Composed dishes can be approved with parts unfilled; their groceries are
+        not on the list, so the list has to say so. Read-only: nothing is stored.
+        """
+        entries = rows_to_entries(
+            store().plan_entries(plan_id),
+            recipes_by_slug(),
+            dishes_by_slug(),
+            store().plan_picks(plan_id),
+        )
+        return incomplete_dish_warnings(entries)
 
     @app.post("/order/have")
     def order_have(product: str = Form(...), unit: str = Form(...), have: str = Form("")):

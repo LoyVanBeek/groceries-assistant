@@ -367,6 +367,15 @@ table.plan .dish-option {
 }
 table.plan .dish-option:hover { background: var(--accent-soft); }
 table.plan .dish-option .thumb { width: 2.6rem; height: 2.6rem; margin-right: 0; }
+
+/* composed dish: the dish's own name small above, the parts you cook below */
+table.plan .dish-combo { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
+table.plan .dish-label { font-size: 0.82rem; color: var(--muted); }
+table.plan .parts-label { font-size: 0.98rem; }
+table.plan .parts-form { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.3rem; }
+table.plan .parts-form .part { display: flex; flex-direction: column; gap: 0.1rem; }
+table.plan .parts-form .part-label { font-size: 0.75rem; color: var(--muted); }
+table.plan .parts-form select { max-width: 11rem; }
 table.plan .col-cook { width: 13rem; }
 table.plan .col-cook form { display: flex; flex-wrap: nowrap; gap: 0.3rem; align-items: center; }
 table.plan .col-cook select { width: 100%; min-width: 0; }

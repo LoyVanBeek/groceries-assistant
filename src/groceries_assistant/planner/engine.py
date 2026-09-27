@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Literal
 
-from groceries_assistant.models import Recipe
+from groceries_assistant.models import ComposedDish, DishPart, Recipe
 from groceries_assistant.planner.availability import EveningAvailability
 from groceries_assistant.preferences import VERDICT_POINTS, Preferences
 
@@ -186,6 +186,78 @@ class _Pick:
     prep_ahead_used: int
 
 
+@dataclass(frozen=True)
+class Option:
+    """One candidate scored for one evening: score, time and any warnings."""
+
+    recipe: Recipe
+    score: float
+    minutes: int
+    warnings: list[str]
+    prep_ahead_used: int
+
+
+def score_option(
+    recipe: Recipe,
+    prefs: Preferences,
+    evening: EveningAvailability,
+    *,
+    history: dict[str, date] | None = None,
+    planned: set[str] | frozenset[str] = frozenset(),
+    dislike_used: int = 0,
+    dislike_slots: int = DEFAULT_DISLIKE_SLOTS,
+    repeat_window_days: int = DEFAULT_REPEAT_WINDOW_DAYS,
+    prep_capacity: int = 0,
+    previous_recipe: Recipe | None = None,
+    allow_reuse: bool = False,
+) -> Option | None:
+    """Score one dish for one evening; None when it cannot be served then.
+
+    This is the single scoring rule of the planner: verdicts, repetition,
+    protein, prep-ahead and the time budget. A plain recipe is one option; each
+    part of a composed dish is one too, scored the same way.
+    """
+    history = history or {}
+    score = prefs.recipe_score(recipe.slug, evening.joiners)
+    if recipe.slug in planned:
+        if not allow_reuse:
+            return None
+        score -= REUSE_PENALTY
+    if prefs.never_by(recipe.slug, evening.joiners):
+        return None
+    if prefs.disliked_by(recipe.slug, evening.joiners) and dislike_used >= dislike_slots:
+        return None
+
+    warnings: list[str] = []
+    prep_ahead_used = 0
+    if recipe.time.prep_ahead and recipe.time.prep_ahead <= prep_capacity:
+        minutes = recipe.time.same_day_minutes
+        prep_ahead_used = recipe.time.prep_ahead
+        warnings.append(f"{recipe.time.prep_ahead} min voorbereiding moet eerder gebeuren")
+    else:
+        minutes = recipe.time.total_minutes
+    if minutes > evening.free_minutes:
+        return None
+
+    last_cooked = history.get(recipe.slug)
+    if last_cooked is not None and 0 <= (evening.date - last_cooked).days <= repeat_window_days:
+        score -= REPEAT_PENALTY
+    if (
+        recipe.protein
+        and previous_recipe is not None
+        and previous_recipe.protein
+        and previous_recipe.protein == recipe.protein
+    ):
+        score -= PROTEIN_REPEAT_PENALTY
+    return Option(
+        recipe=recipe,
+        score=score,
+        minutes=minutes,
+        warnings=warnings,
+        prep_ahead_used=prep_ahead_used,
+    )
+
+
 def _pick(
     recipes: list[Recipe],
     prefs: Preferences,
@@ -199,40 +271,23 @@ def _pick(
     previous_recipe: Recipe | None,
     allow_reuse: bool = False,
 ) -> _Pick | None:
-    candidates: list[tuple[float, Recipe, int, list[str], int]] = []
+    candidates: list[Option] = []
     for recipe in recipes:
-        score = prefs.recipe_score(recipe.slug, evening.joiners)
-        if recipe.slug in planned:
-            if not allow_reuse:
-                continue
-            score -= REUSE_PENALTY
-        if prefs.never_by(recipe.slug, evening.joiners):
-            continue
-        if prefs.disliked_by(recipe.slug, evening.joiners) and dislike_used >= dislike_slots:
-            continue
-
-        warnings: list[str] = []
-        prep_ahead_used = 0
-        if recipe.time.prep_ahead and recipe.time.prep_ahead <= prep_capacity:
-            minutes = recipe.time.same_day_minutes
-            prep_ahead_used = recipe.time.prep_ahead
-            warnings.append(f"{recipe.time.prep_ahead} min voorbereiding moet eerder gebeuren")
-        else:
-            minutes = recipe.time.total_minutes
-        if minutes > evening.free_minutes:
-            continue
-
-        last_cooked = history.get(recipe.slug)
-        if last_cooked is not None and 0 <= (evening.date - last_cooked).days <= repeat_window_days:
-            score -= REPEAT_PENALTY
-        if (
-            recipe.protein
-            and previous_recipe is not None
-            and previous_recipe.protein
-            and previous_recipe.protein == recipe.protein
-        ):
-            score -= PROTEIN_REPEAT_PENALTY
-        candidates.append((score, recipe, minutes, warnings, prep_ahead_used))
+        option = score_option(
+            recipe,
+            prefs,
+            evening,
+            history=history,
+            planned=planned,
+            dislike_used=dislike_used,
+            dislike_slots=dislike_slots,
+            repeat_window_days=repeat_window_days,
+            prep_capacity=prep_capacity,
+            previous_recipe=previous_recipe,
+            allow_reuse=allow_reuse,
+        )
+        if option is not None:
+            candidates.append(option)
 
     # Leftover option: reheat yesterday's dish.
     if (
@@ -241,7 +296,7 @@ def _pick(
         and evening.free_minutes >= LEFTOVER_MINUTES
     ):
         leftover_score = LEFTOVER_SCORE
-        if not candidates or max(c[0] for c in candidates) < leftover_score:
+        if not candidates or max(c.score for c in candidates) < leftover_score:
             entry = PlanEntry(
                 date=evening.date,
                 recipe=None,
@@ -256,19 +311,138 @@ def _pick(
 
     if not candidates:
         return None
-    candidates.sort(key=lambda item: (-item[0], item[2], item[1].slug))
-    score, recipe, minutes, warnings, prep_ahead_used = candidates[0]
+    candidates.sort(key=lambda option: (-option.score, option.minutes, option.recipe.slug))
+    best = candidates[0]
     entry = PlanEntry(
         date=evening.date,
-        recipe=recipe,
+        recipe=best.recipe,
         availability=evening,
+        score=best.score,
+        minutes=best.minutes,
+        prep_ahead_used=best.prep_ahead_used,
+        reason=_reason(best.recipe, prefs, evening, best.score),
+        warnings=best.warnings,
+    )
+    return _Pick(
+        entry=entry,
+        recipe=best.recipe,
+        minutes=best.minutes,
+        prep_ahead_used=best.prep_ahead_used,
+    )
+
+
+@dataclass(frozen=True)
+class DishChoice:
+    """A composed dish with a recipe chosen for each of its parts."""
+
+    dish: ComposedDish
+    parts: tuple[Recipe, ...]
+    """Chosen recipes, in the order the dish declares its parts."""
+    score: float
+    minutes: int
+    """Minutes on the evening itself: the longest part."""
+    total_minutes: int
+    """Sum over the parts."""
+    prep_ahead_used: int
+    warnings: list[str]
+    reason: str
+
+
+def fill_dish(
+    dish: ComposedDish,
+    recipes_by_slug: dict[str, Recipe],
+    prefs: Preferences,
+    evening: EveningAvailability,
+    *,
+    history: dict[str, date] | None = None,
+    planned: set[str] | frozenset[str] = frozenset(),
+    dislike_used: int = 0,
+    dislike_slots: int = DEFAULT_DISLIKE_SLOTS,
+    repeat_window_days: int = DEFAULT_REPEAT_WINDOW_DAYS,
+    prep_capacity: int = 0,
+    previous_recipe: Recipe | None = None,
+    allow_reuse: bool = False,
+) -> DishChoice | None:
+    """Fill every part of a dish with the best option that evening allows.
+
+    Each part's options are scored with the planner's own rules, so a component
+    that is already planned this week, marked 'never' or cooked recently is
+    passed over. Returns None when the whole dish is off the table: a 'never'
+    verdict on the dish itself, a part with no usable option left, or a longest
+    part that does not fit the evening.
+
+    A verdict on the dish's own slug says more about the combination than its
+    parts do, so it replaces their mean score.
+    """
+    if prefs.never_by(dish.slug, evening.joiners):
+        return None
+
+    used = set(planned)
+    chosen: list[tuple[DishPart, Option]] = []
+    for part in dish.parts:
+        options: list[Option] = []
+        for slug in part.options:
+            recipe = recipes_by_slug.get(slug)
+            if recipe is None:
+                continue  # recipe deleted since the dish was defined
+            option = score_option(
+                recipe,
+                prefs,
+                evening,
+                history=history,
+                planned=used,
+                dislike_used=dislike_used,
+                dislike_slots=dislike_slots,
+                repeat_window_days=repeat_window_days,
+                prep_capacity=prep_capacity,
+                previous_recipe=previous_recipe,
+                allow_reuse=allow_reuse,
+            )
+            if option is not None:
+                options.append(option)
+        if not options:
+            return None  # this part cannot be filled tonight
+        best = min(options, key=lambda option: (-option.score, option.minutes, option.recipe.slug))
+        used.add(best.recipe.slug)
+        chosen.append((part, best))
+
+    minutes = max(option.minutes for _part, option in chosen)
+    if minutes > evening.free_minutes:
+        return None  # the longest part does not fit
+
+    prep_ahead_used = sum(option.prep_ahead_used for _part, option in chosen)
+    warnings = [w for _part, option in chosen for w in option.warnings]
+    if prep_ahead_used > prep_capacity:
+        warnings.append(
+            f"{prep_ahead_used} min voorbereiding, maar er is {prep_capacity} min eerder "
+            "over; dat past niet"
+        )
+    mean = sum(option.score for _part, option in chosen) / len(chosen)
+    score = prefs.recipe_score(dish.slug, evening.joiners) if dish.slug in prefs.verdicts else mean
+    return DishChoice(
+        dish=dish,
+        parts=tuple(option.recipe for _part, option in chosen),
         score=score,
         minutes=minutes,
+        total_minutes=sum(option.recipe.time.total_minutes for _part, option in chosen),
         prep_ahead_used=prep_ahead_used,
-        reason=_reason(recipe, prefs, evening, score),
         warnings=warnings,
+        reason=_dish_reason(dish, chosen, evening, minutes, score),
     )
-    return _Pick(entry=entry, recipe=recipe, minutes=minutes, prep_ahead_used=prep_ahead_used)
+
+
+def _dish_reason(
+    dish: ComposedDish,
+    chosen: list[tuple[DishPart, Option]],
+    evening: EveningAvailability,
+    minutes: int,
+    score: float,
+) -> str:
+    """A reason string that names the combination, not just the number."""
+    parts = [f"{part.label}: {option.recipe.name}" for part, option in chosen]
+    parts.append(f"{minutes}/{evening.free_minutes} min")
+    parts.append(f"totaal {score:+.0f}")
+    return "; ".join(parts)
 
 
 def _reason(recipe: Recipe, prefs: Preferences, evening: EveningAvailability, score: float) -> str:

@@ -32,11 +32,15 @@
         {% elif e.kind == 'no_cook' %}niet koken
         {% else %}{{ e.minutes }}/{{ e.budget }} min &middot; {{ e.people }} p{% endif %}
       </span>
+      {% if e.over_total %}<div class="warnings">{{ e.total_minutes }} min samen</div>{% endif %}
       {% if e.over_budget %}<div class="warnings">over!</div>{% endif %}
     </td>
     <td class="col-dish">
       {% if e.kind == 'leftovers' %}
-      <strong>{{ e.name }}</strong>
+      {% if e.is_dish %}
+      <span class="dish-label">{{ e.name }}</span>
+      <span class="parts-label">{{ e.parts_label or 'nog te kiezen' }}</span>
+      {% else %}<strong>{{ e.name }}</strong>{% endif %}
       <form method="post" action="/plan/swap" class="inline">
         <input type="hidden" name="day" value="{{ e.day_iso }}">
         <input type="hidden" name="choice" value="__cook__">
@@ -46,7 +50,21 @@
       <details class="dish-picker">
         <summary aria-label="Gerecht wisselen voor {{ e.label }}">
           {% if e.image %}<img class="thumb" src="/recipes/img/{{ e.image.name }}" alt="">{% endif %}
+          {% if e.is_dish %}
+          <span class="dish-combo">
+            <span class="dish-label">{{ e.name }}</span>
+            <span class="parts-label">
+              {% if e.parts_label %}
+              <strong>{{ e.parts_label }}</strong>
+              {% if e.unfilled %}<span class="muted"> + nog te kiezen: {{ e.unfilled|join(', ') }}</span>{% endif %}
+              {% else %}
+              <strong class="muted">nog te kiezen</strong>
+              {% endif %}
+            </span>
+          </span>
+          {% else %}
           <strong{% if e.kind == 'no_cook' %} class="muted"{% endif %}>{{ e.name }}</strong>
+          {% endif %}
         </summary>
         <div class="dish-options">
           {% for alt in e.alternatives %}
@@ -56,6 +74,7 @@
             <button class="dish-option">
               {% if alt.image %}<img class="thumb" src="/recipes/img/{{ alt.image.name }}" alt="">{% endif %}
               {{ alt.name }}
+              {% if alt.is_dish %}<span class="muted"> ({{ alt.part_labels|join(' + ') }})</span>{% endif %}
             </button>
           </form>
           {% endfor %}
@@ -80,6 +99,26 @@
           </form>
         </div>
       </details>
+      {% endif %}
+      {% if e.is_dish and e.editable_parts and e.part_options %}
+      <form method="post" action="/plan/picks" class="parts-form">
+        <input type="hidden" name="day" value="{{ e.day_iso }}">
+        {% for part in e.part_options %}
+        <label class="part">
+          <span class="part-label">{{ part.label }}</span>
+          <select name="part_{{ part.key }}" aria-label="{{ part.label }} {{ e.label }}"
+                  onchange="this.form.requestSubmit()">
+            <option value="" {% if not part.chosen %}selected{% endif %}>nog te kiezen</option>
+            {% for opt in part.options %}
+            <option value="{{ opt.slug }}" {% if part.chosen == opt.slug %}selected{% endif %}>{{ opt.name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        {% endfor %}
+        <button aria-label="Bewaar onderdelen {{ e.label }}">opslaan</button>
+      </form>
+      {% elif e.is_dish and e.unfilled and not e.part_options %}
+      <div class="muted">Nog te kiezen: {{ e.unfilled|join(', ') }}</div>
       {% endif %}
     </td>
     <td class="col-cook">

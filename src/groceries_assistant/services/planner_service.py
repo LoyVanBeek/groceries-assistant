@@ -344,6 +344,24 @@ def _entry_slug(entry: PlanEntry) -> str | None:
     return entry.recipe.slug if entry.recipe is not None else None
 
 
+def incomplete_dish_warnings(entries: list[PlanEntry]) -> list[str]:
+    """Composed dishes that are planned with parts still unfilled.
+
+    Their groceries are not on the list, so say so rather than quietly
+    under-buying. Derived from the plan itself, so the order page can show it
+    without storing anything.
+    """
+    warnings: list[str] = []
+    for entry in entries:
+        if entry.missing:
+            name = entry.dish_slug or _entry_slug(entry) or ""
+            warnings.append(
+                f"{entry.date}: '{name}' zonder {' en '.join(entry.missing)}; "
+                "die boodschappen ontbreken op de lijst"
+            )
+    return warnings
+
+
 def build_order(
     entries: list[PlanEntry],
     recipes_by_slug: dict[str, Recipe],
@@ -379,22 +397,15 @@ def build_order(
             people[source.date] = people.get(source.date, servings) + (entry.people or servings)
 
     work: list[tuple[date, Recipe, int]] = []
-    warnings: list[str] = []
     for entry in entries:
         if entry.kind != "cook":
             continue
         count = people.get(entry.date, servings)
         for recipe in entry.dishes:
             work.append((entry.date, recipes_by_slug.get(recipe.slug, recipe), count))
-        if entry.missing:
-            name = entry.dish_slug or _entry_slug(entry) or ""
-            warnings.append(
-                f"{entry.date}: '{name}' zonder {' en '.join(entry.missing)}; "
-                "die boodschappen ontbreken op de lijst"
-            )
 
-    items, item_warnings = aggregate_ingredients(work)
-    warnings += item_warnings
+    items, warnings = aggregate_ingredients(work)
+    warnings = incomplete_dish_warnings(entries) + warnings
     staple_set = {s.lower() for s in staples}
     shopping: list[ShoppingItem] = []
     staple_items: list[ShoppingItem] = []
