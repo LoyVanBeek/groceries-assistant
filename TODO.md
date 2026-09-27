@@ -20,3 +20,4 @@
 - [ ] Recipes need an optional URL field where I can paste an URL to the original recipe
 - [ ] I also need a way to indicate we don'ty have to cook at all due to eating elsewhere etc. 
 - [ ] Paste a AH.nl product URL to match the products
+- [ ] Include thumbnail of the AH-item. Just crosslinking to the image on AH.nl should be fine right?
