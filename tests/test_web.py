@@ -743,9 +743,9 @@ def test_order_match_pin_unpin(tmp_path):
         saved = yaml.safe_load((tmp_path / "ah_mappings.yaml").read_text())
         assert saved["mappings"]["spaghetti"]["confirmed"] is True
 
-        # link page now includes it
+        # matched row now links to the pinned article
         matched = client.get("/order/match")
-        assert "/producten/product/wa123" in matched.text  # matched article link
+        assert "/producten/product/wa111" in matched.text
         link_page = client.get("/order/link")
         assert "111%3A1" in link_page.text
 
