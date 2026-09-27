@@ -38,3 +38,11 @@
 - [x] Drag and drop photo import
       (drop zone on the recipe editor and the bulk page, plus a drag-over
       highlight; dropped files land in the same input as a hand-picked set)
+- [x] Import one recipe from several photos
+      (the import form takes a list: front and back of one card are read as a
+      single recipe, ingredients and steps merged; picking/camera/drop as before)
+- [x] Bulk OCR import: one recipe per photo
+      (`/recipes/ocr`: queue a pile of photos, click through them one by one,
+      each opens pre-filled in the editor with '1 van N' and a 'volgende' link;
+      saving retires that card and returns to the queue, keeping the photo as
+      the recipe's picture unless unticked)

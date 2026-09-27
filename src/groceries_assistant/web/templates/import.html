@@ -4,9 +4,24 @@
 <h1>Recept toevoegen</h1>
 {% if error %}<p class="warnings">{{ error }}</p>{% endif %}
 <form method="post" action="/recipes/import" enctype="multipart/form-data">
-  <p><label>Foto van geprint recept</label><br><input type="file" name="photo" accept="image/*" capture="environment"></p>
+  <p class="muted">Meerdere foto's van &eacute;&eacute;n recept (bv. voor- en achterkant) worden als
+     &eacute;&eacute;n recept gelezen. Wil je er meerdere recepten van maken, gebruik dan
+     <a href="/recipes/ocr">Bulk importeren</a>.</p>
+  <div class="photo-drop">
+    <p class="photo-pick">
+      <label class="btn-file">Kies foto's<input type="file" name="photos" accept="image/*" multiple></label>
+      <button type="button" class="camera-button">Maak foto</button>
+      <input type="file" class="camera-input" accept="image/*" capture="environment" hidden>
+    </p>
+    <p class="drop-hint">Sleep foto's hierheen, of tik op &lsquo;Maak foto&rsquo; om de camera te openen. Neem ze in leesvolgorde.</p>
+    <ul class="file-list"></ul>
+    <p class="file-warn warnings"></p>
+  </div>
   <p><label>Of plak tekst</label><br><textarea name="text" rows="10" cols="60"></textarea></p>
   <p><label>Of URL</label><br><input type="text" name="url" size="50"></p>
   <p><button type="submit" class="primary">Uitlezen &rarr;</button></p>
 </form>
+{% endblock %}
+{% block scripts %}
+<script src="/static/photos.js" defer></script>
 {% endblock %}

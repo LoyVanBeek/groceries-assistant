@@ -34,6 +34,7 @@ from groceries_assistant.recipes.loader import (
 )
 from groceries_assistant.recipes.textparser import (
     LIST_MARKER,
+    ParseResult,
     parse_ingredient_line,
     parse_recipe_text,
 )
@@ -59,14 +60,40 @@ NO_COOK_CHOICE = "__no_cook__"
 KEEP_CHOICE = ""
 
 ALLOWED_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
-# staged photos get a random id as name, so their uploads can never collide
+# staged uploads get a random id as name, so they can never collide
 STAGED_UID_RE = re.compile(r"[0-9a-f]{32}\Z")
+PHOTO_STAGING = "photo-staging"
+OCR_STAGING = "ocr-staging"
 
 
 def _image_ext(filename: str | None) -> str:
     """Lowercase extension of an upload, if we serve that type."""
     ext = Path(filename or "").suffix.lower()
     return ext if ext in ALLOWED_IMAGE_EXTS else ""
+
+
+def _stage_dir(root: Path, folder: str) -> Path:
+    """Staging directory for uploads, created on demand."""
+    directory = root / folder
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
+
+
+def _staged_files(directory: Path) -> list[Path]:
+    """Uploads waiting in a staging directory, oldest first."""
+    if not directory.is_dir():
+        return []
+    return sorted(
+        (p for p in directory.glob("*") if STAGED_UID_RE.match(p.stem) and _image_ext(p.name)),
+        key=lambda p: p.stat().st_mtime,
+    )
+
+
+def _staged_file(directory: Path, uid: str) -> Path | None:
+    """Path of a staged upload by id, if the id is one of ours and it exists."""
+    if not STAGED_UID_RE.match(uid):
+        return None
+    return next((p for p in directory.glob(f"{uid}.*") if _image_ext(p.name)), None)
 
 
 def create_app(
@@ -77,9 +104,10 @@ def create_app(
     """search_fn: injectable AH search(product) -> candidates; None = real client."""
     data = Path(data_dir)
     (data / "recipes").mkdir(parents=True, exist_ok=True)
-    # staged photos are scratch space for the current run only
-    for stale in (data / "photo-staging").glob("*"):
-        stale.unlink(missing_ok=True)
+    # staged uploads are scratch space for the current run only
+    for folder in (PHOTO_STAGING, OCR_STAGING):
+        for stale in (data / folder).glob("*"):
+            stale.unlink(missing_ok=True)
     app = FastAPI(title="Groceries Assistant")
     templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
     app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
@@ -412,6 +440,12 @@ def create_app(
 
     # --- recipes ---------------------------------------------------------------
 
+    def photo_staging() -> Path:
+        return data / PHOTO_STAGING
+
+    def ocr_staging() -> Path:
+        return data / OCR_STAGING
+
     @app.get("/recipes/photos", response_class=HTMLResponse)
     def photos_page(request: Request):
         """Bulk photo import: stage a pile of photos, then assign them."""
@@ -419,7 +453,7 @@ def create_app(
         return render(
             request,
             "photos.html",
-            staged=staged_photos(),
+            staged=_staged_files(photo_staging()),
             recipes=sorted(all_recipes, key=lambda r: r.name.lower()),
             errors=errors,
         )
@@ -433,7 +467,9 @@ def create_app(
             if not ext:
                 skipped += 1
                 continue
-            (_staging() / f"{uuid4().hex}{ext}").write_bytes(await upload.read())
+            (_stage_dir(data, PHOTO_STAGING) / f"{uuid4().hex}{ext}").write_bytes(
+                await upload.read()
+            )
             added += 1
         query = f"toegevoegd={added}" + (f"&genegeerd={skipped}" if skipped else "")
         return RedirectResponse(f"/recipes/photos?{query}", status_code=303)
@@ -441,9 +477,10 @@ def create_app(
     @app.post("/recipes/photos/assign")
     async def photos_assign(request: Request):
         """Move staged photos into the chosen recipes; others wait for next time."""
+        staging = photo_staging()
         form = await request.form()
         if form.get("clear"):
-            for path in staged_photos():
+            for path in _staged_files(staging):
                 path.unlink(missing_ok=True)
             return RedirectResponse("/recipes/photos", status_code=303)
         known = set(recipes_by_slug())
@@ -451,7 +488,7 @@ def create_app(
         for field, slug in form.multi_items():
             if not field.startswith("photo_") or slug not in known:
                 continue
-            photo = _staged(field[len("photo_") :])
+            photo = _staged_file(staging, field[len("photo_") :])
             if photo is None:
                 continue
             _store_image(
@@ -461,17 +498,93 @@ def create_app(
             assigned += 1
         for field in form:
             if field.startswith("drop_"):
-                photo = _staged(field[len("drop_") :])
+                photo = _staged_file(staging, field[len("drop_") :])
                 if photo is not None:
                     photo.unlink(missing_ok=True)
         return RedirectResponse(f"/recipes/photos?toegewezen={assigned}", status_code=303)
 
     @app.get("/recipes/photos/staged/{name}")
     def staged_photo(name: str):
-        photo = _staged(Path(name).stem)
+        photo = _staged_file(photo_staging(), Path(name).stem)
         if photo is None:
             raise HTTPException(404, "Geen foto")
         return FileResponse(photo)
+
+    @app.get("/recipes/ocr", response_class=HTMLResponse)
+    def ocr_queue_page(request: Request):
+        """Bulk OCR import: a pile of photos, each to become its own recipe."""
+        staged = _staged_files(ocr_staging())
+        return render(request, "ocr.html", staged=staged, count=len(staged))
+
+    @app.post("/recipes/ocr/add")
+    async def ocr_add(photos: Annotated[list[UploadFile] | None, File()] = None):
+        """Queue photos for OCR; the reading happens when you open one."""
+        added = skipped = 0
+        for upload in photos or []:
+            ext = _image_ext(upload.filename)
+            if not ext:
+                skipped += 1
+                continue
+            (_stage_dir(data, OCR_STAGING) / f"{uuid4().hex}{ext}").write_bytes(await upload.read())
+            added += 1
+        query = f"toegevoegd={added}" + (f"&genegeerd={skipped}" if skipped else "")
+        return RedirectResponse(f"/recipes/ocr?{query}", status_code=303)
+
+    @app.post("/recipes/ocr/discard")
+    def ocr_discard(uid: str = Form("")):
+        staging = ocr_staging()
+        if not uid:  # the 'alles weggooien' button
+            for path in _staged_files(staging):
+                path.unlink(missing_ok=True)
+            return RedirectResponse("/recipes/ocr", status_code=303)
+        photo = _staged_file(staging, uid)
+        if photo is not None:
+            photo.unlink(missing_ok=True)
+        return RedirectResponse("/recipes/ocr", status_code=303)
+
+    @app.get("/recipes/ocr/staged/{name}")
+    def ocr_staged_photo(name: str):
+        photo = _staged_file(ocr_staging(), Path(name).stem)
+        if photo is None:
+            raise HTTPException(404, "Geen foto")
+        return FileResponse(photo)
+
+    @app.get("/recipes/ocr/{uid}", response_class=HTMLResponse)
+    def ocr_review_page(request: Request, uid: str):
+        """Read one queued photo and show it in the editor, like a photo import."""
+        photo = _staged_file(ocr_staging(), uid)
+        if photo is None:
+            raise HTTPException(404, "Geen foto meer in de rij")
+        try:
+            parsed, _raw = extract_from_images([photo], binary=tesseract_binary, lang="nld")
+        except Exception as exc:
+            staged = _staged_files(ocr_staging())
+            return render(
+                request,
+                "ocr.html",
+                staged=staged,
+                count=len(staged),
+                error=f"Uitlezen mislukt: {exc}",
+            )
+        stems = [p.stem for p in _staged_files(ocr_staging())]
+        position = stems.index(uid) if uid in stems else 0
+        following = stems[position + 1] if position + 1 < len(stems) else ""
+        return render(
+            request,
+            "recipe_edit.html",
+            **{
+                **_editor_ctx_from_parse(
+                    parsed,
+                    note="" if parsed.ingredients else "Geen ingrediënten herkend; vul ze zelf in",
+                ),
+                "staged_photo": f"/recipes/ocr/staged/{photo.name}",
+                "stage_uid": uid,
+                "stage_position": position + 1,
+                "stage_total": len(stems),
+                "stage_next": f"/recipes/ocr/{following}" if following else "",
+            },
+            original_slug=None,
+        )
 
     @app.get("/recipes", response_class=HTMLResponse)
     def recipes_page(request: Request):
@@ -498,24 +611,23 @@ def create_app(
     @app.post("/recipes/import")
     async def do_import(
         request: Request,
-        photo: Annotated[UploadFile | None, File()] = None,
+        photos: Annotated[list[UploadFile] | None, File()] = None,
         text: str = Form(""),
         url: str = Form(""),
     ):
+        """Read one recipe from photos (all pages of it), pasted text or a URL."""
+        uploads = [p for p in (photos or []) if p.filename]
         try:
-            if photo is not None and photo.filename:
-                with tempfile.NamedTemporaryFile(
-                    suffix=Path(photo.filename).suffix or ".jpg", delete=False
-                ) as tmp:
-                    tmp.write(await photo.read())
-                    tmp_path = Path(tmp.name)
+            if uploads:
+                temp_paths = [await _temp_upload(p) for p in uploads]
                 try:
                     parsed, _raw = extract_from_images(
-                        [tmp_path], binary=tesseract_binary, lang="nld"
+                        temp_paths, binary=tesseract_binary, lang="nld"
                     )
-                    used_photo = True
                 finally:
-                    tmp_path.unlink(missing_ok=True)
+                    for temp_path in temp_paths:
+                        temp_path.unlink(missing_ok=True)
+                used_photo = True
             else:
                 used_photo = False
             if not used_photo:
@@ -533,20 +645,33 @@ def create_app(
         return render(
             request,
             "recipe_edit.html",
-            **editor_ctx(
-                parsed=parsed,
-                name_value=parsed.name or "",
-                servings_value=parsed.servings or 4,
-                prep_value=parsed.prep_minutes or 0,
-                cook_value=parsed.cook_minutes or 0,
-                ingredient_lines="\n".join(
-                    f"{i.amount:g} {i.unit} {i.product}" for i in parsed.ingredients
-                ),
-                steps_text="\n".join(number_steps(parsed.steps)),
-                protein_value="",
-                url_value=url.strip(),
-            ),
+            **_editor_ctx_from_parse(parsed, url_value=url.strip()),
             original_slug=None,
+        )
+
+    async def _temp_upload(upload: UploadFile) -> Path:
+        """An upload on disk, for the OCR binary to read."""
+        with tempfile.NamedTemporaryFile(
+            suffix=_image_ext(upload.filename) or ".jpg", delete=False
+        ) as tmp:
+            tmp.write(await upload.read())
+            return Path(tmp.name)
+
+    def _editor_ctx_from_parse(parsed: ParseResult, url_value: str = "", note: str = "") -> dict:
+        """Editor form fields from a parse result (photo, text or URL import)."""
+        return editor_ctx(
+            parsed=parsed,
+            note=note,
+            name_value=parsed.name or "",
+            servings_value=parsed.servings or 4,
+            prep_value=parsed.prep_minutes or 0,
+            cook_value=parsed.cook_minutes or 0,
+            ingredient_lines="\n".join(
+                f"{i.amount:g} {i.unit} {i.product}" for i in parsed.ingredients
+            ),
+            steps_text="\n".join(number_steps(parsed.steps)),
+            protein_value="",
+            url_value=url_value,
         )
 
     def number_steps(lines: list[str]) -> list[str]:
@@ -567,9 +692,15 @@ def create_app(
             "ingredient_lines": "",
             "steps_text": "",
             "parsed": None,
+            "note": "",
             "has_image": False,
             "image_ext": "",
             "images": [],
+            "staged_photo": "",
+            "stage_uid": "",
+            "stage_position": 0,
+            "stage_total": 0,
+            "stage_next": "",
         }
         return {**defaults, **fields}
 
@@ -705,29 +836,6 @@ def create_app(
                 raise HTTPException(400, "Afbeelding moet jpg, jpeg, png of webp zijn")
             _store_image(slug, await upload.read(), ext, as_featured=index == 0)
 
-    def _staging() -> Path:
-        directory = data / "photo-staging"
-        directory.mkdir(parents=True, exist_ok=True)
-        return directory
-
-    def staged_photos() -> list[Path]:
-        """Photos waiting to be assigned, oldest first."""
-        directory = data / "photo-staging"
-        if not directory.is_dir():
-            return []
-        return sorted(
-            (p for p in directory.glob("*") if STAGED_UID_RE.match(p.stem) and _image_ext(p.name)),
-            key=lambda p: p.stat().st_mtime,
-        )
-
-    def _staged(uid: str) -> Path | None:
-        """Path of a staged photo by id, if the id is one of ours and it exists."""
-        if not STAGED_UID_RE.match(uid):
-            return None
-        return next(
-            (p for p in (data / "photo-staging").glob(f"{uid}.*") if _image_ext(p.name)), None
-        )
-
     def _move_images(old_slug: str, new_slug: str) -> None:
         for old in (data / "recipes" / "img").glob(f"{old_slug}*"):
             if old.suffix.lower() not in ALLOWED_IMAGE_EXTS:
@@ -748,7 +856,10 @@ def create_app(
         ingredients: str = Form(""),
         steps: str = Form(""),
         image: Annotated[list[UploadFile] | None, File()] = None,
+        ocr_stage: str = Form(""),
+        card_photo: str = Form(""),
     ):
+        """Save the editor form; `ocr_stage` retires the reviewed card photo."""
         ingredient_lines = [line.strip() for line in ingredients.splitlines() if line.strip()]
         parsed_ingredients: list[dict] = []
         bad_lines: list[str] = []
@@ -774,6 +885,8 @@ def create_app(
                     url_value=url,
                     ingredient_lines=ingredients,
                     steps_text=steps,
+                    staged_photo=ocr_staged_url(ocr_stage),
+                    stage_uid=ocr_stage,
                 ),
                 original_slug=original_slug,
                 error="Niet herkend (verwacht: <hoeveelheid> <eenheid> <product>): "
@@ -799,7 +912,30 @@ def create_app(
             old_path.unlink(missing_ok=True)
             store().rename_recipe(original_slug, recipe.slug)
             _move_images(original_slug, recipe.slug)
+        if _retire_ocr_card(ocr_stage, recipe.slug, keep=bool(card_photo)):
+            # back to the queue: the next card is waiting
+            return RedirectResponse("/recipes/ocr?opgeslagen=1", status_code=303)
         return RedirectResponse("/recipes", status_code=303)
+
+    def ocr_staged_url(uid: str) -> str:
+        photo = _staged_file(ocr_staging(), uid)
+        return f"/recipes/ocr/staged/{photo.name}" if photo else ""
+
+    def _retire_ocr_card(uid: str, slug: str, *, keep: bool) -> bool:
+        """Take the reviewed card out of the OCR queue.
+
+        The card leaves the queue either way; keeping it stores it as the
+        recipe's photo when that recipe has none yet.
+        """
+        photo = _staged_file(ocr_staging(), uid)
+        if photo is None:
+            return False
+        if keep:
+            _store_image(
+                slug, photo.read_bytes(), photo.suffix, as_featured=image_path(slug) is None
+            )
+        photo.unlink(missing_ok=True)
+        return True
 
     @app.post("/recipes/img/select")
     def select_featured_image(

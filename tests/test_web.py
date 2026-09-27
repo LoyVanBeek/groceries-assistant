@@ -150,6 +150,187 @@ def test_import_from_url_prefills_source_url(tmp_path, monkeypatch):
         assert 'value="https://example.com/pasta-pesto"' in editor.text
 
 
+def _fake_ocr():
+    """Stand-in for the tesseract pipeline, naming each page after its own file.
+
+    Records the paths it was handed (and whether they existed) so a test can
+    assert the app hands over real temp files and cleans them up afterwards.
+    """
+    from groceries_assistant.recipes.textparser import parse_recipe_text
+
+    seen: list[Path] = []
+    alive: list[bool] = []
+
+    def fake_extract(paths, binary="tesseract", lang="nld"):
+        seen.extend(paths)
+        alive.extend(path.is_file() for path in paths)
+        pages = [f"Recept {path.stem}\n\n400 g spaghetti\n\nKook de spaghetti." for path in paths]
+        return parse_recipe_text("\n".join(pages)), "raw"
+
+    return fake_extract, seen, alive
+
+
+def test_import_reads_several_photos_as_one_recipe(tmp_path, monkeypatch):
+    """Front and back of one card: both photos are read as a single recipe."""
+    import groceries_assistant.web.app as app_module
+
+    fake, seen, alive = _fake_ocr()
+    monkeypatch.setattr(app_module, "extract_from_images", fake)
+
+    with make_client(tmp_path) as client:
+        editor = client.post(
+            "/recipes/import",
+            files=[
+                ("photos", ("voorkant.png", _png_bytes(), "image/png")),
+                ("photos", ("achterkant.png", _png_bytes(), "image/png")),
+            ],
+        )
+    assert editor.status_code == 200
+    assert len(seen) == 2, "beide foto's moeten aan de OCR mee"
+    assert all(alive), "temp bestanden bestaan tijdens het uitlezen"
+    assert not any(path.exists() for path in seen), "en worden daarna opgeruimd"
+    # one recipe out of it: a single editor form, with the ingredients pre-filled
+    assert editor.text.count('action="/recipes/save"') == 1
+    assert "400 g spaghetti" in editor.text
+    assert "Kook de spaghetti." in editor.text
+
+
+def test_bulk_ocr_reviews_each_photo_as_its_own_recipe(tmp_path, monkeypatch):
+    """A pile of cards: one photo per recipe, checked one at a time."""
+    import groceries_assistant.web.app as app_module
+
+    fake, _seen, _alive = _fake_ocr()
+    monkeypatch.setattr(app_module, "extract_from_images", fake)
+
+    with make_client(tmp_path) as client:
+        added = client.post(
+            "/recipes/ocr/add",
+            files=[
+                ("photos", ("kaart1.png", _png_bytes(), "image/png")),
+                ("photos", ("kaart2.png", _png_bytes(), "image/png")),
+                ("photos", ("notities.gif", b"GIF89a", "image/gif")),
+            ],
+            follow_redirects=False,
+        )
+        assert added.headers["location"] == "/recipes/ocr?toegevoegd=2&genegeerd=1"
+
+        queue = client.get("/recipes/photos")  # the other queue, must stay empty
+        assert "In de rij" not in queue.text
+        page = client.get("/recipes/ocr")
+        uids = re.findall(r'href="/recipes/ocr/([0-9a-f]{32})"', page.text)
+        assert len(uids) == 2
+        assert "In de rij (2)" in page.text
+
+        # the first card opens in the editor, pre-filled and named after its own photo
+        first = client.get(f"/recipes/ocr/{uids[0]}")
+        assert 'name="ocr_stage" value="' + uids[0] + '"' in first.text
+        assert f'value="Recept {uids[0]}"' in first.text
+        assert "Recept 1 van 2" in first.text
+        assert f'href="/recipes/ocr/{uids[1]}"' in first.text  # 'volgende overslaan'
+        assert "/recipes/ocr/staged/" in first.text  # the card is shown
+        assert 'name="card_photo" checked' in first.text
+
+        # saving it creates one recipe, keeps the card as its photo, and retires it
+        saved = client.post(
+            "/recipes/save",
+            data={
+                "name": "Lasagne",
+                "servings": "4",
+                "ingredients": "400 g spaghetti",
+                "steps": "Kook de spaghetti.",
+                "ocr_stage": uids[0],
+                "card_photo": "on",
+            },
+            follow_redirects=False,
+        )
+        assert saved.headers["location"] == "/recipes/ocr?opgeslagen=1"
+        assert (tmp_path / "recipes" / "lasagne.yaml").exists()
+        assert (tmp_path / "recipes" / "img" / "lasagne.png").exists()
+        after = client.get(saved.headers["location"]).text
+        assert "Recept opgeslagen" in after
+
+        # the second card is still waiting
+        left = client.get("/recipes/ocr").text
+        assert f'href="/recipes/ocr/{uids[0]}"' not in left
+        assert f'href="/recipes/ocr/{uids[1]}"' in left
+
+        # discard it and the queue is empty
+        client.post("/recipes/ocr/discard", data={"uid": uids[1]}, follow_redirects=False)
+        assert "Nog geen foto's in de rij" in client.get("/recipes/ocr").text
+
+
+def test_bulk_ocr_card_photo_is_optional(tmp_path, monkeypatch):
+    """Unticking 'bewaren als receptfoto' saves the recipe without an image."""
+    import groceries_assistant.web.app as app_module
+
+    fake, _seen, _alive = _fake_ocr()
+    monkeypatch.setattr(app_module, "extract_from_images", fake)
+
+    with make_client(tmp_path) as client:
+        client.post(
+            "/recipes/ocr/add",
+            files=[("photos", ("kaart.png", _png_bytes(), "image/png"))],
+            follow_redirects=False,
+        )
+        uid = re.findall(r'href="/recipes/ocr/([0-9a-f]{32})"', client.get("/recipes/ocr").text)[0]
+        client.post(
+            "/recipes/save",
+            data={
+                "name": "Lasagne",
+                "servings": "4",
+                "ingredients": "400 g spaghetti",
+                "steps": "Kook de spaghetti.",
+                "ocr_stage": uid,
+            },
+            follow_redirects=False,
+        )
+        assert (tmp_path / "recipes" / "lasagne.yaml").exists()
+        assert not (tmp_path / "recipes" / "img" / "lasagne.png").exists()
+        assert list((tmp_path / "ocr-staging").glob("*")) == []
+
+
+def test_bulk_ocr_warns_when_nothing_was_recognised(tmp_path, monkeypatch):
+    import groceries_assistant.web.app as app_module
+    from groceries_assistant.recipes.textparser import parse_recipe_text
+
+    monkeypatch.setattr(
+        app_module,
+        "extract_from_images",
+        lambda paths, binary="tesseract", lang="nld": (parse_recipe_text(""), ""),
+    )
+    with make_client(tmp_path) as client:
+        client.post(
+            "/recipes/ocr/add",
+            files=[("photos", ("kaart.png", _png_bytes(), "image/png"))],
+            follow_redirects=False,
+        )
+        uid = re.findall(r'href="/recipes/ocr/([0-9a-f]{32})"', client.get("/recipes/ocr").text)[0]
+        page = client.get(f"/recipes/ocr/{uid}").text
+        assert "Geen ingrediënten herkend" in page
+
+
+def test_ocr_queue_rejects_unknown_or_foreign_ids(tmp_path):
+    with make_client(tmp_path) as client:
+        assert client.get(f"/recipes/ocr/{'a' * 32}").status_code == 404
+        assert client.get("/recipes/ocr/staged/../state.db").status_code == 404
+        assert client.get("/recipes/ocr/staged/notastagedphoto.png").status_code == 404
+
+        # saving without a real staged card is just a normal save
+        saved = client.post(
+            "/recipes/save",
+            data={
+                "name": "Pasta",
+                "servings": "4",
+                "ingredients": "400 g spaghetti",
+                "steps": "Kook.",
+                "ocr_stage": "a" * 32,
+            },
+            follow_redirects=False,
+        )
+        assert saved.headers["location"] == "/recipes"
+        assert (tmp_path / "recipes" / "pasta.yaml").exists()
+
+
 def test_verdict_and_swap_flow(tmp_path):
     seed_recipe(tmp_path)
     with make_client(tmp_path) as client:
