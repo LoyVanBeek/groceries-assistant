@@ -1390,3 +1390,171 @@ def test_order_match_custom_entry_accepts_pasted_url(tmp_path):
         assert rejected.headers["location"] == "/order/match?error=id"
         items = {(i["product"], i["unit"]): i for i in store.order_items(plan_id)}
         assert items[("ui", "stuk")]["webshop_id"] is None
+
+
+# --- composed dishes (/dishes) -------------------------------------------------
+
+AARDAPPEL = """\
+name: Aardappels uit de oven
+servings: 4
+time: {cook: 30}
+ingredients:
+  - {product: aardappels, amount: 1000, unit: g}
+"""
+
+SPERZIE = """\
+name: Sperziebonen
+servings: 4
+time: {cook: 10}
+ingredients:
+  - {product: sperziebonen, amount: 300, unit: g}
+"""
+
+KIP = """\
+name: Kipdoner
+servings: 4
+time: {cook: 20}
+ingredients:
+  - {product: kip, amount: 600, unit: g}
+"""
+
+
+def seed_part_recipes(tmp_path: Path) -> None:
+    recipes = tmp_path / "recipes"
+    recipes.mkdir(parents=True, exist_ok=True)
+    (recipes / "aardappels-uit-de-oven.yaml").write_text(AARDAPPEL, encoding="utf-8")
+    (recipes / "sperziebonen.yaml").write_text(SPERZIE, encoding="utf-8")
+    (recipes / "kip-doner.yaml").write_text(KIP, encoding="utf-8")
+
+
+def test_dishes_page_renders_empty(tmp_path):
+    with make_client(tmp_path) as client:
+        page = client.get("/dishes")
+        assert page.status_code == 200
+        assert "Nog geen gerechten" in page.text
+
+
+def test_creating_a_dish_writes_the_file_and_lists_it(tmp_path):
+    seed_part_recipes(tmp_path)
+    with make_client(tmp_path) as client:
+        created = client.post(
+            "/dishes",
+            data={
+                "name": "Aardappel-Groente-Vlees",
+                "parts": "Groente: sperziebonen\nVlees: kip-doner",
+            },
+            follow_redirects=False,
+        )
+
+        assert created.status_code == 303
+        assert created.headers["location"] == "/dishes"
+        path = tmp_path / "dishes" / "aardappel-groente-vlees.yaml"
+        assert path.is_file()
+        assert "sperziebonen" in path.read_text(encoding="utf-8")
+
+        page = client.get("/dishes")
+        assert "Aardappel-Groente-Vlees" in page.text
+        # the part options are shown as recipe names, not slugs
+        assert "Groente: Sperziebonen" in page.text
+
+
+def test_a_line_without_a_colon_is_rejected_with_its_number(tmp_path):
+    with make_client(tmp_path) as client:
+        response = client.post(
+            "/dishes", data={"name": "Fout", "parts": "Groente: sperziebonen\ngeen punt"}
+        )
+
+        assert response.status_code == 200
+        assert "regel 2" in response.text
+        assert not (tmp_path / "dishes" / "fout.yaml").exists()
+        # the form keeps what you typed
+        assert "Groente: sperziebonen" in response.text
+
+
+def test_a_duplicate_dish_name_is_rejected(tmp_path):
+    with make_client(tmp_path) as client:
+        data = {"name": "Samen", "parts": "Groente: sperziebonen"}
+        client.post("/dishes", data=data)
+
+        response = client.post("/dishes", data=data)
+
+        assert "bestaat al" in response.text
+
+
+def test_a_dish_needs_at_least_one_part(tmp_path):
+    with make_client(tmp_path) as client:
+        response = client.post("/dishes", data={"name": "Leeg", "parts": "  \n"})
+        assert "minstens één onderdeel" in response.text
+
+
+def test_editing_a_dish_keeps_its_slug(tmp_path):
+    seed_part_recipes(tmp_path)
+    with make_client(tmp_path) as client:
+        client.post(
+            "/dishes",
+            data={"name": "Aardappel-groente-vlees", "parts": "Groente: sperziebonen"},
+        )
+
+        page = client.get("/dishes/aardappel-groente-vlees")
+        assert page.status_code == 200
+        assert "Groente: sperziebonen" in page.text
+
+        saved = client.post(
+            "/dishes/aardappel-groente-vlees",
+            data={
+                "name": "Aardappels, groente en vlees",
+                "parts": "Groente: sperziebonen\nVlees: kip-doner",
+            },
+            follow_redirects=False,
+        )
+
+        assert saved.status_code == 303
+        # still the same file: plans keep pointing at the slug
+        assert not (tmp_path / "dishes" / "aardappels-groente-en-vlees.yaml").exists()
+        page = client.get("/dishes")
+        assert "Aardappels, groente en vlees" in page.text
+        assert "Kipdoner" in page.text
+
+
+def test_editing_an_unknown_dish_is_a_404(tmp_path):
+    with make_client(tmp_path) as client:
+        assert client.get("/dishes/weg").status_code == 404
+        assert (
+            client.post(
+                "/dishes/weg", data={"name": "x", "parts": "A: b"}, follow_redirects=False
+            ).status_code
+            == 404
+        )
+
+
+def test_deleting_a_dish(tmp_path):
+    with make_client(tmp_path) as client:
+        client.post("/dishes", data={"name": "Samen", "parts": "Groente: sperziebonen"})
+
+        deleted = client.post("/dishes/samen/delete", follow_redirects=False)
+
+        assert deleted.status_code == 303
+        assert not (tmp_path / "dishes" / "samen.yaml").exists()
+        assert "Nog geen gerechten" in client.get("/dishes").text
+        assert client.post("/dishes/samen/delete", follow_redirects=False).status_code == 404
+
+
+def test_unknown_recipe_slugs_are_warned_about_not_rejected(tmp_path):
+    with make_client(tmp_path) as client:
+        client.post("/dishes", data={"name": "Samen", "parts": "Groente: sperziebonen, weg-recept"})
+
+        page = client.get("/dishes")
+        assert "Onbekende recepten" in page.text
+        assert "weg-recept" in page.text
+
+
+def test_a_broken_dish_file_does_not_hide_the_page(tmp_path):
+    seed_part_recipes(tmp_path)
+    dishes = tmp_path / "dishes"
+    dishes.mkdir(parents=True, exist_ok=True)
+    (dishes / "kapot.yaml").write_text("name: [kapot\n", encoding="utf-8")
+
+    with make_client(tmp_path) as client:
+        page = client.get("/dishes")
+        assert page.status_code == 200
+        assert "Ongeldige gerechtbestanden" in page.text

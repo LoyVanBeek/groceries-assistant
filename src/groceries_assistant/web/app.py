@@ -14,6 +14,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from pydantic import ValidationError
 
 from groceries_assistant.ah.client import AHClient
 from groceries_assistant.ah.deeplink import (
@@ -24,7 +25,16 @@ from groceries_assistant.ah.deeplink import (
     product_url,
 )
 from groceries_assistant.ah.matching import AHMapping, AHMappingStore
-from groceries_assistant.models import Recipe, slugify
+from groceries_assistant.dishes.loader import (
+    DishError,
+    dish_file,
+    format_part_lines,
+    load_dish,
+    load_dishes_with_errors,
+    parse_part_lines,
+    save_dish,
+)
+from groceries_assistant.models import ComposedDish, DishPart, Recipe, slugify
 from groceries_assistant.recipes.extract import extract_from_images
 from groceries_assistant.recipes.loader import (
     RecipeError,
@@ -437,6 +447,122 @@ def create_app(
         links = [build_add_multiple_url(chunk) for chunk in chunk_items(pairs)]
         qr = generate_qr_svg(links[0]) if links else None
         return render(request, "link.html", links=links, qr=qr)
+
+    # --- composed dishes ---------------------------------------------------------
+
+    def dishes_dir() -> Path:
+        directory = data / "dishes"
+        directory.mkdir(parents=True, exist_ok=True)
+        return directory
+
+    def dishes_by_slug() -> dict[str, ComposedDish]:
+        dishes, _errors = load_dishes_with_errors(dishes_dir())
+        return {d.slug: d for d in dishes}
+
+    def _dish_form_ctx(
+        name: str = "",
+        parts: str = "",
+        error: str = "",
+        *,
+        form_title: str = "Nieuw gerecht",
+        form_action: str = "/dishes",
+    ) -> dict:
+        """The dish page with its form filled in (also used to redisplay errors)."""
+        dishes, errors = load_dishes_with_errors(dishes_dir())
+        known = {r.slug: r.name for r in load_all()[0]}
+        missing: list[str] = []
+        for dish in dishes:
+            missing += [slug for slug in sorted(dish.option_slugs) if slug not in known]
+        return {
+            "dishes": sorted(dishes, key=lambda d: d.name.lower()),
+            "errors": errors,
+            "recipe_names": known,
+            "unknown": missing,
+            "form_title": form_title,
+            "form_action": form_action,
+            "name": name,
+            "parts": parts,
+            "error": error,
+        }
+
+    @app.get("/dishes", response_class=HTMLResponse)
+    def dishes_page(request: Request):
+        return render(request, "dishes.html", **_dish_form_ctx())
+
+    @app.post("/dishes")
+    def dishes_create(request: Request, name: str = Form(...), parts: str = Form("")):
+        """Create one dish from the line format; the slug comes from the name."""
+        try:
+            parsed = parse_part_lines(parts)
+        except DishError as exc:
+            return render(request, "dishes.html", **_dish_form_ctx(name, parts, str(exc)))
+        slug = slugify(name)
+        if dish_file(dishes_dir(), slug).exists():
+            return render(
+                request,
+                "dishes.html",
+                **_dish_form_ctx(name, parts, f"'{slug}' bestaat al"),
+            )
+        _save_dish_file(slug, name, parsed)
+        return RedirectResponse("/dishes", status_code=303)
+
+    @app.get("/dishes/{slug}", response_class=HTMLResponse)
+    def dish_edit_page(request: Request, slug: str):
+        try:
+            dish = load_dish(dish_file(dishes_dir(), slug))
+        except DishError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        return render(
+            request,
+            "dishes.html",
+            **_dish_form_ctx(
+                dish.name,
+                format_part_lines(dish.parts),
+                form_title=f"{dish.name} wijzigen",
+                form_action=f"/dishes/{slug}",
+            ),
+        )
+
+    @app.post("/dishes/{slug}")
+    def dish_save(request: Request, slug: str, name: str = Form(...), parts: str = Form("")):
+        """Save a dish in place; the slug stays fixed, so plans keep pointing at it."""
+        try:
+            load_dish(dish_file(dishes_dir(), slug))  # 404 on a slug that is gone
+        except DishError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        try:
+            parsed = parse_part_lines(parts)
+        except DishError as exc:
+            return render(
+                request,
+                "dishes.html",
+                **_dish_form_ctx(
+                    name,
+                    parts,
+                    str(exc),
+                    form_title="Wijzigen",
+                    form_action=f"/dishes/{slug}",
+                ),
+            )
+        _save_dish_file(slug, name, parsed)
+        return RedirectResponse("/dishes", status_code=303)
+
+    @app.post("/dishes/{slug}/delete")
+    def dish_delete(slug: str):
+        path = dish_file(dishes_dir(), slug)
+        if not path.is_file():
+            raise HTTPException(404, "Onbekend gerecht")
+        path.unlink()
+        return RedirectResponse("/dishes", status_code=303)
+
+    def _save_dish_file(slug: str, name: str, parts: list[DishPart]) -> None:
+        try:
+            dish = ComposedDish.model_validate(
+                {"slug": slug, "name": name.strip(), "parts": [p.model_dump() for p in parts]}
+            )
+        except ValidationError as exc:
+            raise HTTPException(400, f"Ongeldig gerecht: {exc}") from exc
+        save_dish(dish_file(dishes_dir(), slug), dish)
 
     # --- recipes ---------------------------------------------------------------
 

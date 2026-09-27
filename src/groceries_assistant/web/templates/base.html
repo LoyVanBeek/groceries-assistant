@@ -10,6 +10,7 @@
   <nav>
     <a href="/plan" {% if request.url.path == '/plan' %}class="active"{% endif %}>Week</a>
     <a href="/recipes" {% if request.url.path.startswith('/recipes') %}class="active"{% endif %}>Recepten</a>
+    <a href="/dishes" {% if request.url.path.startswith('/dishes') %}class="active"{% endif %}>Gerechten</a>
     <a href="/settings" {% if request.url.path == '/settings' %}class="active"{% endif %}>Instellingen</a>
     <form method="post" action="/theme" class="inline">
       <input type="hidden" name="back" value="{{ request.url.path }}">

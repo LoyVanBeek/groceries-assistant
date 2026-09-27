@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Gerechten{% endblock %}
+{% block content %}
+<h1>Gerechten uit onderdelen</h1>
+<p class="muted">
+  Een gerecht dat je zelf samenstelt, zoals &quot;aardappel-groente-vlees&quot;.
+  Elk onderdeel krijgt een lijstje recepten waaruit je kiest; de keuze maak je per avond
+  in het <a href="/plan">weekplan</a>.
+</p>
+{% if errors %}<p class="warnings">Ongeldige gerechtbestanden: {{ errors|join('; ') }}</p>{% endif %}
+
+{% if dishes %}
+<table>
+  <tr><th>Gerecht</th><th>Onderdelen</th><th></th></tr>
+  {% for d in dishes %}
+  <tr>
+    <td><a href="/dishes/{{ d.slug }}">{{ d.name }}</a></td>
+    <td>
+      {% for p in d.parts %}
+      <div>{{ p.label }}:
+        {%- for slug in p.options %} {{ recipe_names.get(slug, slug) }}{% if not loop.last %},{% endif %}{% endfor %}
+      </div>
+      {% endfor %}
+    </td>
+    <td>
+      <a href="/dishes/{{ d.slug }}">wijzig</a>
+      <form method="post" action="/dishes/{{ d.slug }}/delete" class="inline">
+        <button class="muted" aria-label="Verwijder {{ d.name }}">&times;</button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="muted">Nog geen gerechten.</p>
+{% endif %}
+
+<h2>{{ form_title }}</h2>
+{% if error %}<p class="warnings">{{ error }}</p>{% endif %}
+<form method="post" action="{{ form_action }}">
+  <p><input type="text" name="name" value="{{ name }}" placeholder="naam, bijv. Aardappel-groente-vlees" required></p>
+  <p>
+    <label for="parts">Onderdelen, één per regel:<br>
+      <code>Groente: sperziebonen, boerenkool</code></label><br>
+    <textarea id="parts" name="parts" rows="5" cols="40"
+              placeholder="Aardappels: aardappels-uit-de-oven, gekookte-aardappels
+Groente: sperziebonen, boerenkool
+Vlees: kip-doner, runderlapjes">{{ parts }}</textarea>
+  </p>
+  <p class="muted">Na de dubbele punt de slugs van de recepten, waaruit je voor dit onderdeel kunt kiezen.</p>
+  {% if unknown %}<p class="warnings">Onbekende recepten: {{ unknown|join(', ') }}</p>{% endif %}
+  <p><button type="submit" class="primary">Opslaan</button></p>
+</form>
+{% endblock %}
