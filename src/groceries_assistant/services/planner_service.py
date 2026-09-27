@@ -89,6 +89,7 @@ def propose(
     start: date,
     servings: int = DEFAULT_SERVINGS,
     repeat_window_days: int = DEFAULT_REPEAT_WINDOW_DAYS,
+    dishes: Sequence[ComposedDish] = (),
 ) -> WeeklyPlan:
     """Run the planner for the week starting at `start`."""
     return plan_week(
@@ -97,6 +98,7 @@ def propose(
         evenings_for(store, start),
         history=store.history(),
         repeat_window_days=repeat_window_days,
+        dishes=dishes,
     )
 
 
@@ -154,17 +156,19 @@ def plan_to_rows(plan: WeeklyPlan, servings: int = DEFAULT_SERVINGS) -> list[Pla
     """Convert a WeeklyPlan to storable rows.
 
     A cook evening is planned for its joiners; a leftovers evening adds its
-    joiners to the evening the dish was cooked on (cook once, eat twice).
+    joiners to the evening the dish was cooked on (cook once, eat twice). A
+    composed dish is stored under its own slug, the same column a recipe uses.
     """
     rows: list[PlanEntryRow] = []
     for entry in sorted(plan.entries, key=lambda e: e.date):
         if entry.kind == "cook":
-            assert entry.recipe is not None
+            slug = entry.dish_slug or (entry.recipe.slug if entry.recipe else None)
+            assert slug is not None
             rows.append(
                 PlanEntryRow(
                     day=entry.date,
                     kind="cook",
-                    recipe_slug=entry.recipe.slug,
+                    recipe_slug=slug,
                     people=_portions(entry, servings),
                 )
             )

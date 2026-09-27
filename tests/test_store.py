@@ -70,6 +70,27 @@ def test_approve_plan_and_history(store):
     assert latest is not None and latest[0] == plan_id
 
 
+def test_the_parts_of_a_planned_dish_count_as_history_too(store):
+    """A component cooked as part of a dish was still cooked last week."""
+    day = date(2026, 9, 28)
+    plan_id = store.approve_plan(day, [PlanEntryRow(day=day, recipe_slug="agv")])
+    store.set_pick(plan_id, day, "groente", "boerenkool")
+    store.set_pick(plan_id, day, "vlees", "kip")
+
+    assert store.history() == {"agv": day, "boerenkool": day, "kip": day}
+
+
+def test_a_pick_takes_the_last_day_a_component_was_planned(store):
+    first = date(2026, 9, 28)
+    second = date(2026, 10, 5)
+    first_plan = store.approve_plan(first, [PlanEntryRow(day=first, recipe_slug="boerenkool")])
+    store.set_pick(first_plan, first, "groente", "sperziebonen")
+    second_plan = store.approve_plan(second, [PlanEntryRow(day=second, recipe_slug="agv")])
+    store.set_pick(second_plan, second, "groente", "sperziebonen")
+
+    assert store.history()["sperziebonen"] == second
+
+
 def test_chunk_items_splits():
     items = [(i, 1) for i in range(60)]
     chunks = chunk_items(items, max_items=25)

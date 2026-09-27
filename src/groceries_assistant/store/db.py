@@ -386,10 +386,18 @@ class Store:
         return plan_id
 
     def history(self) -> dict[str, date]:
-        """slug -> most recent planned day (approved plans only)."""
+        """slug -> most recent day this slug was planned for.
+
+        A composed dish is cooked as its parts, so the picks count as history
+        too: a component that filled a part last week was still cooked last
+        week, and the repetition penalty is about the food, not the label.
+        """
         rows = self.conn.execute(
-            "SELECT recipe_slug, MAX(day) AS last_day FROM plan_entries"
-            " WHERE recipe_slug IS NOT NULL GROUP BY recipe_slug"
+            "SELECT recipe_slug, MAX(day) AS last_day FROM ("
+            " SELECT recipe_slug, day FROM plan_entries WHERE recipe_slug IS NOT NULL"
+            " UNION ALL"
+            " SELECT recipe_slug, day FROM plan_picks"
+            ") GROUP BY recipe_slug"
         ).fetchall()
         return {row["recipe_slug"]: date.fromisoformat(row["last_day"]) for row in rows}
 

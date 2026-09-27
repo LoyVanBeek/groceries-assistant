@@ -183,7 +183,12 @@ def create_app(
         proposal = store().load_proposal()
         if proposal is None:
             start = parse_start(None)
-            plan = propose(all_recipes, store(), start)
+            plan = propose(
+                all_recipes,
+                store(),
+                start,
+                dishes=list(dishes_by_slug().values()),
+            )
             plan_id = store().save_proposal(start, plan_to_rows(plan))
             proposal = (plan_id, start)
         plan_id, start = proposal[0], proposal[1]

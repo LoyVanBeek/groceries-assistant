@@ -1,6 +1,6 @@
 from datetime import date
 
-from groceries_assistant.models import Recipe
+from groceries_assistant.models import ComposedDish, Recipe
 from groceries_assistant.planner.availability import EveningAvailability
 from groceries_assistant.planner.engine import plan_week
 from groceries_assistant.preferences import Person, Preferences
@@ -302,3 +302,218 @@ def test_everyone_present_behaves_as_before():
     plan = plan_week(recipes, prefs, [evening])
     assert plan.entries[0].recipe.slug == "pasta"
     assert plan.entries[0].score == 6.0
+
+
+# --- composed dishes ---------------------------------------------------------
+
+
+def _dish(slug, *parts):
+    """A dish from (label, [option slugs]) pairs."""
+    return ComposedDish.model_validate(
+        {
+            "slug": slug,
+            "name": slug,
+            "parts": [{"label": label, "options": list(options)} for label, options in parts],
+        }
+    )
+
+
+def test_a_dish_is_proposed_with_every_part_filled():
+    recipes = [_recipe("aardappels"), _recipe("sperziebonen", minutes=10), _recipe("kip")]
+    dish = _dish("aardappel-vlees", ("Aardappels", ["aardappels"]), ("Groente", ["sperziebonen"]))
+    prefs = _prefs({"aardappel-vlees": {"kid1": "love"}})  # +6, the parts are neutral
+
+    plan = plan_week(recipes, prefs, [_evening(D1, 120)], dishes=[dish])
+
+    entry = plan.entries[0]
+    assert entry.dish_slug == "aardappel-vlees"
+    assert entry.recipe is None  # the evening is the dish, not one recipe
+    assert [part.slug for part in entry.parts] == ["aardappels", "sperziebonen"]
+    assert entry.score == 6.0
+    assert "Aardappels: aardappels" in entry.reason
+    assert "Groente: sperziebonen" in entry.reason
+
+
+def test_a_dish_verdict_replaces_the_mean_of_its_parts():
+    """Loved by both kids: +12 for the combination, not the +6 of the mean."""
+    recipes = [_recipe("aardappels"), _recipe("sperziebonen", minutes=10)]
+    dish = _dish("av", ("Aardappels", ["aardappels"]), ("Groente", ["sperziebonen"]))
+    prefs = _prefs(
+        {
+            "aardappels": {"kid1": "love"},
+            "sperziebonen": {"kid2": "love"},
+            "av": {"kid1": "love", "kid2": "love"},
+        }
+    )
+
+    plan = plan_week(recipes, prefs, [_evening(D1, 120)], dishes=[dish])
+
+    assert plan.entries[0].dish_slug == "av"
+    assert plan.entries[0].score == 12.0
+
+
+def test_a_dish_verdict_can_be_worse_than_its_parts():
+    """'ok' on the combination is a verdict like any other: it says 0, not +6."""
+    recipes = [_recipe("aardappels"), _recipe("sperziebonen", minutes=10)]
+    dish = _dish("av", ("Aardappels", ["aardappels"]), ("Groente", ["sperziebonen"]))
+    prefs = _prefs(
+        {
+            "aardappels": {"kid1": "love"},
+            "sperziebonen": {"kid2": "love"},
+            "av": {"kid1": "ok"},
+        }
+    )
+
+    plan = plan_week(recipes, prefs, [_evening(D1, 120)], dishes=[dish])
+
+    assert plan.entries[0].dish_slug is None
+    assert plan.entries[0].recipe.slug == "sperziebonen"  # +6, the best part alone
+
+
+def test_never_on_one_option_still_fills_the_part_with_another():
+    recipes = [
+        _recipe("aardappels"),
+        _recipe("sperziebonen", minutes=10),
+        _recipe("boerenkool", minutes=10),
+    ]
+    dish = _dish("av", ("Aardappels", ["aardappels"]), ("Groente", ["sperziebonen", "boerenkool"]))
+    prefs = _prefs({"sperziebonen": {"kid1": "never"}, "av": {"kid1": "love"}})
+
+    plan = plan_week(recipes, prefs, [_evening(D1, 120)], dishes=[dish])
+
+    assert [part.slug for part in plan.entries[0].parts] == ["aardappels", "boerenkool"]
+
+
+def test_never_on_every_option_of_a_part_skips_the_dish():
+    recipes = [_recipe("aardappels"), _recipe("sperziebonen", minutes=10), _recipe("soep", 20)]
+    dish = _dish("av", ("Aardappels", ["aardappels"]), ("Groente", ["sperziebonen"]))
+    prefs = _prefs({"sperziebonen": {"kid1": "never"}, "av": {"kid1": "love"}})
+
+    plan = plan_week(recipes, prefs, [_evening(D1, 120)], dishes=[dish])
+
+    assert plan.entries[0].dish_slug is None
+    assert plan.entries[0].recipe is not None  # a plain evening instead of a half dish
+
+
+def test_never_on_the_dish_slug_skips_the_dish_even_when_its_parts_are_loved():
+    recipes = [_recipe("aardappels"), _recipe("sperziebonen", minutes=10)]
+    dish = _dish("av", ("Aardappels", ["aardappels"]), ("Groente", ["sperziebonen"]))
+    prefs = _prefs(
+        {
+            "aardappels": {"kid1": "love", "kid2": "love"},
+            "sperziebonen": {"kid2": "love"},
+            "av": {"kid1": "never"},
+        }
+    )
+
+    plan = plan_week(recipes, prefs, [_evening(D1, 120)], dishes=[dish])
+
+    assert plan.entries[0].dish_slug is None
+    assert plan.entries[0].recipe.slug == "aardappels"
+
+
+def test_a_part_of_a_deleted_recipe_is_skipped_over():
+    recipes = [_recipe("aardappels"), _recipe("boerenkool", minutes=10)]
+    dish = _dish("av", ("Aardappels", ["aardappels"]), ("Groente", ["weg", "boerenkool"]))
+    prefs = _prefs({"av": {"kid1": "love"}})
+
+    plan = plan_week(recipes, prefs, [_evening(D1, 120)], dishes=[dish])
+
+    assert [part.slug for part in plan.entries[0].parts] == ["aardappels", "boerenkool"]
+
+
+def test_two_dishes_never_share_a_component_in_one_week():
+    recipes = [
+        _recipe("sperziebonen", minutes=10),
+        _recipe("boerenkool", minutes=10),
+        _recipe("kip", 20),
+        _recipe("aardappels"),
+    ]
+    met_maaltijd = _dish(
+        "av", ("Aardappels", ["aardappels"]), ("Groente", ["sperziebonen", "boerenkool"])
+    )
+    groente_vlees = _dish("gv", ("Groente", ["sperziebonen", "boerenkool"]), ("Vlees", ["kip"]))
+    prefs = _prefs(
+        {
+            "av": {"kid1": "love"},
+            "gv": {"kid1": "love"},
+            "sperziebonen": {"kid2": "ok"},  # the first green, but not enough to win itself
+        }
+    )
+
+    plan = plan_week(
+        recipes,
+        prefs,
+        [_evening(D1, 120), _evening(D2, 120)],
+        dishes=[met_maaltijd, groente_vlees],
+    )
+
+    assert [entry.dish_slug for entry in plan.entries] == ["gv", "av"]
+    # the second dish has to make do with the other green
+    assert [part.slug for part in plan.entries[1].parts] == ["aardappels", "boerenkool"]
+    planned_parts = [part.slug for entry in plan.entries for part in entry.parts]
+    assert len(planned_parts) == len(set(planned_parts))
+
+
+def test_a_dish_that_does_not_fit_the_evening_is_skipped():
+    recipes = [_recipe("aardappels"), _recipe("sperziebonen", minutes=10), _recipe("soep", 20)]
+    dish = _dish("av", ("Aardappels", ["aardappels"]), ("Groente", ["sperziebonen"]))
+    prefs = _prefs({"av": {"kid1": "love"}})
+
+    plan = plan_week(recipes, prefs, [_evening(D1, 25)], dishes=[dish])
+
+    # the dish is 30 min (its longest part); sperziebonen on its own is 10
+    assert plan.entries[0].dish_slug is None
+    assert plan.entries[0].recipe.slug == "sperziebonen"
+
+
+def test_a_dish_is_not_planned_twice_while_another_recipe_fits():
+    recipes = [_recipe("aardappels"), _recipe("sperziebonen", minutes=10), _recipe("soep", 20)]
+    dish = _dish("av", ("Groente", ["sperziebonen"]))
+    prefs = _prefs({"av": {"kid1": "love"}, "soep": {"kid2": "love"}})
+
+    plan = plan_week(recipes, prefs, [_evening(D1, 120), _evening(D2, 120)], dishes=[dish])
+
+    assert [entry.dish_slug for entry in plan.entries] == ["av", None]
+    assert plan.entries[1].recipe.slug == "soep"
+
+
+def test_a_dish_evening_leaves_the_whole_evening_free():
+    """A dish is 30 min on the evening (its longest part), not 30+10."""
+    recipes = [_recipe("aardappels"), _recipe("sperziebonen", minutes=10)]
+    dish = _dish("av", ("Aardappels", ["aardappels"]), ("Groente", ["sperziebonen"]))
+    prefs = _prefs({"av": {"kid1": "love"}})
+
+    plan = plan_week(recipes, prefs, [_evening(D1, 30)], dishes=[dish])
+
+    entry = plan.entries[0]
+    assert entry.dish_slug == "av"
+    assert entry.minutes == entry.combined_minutes == 30
+    assert entry.total_minutes == 40
+
+
+def test_a_verdict_does_not_hide_what_the_plan_took_off_the_parts():
+    """Reused parts keep their price, even when the dish itself is loved."""
+    recipes = [_recipe("aardappels"), _recipe("sperziebonen", minutes=10)]
+    dish = _dish("av", ("Aardappels", ["aardappels"]), ("Groente", ["sperziebonen"]))
+    prefs = _prefs({"av": {"kid1": "love"}})
+
+    plan = plan_week(recipes, prefs, [_evening(D1, 120), _evening(D2, 120)], dishes=[dish])
+
+    assert [entry.dish_slug for entry in plan.entries] == ["av", "av"]
+    assert plan.entries[0].score == 6.0
+    # +6 for the combination, -4 for each of the two parts already cooked
+    assert plan.entries[1].score == -2.0
+    assert "totaal -2" in plan.entries[1].reason
+
+
+def test_a_dish_nobody_judged_is_no_better_than_its_best_part():
+    """The mean is the rule: judge the combination if you want it served."""
+    recipes = [_recipe("aardappels"), _recipe("sperziebonen", minutes=10)]
+    dish = _dish("av", ("Aardappels", ["aardappels"]), ("Groente", ["sperziebonen"]))
+    prefs = _prefs({"aardappels": {"kid1": "love"}})  # +6 for one part, 0 for the other
+
+    plan = plan_week(recipes, prefs, [_evening(D1, 120)], dishes=[dish])
+
+    assert plan.entries[0].dish_slug is None
+    assert plan.entries[0].recipe.slug == "aardappels"
