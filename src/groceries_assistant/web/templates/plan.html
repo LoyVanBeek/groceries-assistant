@@ -33,28 +33,44 @@
       {% if e.over_budget %}<div class="warnings">over!</div>{% endif %}
     </td>
     <td class="col-dish">
-      {% if e.image %}<img class="thumb" src="/recipes/img/{{ e.image.name }}" alt="">{% endif %}
-      <strong>{{ e.name }}</strong>
       {% if e.kind == 'leftovers' %}
+      <strong>{{ e.name }}</strong>
       <form method="post" action="/plan/swap" class="inline">
         <input type="hidden" name="day" value="{{ e.day_iso }}">
         <input type="hidden" name="choice" value="__cook__">
         <button>toch koken</button>
       </form>
       {% else %}
-      <form method="post" action="/plan/swap" class="inline">
-        <input type="hidden" name="day" value="{{ e.day_iso }}">
-        <select name="choice" aria-label="Wissel {{ e.label }}">
-          <option value="__keep__" selected>{{ e.name }}</option>
+      <details class="dish-picker">
+        <summary aria-label="Gerecht wisselen voor {{ e.label }}">
+          {% if e.image %}<img class="thumb" src="/recipes/img/{{ e.image.name }}" alt="">{% endif %}
+          <strong>{{ e.name }}</strong>
+        </summary>
+        <div class="dish-options">
           {% for alt in e.alternatives %}
-          <option value="{{ alt.slug }}">{{ alt.name }}</option>
+          <form method="post" action="/plan/swap">
+            <input type="hidden" name="day" value="{{ e.day_iso }}">
+            <input type="hidden" name="choice" value="{{ alt.slug }}">
+            <button class="dish-option">
+              {% if alt.image %}<img class="thumb" src="/recipes/img/{{ alt.image.name }}" alt="">{% endif %}
+              {{ alt.name }}
+            </button>
+          </form>
           {% endfor %}
           {% if e.can_leftovers %}
-          <option value="__leftovers__">Restjes (avond ervoor)</option>
+          <form method="post" action="/plan/swap">
+            <input type="hidden" name="day" value="{{ e.day_iso }}">
+            <input type="hidden" name="choice" value="__leftovers__">
+            <button class="dish-option">Restjes (avond ervoor)</button>
+          </form>
           {% endif %}
-        </select>
-        <button>wissel</button>
-      </form>
+          <form method="post" action="/plan/swap">
+            <input type="hidden" name="day" value="{{ e.day_iso }}">
+            <input type="hidden" name="choice" value="__keep__">
+            <button class="dish-option muted">laten staan</button>
+          </form>
+        </div>
+      </details>
       {% endif %}
     </td>
     <td class="col-cook">

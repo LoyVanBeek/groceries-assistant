@@ -321,9 +321,9 @@ def test_plan_page_cook_inference(tmp_path):
         client.post("/plan/evening", data={"day": monday.isoformat(), "cook": "", "joined": "mama"})
         page = client.get("/plan").text
         assert "auto: Mama" in page
-        # segment right after Monday's hidden day input contains its selects
-        after_hidden = page.split(monday.isoformat())[2]
-        cook_select = after_hidden.split("<select")[1].split("</select>")[0]
+        # the only select in Monday's evening form is the cook select
+        kok_form = page.split('id="evening-1"')[1].split("</form>")[0]
+        cook_select = kok_form.split("<select")[1].split("</select>")[0]
         assert 'value="mama" selected' not in cook_select
 
 
@@ -758,3 +758,30 @@ def test_order_match_pin_unpin(tmp_path):
         items = {(i["product"], i["unit"]): i for i in store.order_items(plan_id)}
         assert items[("spaghetti", "g")]["webshop_id"] is None
         assert not (tmp_path / "ah_mappings.yaml").read_text().count("spaghetti")
+
+
+def test_dish_picker_shows_images_and_combines_current_dish(tmp_path):
+    """The dish cell is one control: summary = current dish (thumb + name),
+    body = alternatives with thumbs (regression for the two picker TODOs)."""
+    with make_client(tmp_path) as client:
+        for name in ("Pasta", "Curry"):
+            (tmp_path / "recipes" / f"{name.lower()}.yaml").write_text(
+                f"name: {name}\nservings: 4\ntime: {{cook: 30}}\n"
+                "ingredients:\n  - {product: spaghetti, amount: 500, unit: g}\n",
+                encoding="utf-8",
+            )
+        # give Pasta an image
+        (tmp_path / "recipes" / "img").mkdir()
+        (tmp_path / "recipes" / "img" / "pasta.png").write_bytes(_png_bytes())
+
+        page = client.get("/plan").text
+        # summary = current dish, with thumb
+        assert '<details class="dish-picker">' in page
+        summary = page.split("<summary")[1].split("</summary>")[0]
+        assert "Pasta" in summary and "pasta.png" in summary
+        # alternatives rendered as option rows with their own thumbs (Curry has none)
+        options = page.split("dish-options")[1].split("</details>")[0]
+        assert "Curry" in options
+        assert 'src="/recipes/img/pasta.png"' not in options  # current dish not re-listed
+        # wissel select is gone; dish picker replaces it
+        assert 'name="choice"' in options  # option rows post the swap directly

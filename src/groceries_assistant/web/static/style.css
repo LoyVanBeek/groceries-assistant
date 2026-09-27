@@ -252,8 +252,59 @@ table.plan select, table.plan button { height: 2.5rem; }
 table.plan button { min-width: 5.5rem; text-align: center; white-space: nowrap; padding: 0.3rem 0.6rem; font-size: 1rem; }
 table.plan .col-day { white-space: nowrap; width: 10rem; }
 table.plan .col-dish { width: 40%; }
-table.plan .col-dish form { display: flex; flex-wrap: nowrap; gap: 0.35rem; margin-top: 0; align-items: center; }
-table.plan .col-dish select { flex: 1; min-width: 12rem; }
+
+/* dish picker: summary = current dish (thumb + name), body = alternatives */
+table.plan details.dish-picker { position: relative; display: block; }
+table.plan details.dish-picker summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.15rem 0.4rem;
+  border-radius: 7px;
+  border: 1.5px solid var(--border);
+  min-height: 2.9rem;
+}
+table.plan details.dish-picker summary::-webkit-details-marker { display: none; }
+table.plan details.dish-picker summary::after {
+  content: "\25BE";
+  margin-left: auto;
+  color: var(--muted);
+}
+table.plan details.dish-picker[open] summary {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+table.plan .dish-options {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  margin-top: 0.2rem;
+  background: var(--bg);
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  padding: 0.25rem;
+  max-height: 19rem;
+  overflow-y: auto;
+}
+table.plan .dish-option {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+  min-width: 0;
+  font-weight: 400;
+  font-size: 0.98rem;
+  text-align: left;
+  border: none;
+  border-radius: 6px;
+  padding: 0.35rem 0.45rem;
+}
+table.plan .dish-option:hover { background: var(--accent-soft); }
+table.plan .dish-option .thumb { width: 2.6rem; height: 2.6rem; margin-right: 0; }
 table.plan .col-cook { width: 13rem; }
 table.plan .col-cook form { display: flex; flex-wrap: nowrap; gap: 0.3rem; align-items: center; }
 table.plan .col-cook select { width: 100%; min-width: 0; }
@@ -261,7 +312,7 @@ table.plan .col-cook input[type="number"] { width: 4rem; padding: 0.3rem 0.35rem
 table.plan .col-attend { text-align: center; width: 4.5rem; }
 table.plan .col-attend input[type="checkbox"] { width: 1.3rem; height: 1.3rem; accent-color: var(--accent); }
 table.plan .col-attend .cell-name { display: none; }
-table.plan .col-wissel, table.plan .col-save { width: 6.5rem; text-align: center; }
+table.plan .col-save { width: 6.5rem; text-align: center; }
 
 @media (max-width: 700px) {
   table.plan thead { display: none; }

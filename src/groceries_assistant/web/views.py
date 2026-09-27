@@ -78,7 +78,11 @@ def plan_view(
                 name = recipe.name
                 minutes = recipe.time.same_day_minutes
                 alts = [
-                    {"slug": r.slug, "name": r.name}
+                    {
+                        "slug": r.slug,
+                        "name": r.name,
+                        "image": image_for(r.slug) if image_for else None,
+                    }
                     for _s, r in alternatives(
                         list(recipes), prefs, evening, exclude_slug=row.recipe_slug
                     )
