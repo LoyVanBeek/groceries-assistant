@@ -6,6 +6,9 @@
 {% if request.query_params.error == 'id' %}
 <p class="warnings">Kon geen artikelnummer vinden; plak een AH-id of een ah.nl-productlink.</p>
 {% endif %}
+{% if request.query_params.error == 'pack' %}
+<p class="warnings">Verpakking onleesbaar; vul de verpakking zelf in op <a href="/settings">instellingen</a>.</p>
+{% endif %}
 {% for item in items %}
 <div class="match-row {% if loop.index is even %}even{% endif %}">
   <div class="match-product">
@@ -26,6 +29,15 @@
       <input type="hidden" name="unit" value="{{ item.unit }}">
       <button>ontkoppel</button>
     </form>
+    {% if item.has_fact %}
+    <span class="muted">verpakking bekend</span>
+    {% elif item.pack_label %}
+    <form method="post" action="/order/match/pack" class="inline">
+      <input type="hidden" name="product" value="{{ item.product }}">
+      <input type="hidden" name="unit_size" value="{{ item.pack_unit_size }}">
+      <button>voeg verpakking toe ({{ item.pack_label }})</button>
+    </form>
+    {% endif %}
   </div>
   {% elif item.search_error %}
   <div class="match-suggestions">

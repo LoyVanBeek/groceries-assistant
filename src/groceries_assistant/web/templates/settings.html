@@ -56,4 +56,56 @@
   <input type="text" name="product" placeholder="bijv. olijfolie" required>
   <button>Toevoegen</button>
 </form>
+
+<h2>Verpakkingen</h2>
+<p class="muted">
+  Hoe een product verpakt is en hoe lang het overblijft. Je koopt hele pakken; wat een
+  maaltijd overlaat blijft voor een paar dagen goed, voor andere gerechten in dezelfde week.
+  Zonder verpakking wordt een product gewoon op de som gekocht.
+</p>
+{% if request.query_params.fact_error %}
+<p class="warnings">Verpakking niet opgeslagen: {{ request.query_params.fact_error }}</p>
+{% endif %}
+<ul class="plain">
+  {% for f in facts %}
+  <li class="item">
+    <form method="post" action="/settings/facts" class="inline fact-row">
+      <input type="text" name="product" value="{{ f.product }}" required>
+      <input type="number" name="pack_qty" value="{{ f.pack_qty }}" step="0.1" min="0" size="4">
+      <select name="pack_unit">
+        {% for unit in ['stuk', 'g', 'kg', 'ml', 'l'] %}
+        <option value="{{ unit }}" {% if f.pack_unit == unit %}selected{% endif %}>{{ unit }}</option>
+        {% endfor %}
+      </select>
+      <input type="number" name="unit_qty" value="{{ f.unit_qty or '' }}" step="1" min="0"
+             placeholder="gewicht per stuk" size="6">
+      <input type="text" name="unit_measure" value="{{ f.unit_measure or '' }}"
+             placeholder="maat" size="4">
+      <input type="number" name="shelf_life_days" value="{{ f.shelf_life_days }}" min="0" max="365" size="3">
+      <span class="muted">dagen houdbaar</span>
+      <button>Opslaan</button>
+    </form>
+    <form method="post" action="/settings/facts/delete" class="inline">
+      <input type="hidden" name="product" value="{{ f.product }}">
+      <button>&times;</button>
+    </form>
+  </li>
+  {% else %}
+  <li class="muted">Nog geen verpakkingen ingesteld.</li>
+  {% endfor %}
+</ul>
+<form method="post" action="/settings/facts" class="fact-row">
+  <input type="text" name="product" placeholder="bijv. broccoli" required>
+  <input type="number" name="pack_qty" value="1" step="0.1" min="0" size="4">
+  <select name="pack_unit">
+    {% for unit in ['stuk', 'g', 'kg', 'ml', 'l'] %}
+    <option value="{{ unit }}">{{ unit }}</option>
+    {% endfor %}
+  </select>
+  <input type="number" name="unit_qty" placeholder="gewicht per stuk" step="1" min="0" size="6">
+  <input type="text" name="unit_measure" placeholder="maat" size="4">
+  <input type="number" name="shelf_life_days" value="3" min="0" max="365" size="3">
+  <span class="muted">dagen houdbaar</span>
+  <button>Toevoegen</button>
+</form>
 {% endblock %}

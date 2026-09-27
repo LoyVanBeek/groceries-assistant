@@ -1,15 +1,16 @@
 """Service-level tests: joiners/absences flow through to people counts."""
 
-from datetime import date
+from datetime import date, timedelta
 
 from groceries_assistant.ah.client import AHProduct
 from groceries_assistant.ah.matching import AHMappingStore, fact_from_unit_size
-from groceries_assistant.models import ComposedDish, Recipe
+from groceries_assistant.models import ComposedDish, ProductFact, Recipe
 from groceries_assistant.planner.availability import EveningAvailability
 from groceries_assistant.preferences import Person, Preferences
 from groceries_assistant.services.planner_service import (
     apply_absences,
     build_order,
+    last_weeks_stock,
     match_products,
     plan_to_rows,
     plan_week,
@@ -253,3 +254,162 @@ def test_a_fresh_match_keeps_ahs_pack_size_for_a_later_suggestion(tmp_path):
 
     fact = fact_from_unit_size("broccoli", mappings.get("broccoli").ah_unit_size)
     assert (fact.pack_qty, fact.pack_unit) == (350, "g")
+
+
+# --- pack sizes and leftovers -------------------------------------------------
+
+
+def _broccoli(amount: int, minutes: int = 10, servings: int = 4) -> Recipe:
+    return Recipe.model_validate(
+        {
+            "slug": "broccoli",
+            "name": "broccoli",
+            "servings": servings,
+            "time": {"cook": minutes},
+            "ingredients": [{"product": "Broccoli", "amount": amount, "unit": "g"}],
+        }
+    )
+
+
+def _fact(**kwargs) -> ProductFact:
+    return ProductFact(product="broccoli", **kwargs)
+
+
+def test_a_declared_pack_puts_a_count_on_the_list():
+    recipes = {"broccoli": _broccoli(500)}
+    rows = [PlanEntryRow(day=D1, kind="cook", recipe_slug="broccoli", people=4)]
+    facts = {"broccoli": _fact(pack_qty=1, pack_unit="stuk", unit_qty=350, unit_measure="g")}
+
+    order = build_order(rows_to_entries(rows, recipes), recipes, staples=[], facts=facts)
+
+    item = order.shopping[0]
+    assert (item.product, item.pack_count, item.pack_unit) == ("broccoli", 2, "stuk")
+    assert (item.amount, item.unit, item.note) == (700, "g", "700 g")
+
+
+def test_a_product_without_a_pack_reads_exactly_as_before():
+    recipes = {"broccoli": _broccoli(500)}
+    rows = [PlanEntryRow(day=D1, kind="cook", recipe_slug="broccoli", people=4)]
+
+    order = build_order(rows_to_entries(rows, recipes), recipes, staples=[], facts={})
+
+    assert (order.shopping[0].amount, order.shopping[0].unit) == (500, "g")
+    assert order.shopping[0].pack_count is None and order.shopping[0].note is None
+
+
+def test_the_order_says_what_a_meal_leaves_behind():
+    recipes = {"broccoli": _broccoli(300)}
+    rows = [PlanEntryRow(day=D1, kind="cook", recipe_slug="broccoli", people=4)]
+    facts = {"broccoli": _fact(pack_qty=1, unit_qty=350, unit_measure="g")}
+
+    order = build_order(rows_to_entries(rows, recipes), recipes, staples=[], facts=facts)
+
+    assert [(e.qty, e.unit, e.available_from) for e in order.leftovers] == [(50, "g", D1)]
+    assert order.leftovers[0].expires_on == D1 + timedelta(days=3)
+
+
+def test_two_meals_of_one_need_share_a_pack():
+    recipes = {"broccoli": _broccoli(300)}
+    rows = [
+        PlanEntryRow(day=D1, kind="cook", recipe_slug="broccoli", people=4),
+        PlanEntryRow(day=D2, kind="cook", recipe_slug="broccoli", people=4),
+    ]
+    facts = {"broccoli": _fact(pack_qty=1, unit_qty=350, unit_measure="g")}
+
+    order = build_order(rows_to_entries(rows, recipes), recipes, staples=[], facts=facts)
+
+    assert order.shopping[0].pack_count == 2  # 600 g needed, 350 g per pack
+    assert order.leftovers[0].qty == 100  # Tuesday's pack is what is left
+
+
+def test_a_leftover_evening_does_not_buy_a_second_pack():
+    """Cook once on Monday, eat it on Tuesday: the portions are bought once."""
+    recipes = {"broccoli": _broccoli(350)}
+    rows = [
+        PlanEntryRow(day=D1, kind="cook", recipe_slug="broccoli", people=4),
+        PlanEntryRow(day=D2, kind="leftovers", source_slug="broccoli", people=4),
+    ]
+    facts = {"broccoli": _fact(pack_qty=1, unit_qty=350, unit_measure="g")}
+
+    order = build_order(rows_to_entries(rows, recipes), recipes, staples=[], facts=facts)
+
+    # 700 g for two evenings of four, so two packs, and nothing left over
+    assert (order.shopping[0].pack_count, order.shopping[0].amount) == (2, 700)
+    assert order.leftovers == []
+
+
+def test_a_pack_the_recipes_cannot_express_warns_and_sums(tmp_path):
+    recipes = {"broccoli": _broccoli(300)}
+    rows = [PlanEntryRow(day=D1, kind="cook", recipe_slug="broccoli", people=4)]
+    facts = {"broccoli": _fact(pack_qty=6, pack_unit="stuk")}  # a bundle, weight unknown
+
+    order = build_order(rows_to_entries(rows, recipes), recipes, staples=[], facts=facts)
+
+    assert (order.shopping[0].amount, order.shopping[0].pack_count) == (300, None)
+    assert order.warnings == ["broccoli: 300 g past niet in stuk; de gewone som staat op de lijst"]
+
+
+def test_a_staple_keeps_its_own_list():
+    recipes = {"broccoli": _broccoli(300)}
+    rows = [PlanEntryRow(day=D1, kind="cook", recipe_slug="broccoli", people=4)]
+    facts = {"broccoli": _fact(pack_qty=1, unit_qty=350, unit_measure="g")}
+
+    order = build_order(rows_to_entries(rows, recipes), recipes, staples=["Broccoli"], facts=facts)
+
+    assert order.shopping == [] and order.staples[0].pack_count == 1
+
+
+def test_last_weeks_remainder_is_used_before_buying(tmp_path):
+    """Week two needs 300 g; week one left 350 g on the shelf for 30 days."""
+    store = Store(tmp_path / "state.db")
+    recipes = {"broccoli": _broccoli(300)}
+    facts = {"broccoli": _fact(pack_qty=1, unit_qty=350, unit_measure="g", shelf_life_days=30)}
+    first = store.approve_plan(
+        date(2026, 9, 28),
+        [PlanEntryRow(day=date(2026, 9, 28), kind="cook", people=4, recipe_slug="broccoli")],
+    )
+    # 700 g bought for 300 g of need: 400 g is still in the house
+    store.save_order_items(first, [("broccoli", "g", 700, None, None, None, None)])
+    second = store.approve_plan(
+        date(2026, 10, 5),
+        [PlanEntryRow(day=date(2026, 10, 5), kind="cook", people=4, recipe_slug="broccoli")],
+    )
+
+    carried = last_weeks_stock(store, second, recipes, {}, facts)
+    assert [(e.qty, e.unit) for e in carried] == [(400, "g")]
+
+    order = build_order(
+        rows_to_entries(store.plan_entries(second), recipes),
+        recipes,
+        staples=[],
+        facts=facts,
+        carried=carried,
+    )
+    assert order.shopping[0].pack_count == 0  # 300 g of the 400 g in the house
+    assert [e.qty for e in order.leftovers] == [100]  # and 100 g keeps for next week
+
+
+def test_the_first_week_has_nothing_to_carry(tmp_path):
+    store = Store(tmp_path / "state.db")
+    first = store.approve_plan(D1, [PlanEntryRow(day=D1, kind="cook", recipe_slug="pasta")])
+
+    assert last_weeks_stock(store, first, {}, {}, {}) == []
+
+
+def test_a_dish_evening_buys_the_parts_it_chose(tmp_path):
+    """The parts of a planned dish reach the list, each with its own servings."""
+    dish = _dish(("Groente", "broccoli"), ("Vlees", "kip"))
+    recipes = {"broccoli": _broccoli(300), "kip": _part_recipe("kip", 600, "g")}
+    rows = [PlanEntryRow(day=D1, kind="cook", recipe_slug=dish.slug, people=4)]
+    picks = {D1: {"groente": "broccoli", "vlees": "kip"}}
+
+    order = build_order(
+        rows_to_entries(rows, recipes, {dish.slug: dish}, picks),
+        recipes,
+        staples=[],
+        facts={"broccoli": _fact(pack_qty=1, unit_qty=350, unit_measure="g")},
+    )
+
+    lines = {item.product: item for item in order.shopping}
+    assert lines["broccoli"].pack_count == 1  # 300 g of a 350 g pack
+    assert lines["kip"].amount == 600 and lines["kip"].pack_count is None

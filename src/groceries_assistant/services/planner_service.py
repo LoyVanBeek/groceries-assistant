@@ -6,14 +6,15 @@ SQLite store; no HTTP concerns live here.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass, replace
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
 
 from groceries_assistant.ah.matching import AHMapping, AHMappingStore, suggest_match
-from groceries_assistant.models import ComposedDish, Recipe
+from groceries_assistant.models import ComposedDish, ProductFact, Recipe
 from groceries_assistant.planner.availability import EveningAvailability
 from groceries_assistant.planner.engine import REUSE_PENALTY, PlanEntry, WeeklyPlan, plan_week
+from groceries_assistant.planner.pantry import StockEntry, allocate, carried_stock, demand_by_day
 from groceries_assistant.planner.shopping import ShoppingItem, aggregate_ingredients
 from groceries_assistant.preferences import Preferences
 from groceries_assistant.store.db import PlanEntryRow, Store
@@ -335,6 +336,8 @@ class Order:
     shopping: list[ShoppingItem]
     staples: list[ShoppingItem]
     warnings: list[str]
+    leftovers: list[StockEntry] = field(default_factory=list)
+    """Stock the week ends with: bought, not used, and still in date."""
 
 
 def _entry_slug(entry: PlanEntry) -> str | None:
@@ -367,6 +370,8 @@ def build_order(
     recipes_by_slug: dict[str, Recipe],
     staples: list[str],
     servings: int = DEFAULT_SERVINGS,
+    facts: dict[str, ProductFact] | None = None,
+    carried: Sequence[StockEntry] = (),
 ) -> Order:
     """Aggregate the planned week into shopping list items.
 
@@ -378,34 +383,21 @@ def build_order(
     own `servings` -- a 2-person side dish next to a 4-person main stays a
     2-person side dish. A dish with unfilled parts warns instead of quietly
     under-buying.
+
+    A product with a declared fact is bought in whole packs: what is in date is
+    used first, and the rest of each pack becomes stock with a shelf life
+    (`carried` is what last week left over). Everything else is summed flat,
+    exactly as before.
     """
-    entries = sorted(entries, key=lambda e: e.date)
-    people: dict[date, int] = {}
-    for entry in entries:
-        if entry.kind == "cook" and entry.dishes:
-            people[entry.date] = entry.people or servings
-    for entry in entries:
-        if entry.kind != "leftovers" or not entry.source_slug:
-            continue
-        candidates = [
-            e
-            for e in entries
-            if e.kind == "cook" and _entry_slug(e) == entry.source_slug and e.date < entry.date
-        ]
-        if candidates:
-            source = max(candidates, key=lambda e: e.date)
-            people[source.date] = people.get(source.date, servings) + (entry.people or servings)
-
-    work: list[tuple[date, Recipe, int]] = []
-    for entry in entries:
-        if entry.kind != "cook":
-            continue
-        count = people.get(entry.date, servings)
-        for recipe in entry.dishes:
-            work.append((entry.date, recipes_by_slug.get(recipe.slug, recipe), count))
-
-    items, warnings = aggregate_ingredients(work)
-    warnings = incomplete_dish_warnings(entries) + warnings
+    work = cooking_work(entries, recipes_by_slug, servings)
+    items, _flat_warnings = aggregate_ingredients(work)
+    allocation = allocate(demand_by_day(work), facts or {}, carried=carried)
+    # A product with a fact gets one line from the allocation; the rest keeps
+    # the flat sum, untouched.
+    allocated = {item.product.lower() for item in allocation.items}
+    items = [item for item in items if item.product.lower() not in allocated] + allocation.items
+    items.sort(key=lambda item: item.product.lower())
+    warnings = incomplete_dish_warnings(entries) + allocation.warnings
     staple_set = {s.lower() for s in staples}
     shopping: list[ShoppingItem] = []
     staple_items: list[ShoppingItem] = []
@@ -414,7 +406,79 @@ def build_order(
             staple_items.append(item)
         else:
             shopping.append(item)
-    return Order(shopping=shopping, staples=staple_items, warnings=warnings)
+    return Order(
+        shopping=shopping,
+        staples=staple_items,
+        warnings=warnings,
+        leftovers=allocation.stock,
+    )
+
+
+def cooking_work(
+    entries: list[PlanEntry],
+    recipes_by_slug: dict[str, Recipe],
+    servings: int = DEFAULT_SERVINGS,
+) -> list[tuple[date, Recipe, int]]:
+    """Every recipe the week cooks, with the people count it is cooked for.
+
+    A leftovers evening adds its people to the evening it eats from, so the
+    portions are bought once, on the day they are cooked.
+    """
+    ordered = sorted(entries, key=lambda e: e.date)
+    people: dict[date, int] = {}
+    for entry in ordered:
+        if entry.kind == "cook" and entry.dishes:
+            people[entry.date] = entry.people or servings
+    for entry in ordered:
+        if entry.kind != "leftovers" or not entry.source_slug:
+            continue
+        candidates = [
+            e
+            for e in ordered
+            if e.kind == "cook" and _entry_slug(e) == entry.source_slug and e.date < entry.date
+        ]
+        if candidates:
+            source = max(candidates, key=lambda e: e.date)
+            people[source.date] = people.get(source.date, servings) + (entry.people or servings)
+
+    work: list[tuple[date, Recipe, int]] = []
+    for entry in ordered:
+        if entry.kind != "cook":
+            continue
+        count = people.get(entry.date, servings)
+        for recipe in entry.dishes:
+            work.append((entry.date, recipes_by_slug.get(recipe.slug, recipe), count))
+    return work
+
+
+def last_weeks_stock(
+    store: Store,
+    plan_id: int,
+    recipes_by_slug: dict[str, Recipe],
+    dishes_by_slug: dict[str, ComposedDish],
+    facts: dict[str, ProductFact],
+    servings: int = DEFAULT_SERVINGS,
+) -> list[StockEntry]:
+    """What the plan before this one left over, and how long it keeps.
+
+    Read-only: what was bought minus what that week used, dated from the day its
+    pack was opened. The first week has none.
+    """
+    previous = store.previous_plan(plan_id)
+    if previous is None:
+        return []
+    previous_id, _start = previous
+    entries = rows_to_entries(
+        store.plan_entries(previous_id),
+        recipes_by_slug,
+        dishes_by_slug,
+        store.plan_picks(previous_id),
+    )
+    return carried_stock(
+        store.order_items(previous_id),
+        demand_by_day(cooking_work(entries, recipes_by_slug, servings)),
+        facts,
+    )
 
 
 def match_products(

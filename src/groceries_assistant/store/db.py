@@ -131,6 +131,14 @@ class ApprovedPlan:
     entries: list[PlanEntryRow]
 
 
+# Columns that were added to a table after it shipped. `CREATE TABLE IF NOT
+# EXISTS` leaves an existing database alone, and ADD COLUMN is the only change
+# SQLite can make to a table that already holds rows.
+ADDED_COLUMNS: dict[str, tuple[tuple[str, str], ...]] = {
+    "order_items": (("pack_count", "REAL"), ("pack_unit", "TEXT"), ("note", "TEXT")),
+}
+
+
 class Store:
     """One connection per instance; not thread-safe by itself."""
 
@@ -141,7 +149,16 @@ class Store:
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA foreign_keys=ON")
         self.conn.executescript(SCHEMA)
+        self._add_missing_columns()
         self._ensure_default_template()
+
+    def _add_missing_columns(self) -> None:
+        for table, columns in ADDED_COLUMNS.items():
+            have = {row["name"] for row in self.conn.execute(f"PRAGMA table_info({table})")}
+            for name, kind in columns:
+                if name not in have:
+                    self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
+        self.conn.commit()
 
     def _ensure_default_template(self) -> None:
         if self.conn.execute("SELECT COUNT(*) FROM week_template").fetchone()[0] == 0:
@@ -393,6 +410,21 @@ class Store:
             return None
         return row["id"], date.fromisoformat(row["start_date"]), row["status"]
 
+    def previous_plan(self, before: int) -> tuple[int, date] | None:
+        """The approved plan before `before`; None when this is the first week.
+
+        What last week bought and used is what is still in the fridge, so this
+        is where the leftovers of a new week come from.
+        """
+        row = self.conn.execute(
+            "SELECT id, start_date FROM plans WHERE id < ? AND status = 'approved'"
+            " ORDER BY id DESC LIMIT 1",
+            (int(before),),
+        ).fetchone()
+        if row is None:
+            return None
+        return row["id"], date.fromisoformat(row["start_date"])
+
     def plan_entries(self, plan_id: int) -> list[PlanEntryRow]:
         rows = self.conn.execute(
             "SELECT day, kind, recipe_slug, source_slug, people FROM plan_entries"
@@ -524,24 +556,28 @@ class Store:
 
     # --- order review ------------------------------------------------------------
 
-    def save_order_items(
-        self, plan_id: int, items: list[tuple[str, str, float, int | None]]
-    ) -> None:
-        """Replace the review items for a plan: (product, unit, amount, webshop_id)."""
+    def save_order_items(self, plan_id: int, items: list[tuple]) -> None:
+        """Replace the review items for a plan.
+
+        Each item is (product, unit, amount, webshop_id, pack_count, pack_unit,
+        note): the demand-unit quantity, plus how many packs that is and what
+        they add up to, for a product bought in whole packs.
+        """
         cur = self.conn.cursor()
         cur.execute("DELETE FROM order_items WHERE plan_id = ?", (plan_id,))
-        for product, unit, amount, webshop_id in items:
+        for product, unit, amount, webshop_id, pack_count, pack_unit, note in items:
             cur.execute(
-                "INSERT INTO order_items(plan_id, product, unit, amount, webshop_id, have)"
-                " VALUES (?,?,?,?,?,0)",
-                (plan_id, product, unit, amount, webshop_id),
+                "INSERT INTO order_items"
+                " (plan_id, product, unit, amount, webshop_id, have, pack_count, pack_unit, note)"
+                " VALUES (?,?,?,?,?,0,?,?,?)",
+                (plan_id, product, unit, amount, webshop_id, pack_count, pack_unit, note),
             )
         self.conn.commit()
 
     def order_items(self, plan_id: int) -> list[dict]:
         rows = self.conn.execute(
-            "SELECT product, unit, amount, webshop_id, have FROM order_items"
-            " WHERE plan_id = ? ORDER BY product",
+            "SELECT product, unit, amount, webshop_id, have, pack_count, pack_unit, note"
+            " FROM order_items WHERE plan_id = ? ORDER BY product",
             (plan_id,),
         ).fetchall()
         return [dict(row) for row in rows]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import date
 from pathlib import Path
 
 from groceries_assistant.models import ComposedDish, Recipe
@@ -224,3 +225,25 @@ def _dish_parts(
 def format_amount(amount: float, unit: str) -> str:
     value = f"{amount:g}".replace(".", ",")
     return f"{value} {unit}".strip()
+
+
+WEEKDAYS = ("maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag", "zondag")
+MONTHS = (
+    "januari",
+    "februari",
+    "maart",
+    "april",
+    "mei",
+    "juni",
+    "juli",
+    "augustus",
+    "september",
+    "oktober",
+    "november",
+    "december",
+)
+
+
+def dutch_date(value: date) -> str:
+    """'donderdag 1 oktober', for a date a person has to act on."""
+    return f"{WEEKDAYS[value.weekday()]} {value.day} {MONTHS[value.month - 1]}"

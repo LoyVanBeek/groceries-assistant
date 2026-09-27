@@ -178,6 +178,14 @@ class ProductFact(BaseModel):
             raise ValueError("must not be empty")
         return value.strip()
 
+    @field_validator("pack_qty", "unit_qty")
+    @classmethod
+    def _whole_numbers_stay_whole(cls, value: float | None) -> float | None:
+        """One pack is 1 stuk, not 1.0: the numbers are shown to the user."""
+        if value is not None and float(value).is_integer():
+            return int(value)
+        return value
+
     @model_validator(mode="after")
     def _piece_needs_its_weight(self) -> ProductFact:
         if (self.unit_qty is None) != (self.unit_measure is None):

@@ -1,5 +1,6 @@
 """Web smoke tests: propose -> swap -> approve -> review -> AH deep-link."""
 
+import math
 import re
 from datetime import date, timedelta
 from pathlib import Path
@@ -1825,3 +1826,227 @@ def test_an_unfilled_dish_buys_only_the_filled_parts_and_warns(tmp_path):
         assert "sperziebonen" in items
         # the order says what is missing, so the list is not silently short
         assert "zonder Aardappels en Vlees" in client.get("/order").text
+
+
+# --- pack sizes and leftovers on the order page --------------------------------
+
+
+BROCCOLI = """\
+name: Broccoli
+servings: 4
+time: {cook: 10}
+ingredients:
+  - {product: broccoli, amount: 300, unit: g}
+"""
+
+
+def seed_broccoli(tmp_path: Path) -> None:
+    recipes = tmp_path / "recipes"
+    recipes.mkdir(parents=True, exist_ok=True)
+    (recipes / "broccoli.yaml").write_text(BROCCOLI, encoding="utf-8")
+
+
+def add_fact(client, product: str = "broccoli", **data) -> None:
+    client.post(
+        "/settings/facts",
+        data={
+            "product": product,
+            "pack_qty": 1,
+            "pack_unit": "stuk",
+            "unit_qty": 350,
+            "unit_measure": "g",
+            "shelf_life_days": 3,
+            **data,
+        },
+        follow_redirects=False,
+    )
+
+
+def _spaghetti_demand_g(tmp_path: Path) -> float:
+    """How much spaghetti the approved week cooks, in grams."""
+    store = Store(tmp_path / "state.db")
+    rows = [
+        row
+        for row in store.plan_entries(store.latest_plan()[0])
+        if row.kind == "cook" and row.recipe_slug == "pasta"
+    ]
+    return 500 * sum(row.people for row in rows) / 4
+
+
+def test_a_declared_pack_reads_as_a_count_with_the_weight(tmp_path):
+    """'2 stuk (700 g)': a 500 g need is two 350 g packs of 700 g."""
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        add_fact(client, "spaghetti")
+        client.get("/plan")
+        client.post("/plan/approve", follow_redirects=False)
+        store = Store(tmp_path / "state.db")
+        rows = {row["product"]: row for row in store.order_items(store.latest_plan()[0])}
+        packs = math.ceil(_spaghetti_demand_g(tmp_path) / 350)
+
+        page = client.get("/order").text
+        assert f"{packs:g} stuk ({packs * 350:g} g) spaghetti" in page
+        # without a fact, the line is exactly the summed need, as it always was
+        assert rows["spaghetti"]["pack_count"] == packs
+        assert rows["ui"]["pack_count"] is None
+        assert f"{rows['ui']['amount']:g} stuk ui" in page
+
+
+def test_the_order_says_what_is_left_over(tmp_path):
+    """A one-day shelf life: every pack leaves 50 g, good until the next day."""
+    seed_broccoli(tmp_path)
+    with make_client(tmp_path) as client:
+        add_fact(client, shelf_life_days=1)
+        client.get("/plan")
+        client.post("/plan/approve", follow_redirects=False)
+
+        page = client.get("/order").text
+        assert "Er blijft over tot je het volgende weekplan maakt" in page
+        assert re.search(r"50 g broccoli <span class=\"muted\">tot maandag", page)
+
+
+def test_refreshing_the_order_changes_nothing(tmp_path):
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        add_fact(client, "spaghetti")
+        client.get("/plan")
+        client.post("/plan/approve", follow_redirects=False)
+        store = Store(tmp_path / "state.db")
+        plan_id = store.latest_plan()[0]
+        before = store.order_items(plan_id)
+
+        client.get("/order")
+        client.get("/order")
+
+        assert store.order_items(plan_id) == before
+
+
+def test_a_pack_the_user_declares_is_kept_and_can_be_forgotten(tmp_path):
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        add_fact(client, "spaghetti", shelf_life_days=10)
+        page = client.get("/settings").text
+        assert "spaghetti" in page and "10" in page
+
+        add_fact(client, "spaghetti", shelf_life_days=5)
+        assert Store(tmp_path / "state.db").product_fact("spaghetti").shelf_life_days == 5
+
+        client.post(
+            "/settings/facts/delete",
+            data={"product": "SPAGHETTI"},
+            follow_redirects=False,
+        )
+        assert Store(tmp_path / "state.db").product_facts() == {}
+
+
+def test_a_pack_without_a_known_piece_weight_is_refused(tmp_path):
+    """Half the fact is worse than none: the user is told, nothing is stored."""
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        saved = client.post(
+            "/settings/facts",
+            data={
+                "product": "spaghetti",
+                "pack_qty": 1,
+                "pack_unit": "stuk",
+                "unit_qty": 350,
+                "unit_measure": "",
+                "shelf_life_days": 3,
+            },
+            follow_redirects=False,
+        )
+
+        assert "fact_error" in saved.headers["location"]
+        assert "Verpakking niet opgeslagen" in client.get(saved.headers["location"]).text
+        assert Store(tmp_path / "state.db").product_facts() == {}
+
+
+def test_the_match_page_offers_ahs_own_pack_size(tmp_path):
+    class FakeProduct:
+        def __init__(self, webshop_id, title, unit_size):
+            self.webshop_id = webshop_id
+            self.title = title
+            self.unit_size = unit_size
+            self.image_url = None
+
+    with make_client(
+        tmp_path,
+        search_fn=lambda q: [FakeProduct(7, "AH Broccoli 350 g", "350 g")],
+    ) as client:
+        seed_broccoli(tmp_path)
+        client.get("/plan")
+        client.post("/plan/approve", follow_redirects=False)
+        client.post(
+            "/order/match/pin",
+            data={"product": "broccoli", "unit": "g", "webshop_id": "7", "unit_size": "350 g"},
+            follow_redirects=False,
+        )
+
+        page = client.get("/order/match")
+        assert "voeg verpakking toe (350 g)" in page.text
+
+        stored = client.post(
+            "/order/match/pack",
+            data={"product": "broccoli", "unit_size": "350 g"},
+            follow_redirects=False,
+        )
+        assert stored.status_code == 303
+        fact = Store(tmp_path / "state.db").product_fact("broccoli")
+        assert (fact.pack_qty, fact.pack_unit) == (350, "g")
+        assert "verpakking bekend" in client.get("/order/match").text
+
+
+def test_an_unreadable_pack_size_is_not_offered(tmp_path):
+    class FakeProduct:
+        webshop_id = 7
+        title = "AH Broccoli per 100 g"
+        unit_size = "per 100 g"
+        image_url = None
+
+    with make_client(tmp_path, search_fn=lambda q: [FakeProduct()]) as client:
+        seed_broccoli(tmp_path)
+        client.get("/plan")
+        client.post("/plan/approve", follow_redirects=False)
+        client.post(
+            "/order/match/pin",
+            data={
+                "product": "broccoli",
+                "unit": "g",
+                "webshop_id": "7",
+                "unit_size": "per 100 g",
+            },
+            follow_redirects=False,
+        )
+
+        assert "voeg verpakking toe" not in client.get("/order/match").text
+        refused = client.post(
+            "/order/match/pack",
+            data={"product": "broccoli", "unit_size": "per 100 g"},
+            follow_redirects=False,
+        )
+        assert refused.headers["location"] == "/order/match?error=pack"
+        assert Store(tmp_path / "state.db").product_facts() == {}
+
+
+def test_a_chosen_dish_buys_the_parts_of_that_evening(tmp_path):
+    """Approving a week with a dish on it must buy the dish's parts."""
+    seed_part_recipes(tmp_path)
+    seed_dish(tmp_path)
+    with make_client(tmp_path) as client:
+        day = plan_a_dish(client, tmp_path)
+        pick(
+            client,
+            day,
+            aardappels="aardappels-uit-de-oven",
+            groente="sperziebonen",
+            vlees="kip-doner",
+        )
+        client.post("/plan/approve", follow_redirects=False)
+
+        items = {
+            i["product"]
+            for i in Store(tmp_path / "state.db").order_items(
+                Store(tmp_path / "state.db").latest_plan()[0]
+            )
+        }
+        assert {"aardappels", "sperziebonen", "kip"} <= items

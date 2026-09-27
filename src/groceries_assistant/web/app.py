@@ -8,6 +8,7 @@ import tempfile
 from datetime import date
 from pathlib import Path
 from typing import Annotated
+from urllib.parse import quote
 from uuid import uuid4
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -24,7 +25,7 @@ from groceries_assistant.ah.deeplink import (
     parse_product_ref,
     product_url,
 )
-from groceries_assistant.ah.matching import AHMapping, AHMappingStore
+from groceries_assistant.ah.matching import AHMapping, AHMappingStore, fact_from_unit_size
 from groceries_assistant.dishes.loader import (
     DishError,
     dish_file,
@@ -34,7 +35,8 @@ from groceries_assistant.dishes.loader import (
     parse_part_lines,
     save_dish,
 )
-from groceries_assistant.models import ComposedDish, DishPart, Recipe, slugify
+from groceries_assistant.models import ComposedDish, DishPart, ProductFact, Recipe, slugify
+from groceries_assistant.planner.pantry import StockEntry
 from groceries_assistant.recipes.extract import extract_from_images
 from groceries_assistant.recipes.loader import (
     RecipeError,
@@ -54,6 +56,7 @@ from groceries_assistant.services.planner_service import (
     build_order,
     evenings_for,
     incomplete_dish_warnings,
+    last_weeks_stock,
     match_products,
     parse_start,
     plan_to_rows,
@@ -62,7 +65,7 @@ from groceries_assistant.services.planner_service import (
     rows_to_entries,
 )
 from groceries_assistant.store.db import PlanEntryRow, Store
-from groceries_assistant.web.views import WEEKDAYS, format_amount, plan_view
+from groceries_assistant.web.views import WEEKDAYS, dutch_date, format_amount, plan_view
 
 SERVINGS = 4
 LEFTOVERS_CHOICE = "__leftovers__"
@@ -143,6 +146,8 @@ def create_app(
     def recipes_by_slug() -> dict[str, Recipe]:
         all_recipes, _errors = load_all()
         return {r.slug: r for r in all_recipes}
+
+    templates.env.filters["dutch_date"] = dutch_date
 
     def render(request: Request, template: str, **ctx) -> HTMLResponse:
         return templates.TemplateResponse(
@@ -372,15 +377,32 @@ def create_app(
         rows = apply_absences(store(), store().plan_entries(plan_id))
         store().update_proposal_rows(plan_id, rows)
         by_slug = recipes_by_slug()
-        entries = rows_to_entries(rows, by_slug)
+        dishes = dishes_by_slug()
+        entries = rows_to_entries(rows, by_slug, dishes, store().plan_picks(plan_id))
         if not any(e.kind == "cook" for e in entries):
             raise HTTPException(400, "Minstens één kookavond nodig")
-        order = build_order(entries, by_slug, store().staples(), servings=SERVINGS)
+        facts = store().product_facts()
+        order = build_order(
+            entries,
+            by_slug,
+            store().staples(),
+            servings=SERVINGS,
+            facts=facts,
+            carried=last_weeks_stock(store(), plan_id, by_slug, dishes, facts, servings=SERVINGS),
+        )
         matched = _match([i.product for i in order.shopping])
         store().save_order_items(
             plan_id,
             [
-                (item.product, item.unit, item.amount, matched.get(item.product, (None, ""))[0])
+                (
+                    item.product,
+                    item.unit,
+                    item.amount,
+                    matched.get(item.product, (None, ""))[0],
+                    item.pack_count,
+                    item.pack_unit,
+                    item.note,
+                )
                 for item in order.shopping
             ],
         )
@@ -406,8 +428,33 @@ def create_app(
             "order.html",
             items=store().order_items(plan_id),
             warnings=_plan_warnings(plan_id),
+            leftovers=_plan_leftovers(plan_id),
             fmt=format_amount,
         )
+
+    def _plan_leftovers(plan_id: int) -> list[StockEntry]:
+        """What this week's purchases leave over, recomputed from the plan.
+
+        Read-only, and never stored: the same arithmetic as approving the week
+        ran, so the list cannot drift from the plan it came from.
+        """
+        by_slug = recipes_by_slug()
+        dishes = dishes_by_slug()
+        facts = store().product_facts()
+        if not facts:
+            return []
+        entries = rows_to_entries(
+            store().plan_entries(plan_id), by_slug, dishes, store().plan_picks(plan_id)
+        )
+        order = build_order(
+            entries,
+            by_slug,
+            store().staples(),
+            servings=SERVINGS,
+            facts=facts,
+            carried=last_weeks_stock(store(), plan_id, by_slug, dishes, facts, servings=SERVINGS),
+        )
+        return order.leftovers
 
     def _plan_warnings(plan_id: int) -> list[str]:
         """What the approved plan is still missing, read straight from the plan.
@@ -439,6 +486,7 @@ def create_app(
             raise HTTPException(404, "Geen actieve week")
         plan_id = latest[0]
         items = store().order_items(plan_id)
+        facts = store().product_facts()
         rows = []
         for item in items:
             suggestions = []
@@ -459,6 +507,11 @@ def create_app(
                     error = f"AH onbereikbaar ({exc})"
             mapping = mappings().get(item["product"])
             matched_url = product_url(item["webshop_id"]) if item["webshop_id"] else None
+            # A pack size AH states, read into a fact to offer. Only offered when
+            # it reads cleanly: a guess here becomes a wrong list later.
+            suggestion = (
+                fact_from_unit_size(item["product"], mapping.ah_unit_size) if mapping else None
+            )
             rows.append(
                 {
                     **item,
@@ -467,6 +520,11 @@ def create_app(
                     "matched_url": matched_url,
                     "matched_title": mapping.ah_title if mapping else "",
                     "matched_image": mapping.ah_image_url if mapping else None,
+                    "pack_label": (
+                        f"{suggestion.pack_qty:g} {suggestion.pack_unit}" if suggestion else ""
+                    ),
+                    "pack_unit_size": mapping.ah_unit_size if mapping else "",
+                    "has_fact": item["product"].lower() in facts,
                 }
             )
         return render(request, "order_match.html", items=rows, fmt=format_amount)
@@ -525,6 +583,22 @@ def create_app(
         plan_id = latest[0]
         mappings().remove(product)
         store().set_order_item_webshop_id(plan_id, product, unit, None)
+        return RedirectResponse("/order/match", status_code=303)
+
+    @app.post("/order/match/pack")
+    def order_match_pack(product: str = Form(...), unit_size: str = Form("")):
+        """Store a pack size for a matched product, read from AH's own size.
+
+        Only the plain shapes are read; anything else is refused rather than
+        guessed, and the user types it on the settings page instead. The shelf
+        life is left at its default: a pack size is not a claim about freshness.
+        """
+        mapping = mappings().get(product)
+        text = unit_size.strip() or (mapping.ah_unit_size if mapping else "") or ""
+        fact = fact_from_unit_size(product, text)
+        if fact is None:
+            return RedirectResponse("/order/match?error=pack", status_code=303)
+        store().set_product_fact(fact)
         return RedirectResponse("/order/match", status_code=303)
 
     @app.get("/order/link", response_class=HTMLResponse)
@@ -1217,6 +1291,7 @@ def create_app(
             people=store().people(),
             adults=[p for p in store().people() if p["role"] == "adult"],
             staples=store().staples(),
+            facts=sorted(store().product_facts().values(), key=lambda f: f.product.lower()),
         )
 
     @app.post("/settings/template")
@@ -1251,4 +1326,48 @@ def create_app(
         store().set_staple(product, False)
         return RedirectResponse("/settings", status_code=303)
 
+    @app.post("/settings/facts")
+    def save_fact(
+        product: str = Form(...),
+        pack_qty: float = Form(...),
+        pack_unit: str = Form("stuk"),
+        unit_qty: str = Form(""),
+        unit_measure: str = Form(""),
+        shelf_life_days: int = Form(3),
+    ):
+        """Declare how one purchase of a product looks, and how long it keeps.
+
+        A product with a fact is bought in whole packs; without one it is bought
+        as the summed need, as before. The piece weight is optional and never
+        guessed -- an empty field means 'I do not know how much one weighs'.
+        """
+        try:
+            fact = ProductFact(
+                product=product.strip(),
+                pack_qty=pack_qty,
+                pack_unit=pack_unit.strip() or "stuk",
+                unit_qty=float(unit_qty) if unit_qty.strip() else None,
+                unit_measure=unit_measure.strip() or None,
+                shelf_life_days=shelf_life_days,
+            )
+        except ValidationError as exc:
+            return RedirectResponse(
+                f"/settings?fact_error={quote(_fact_error(exc))}", status_code=303
+            )
+        store().set_product_fact(fact)
+        return RedirectResponse("/settings", status_code=303)
+
+    @app.post("/settings/facts/delete")
+    def delete_fact(product: str = Form(...)):
+        store().delete_product_fact(product)
+        return RedirectResponse("/settings", status_code=303)
+
     return app
+
+
+def _fact_error(exc: ValidationError) -> str:
+    """One line out of a validation error, for the settings page."""
+    first = exc.errors()[0]
+    loc = first.get("loc") or ()
+    field = str(loc[-1]) if loc else "verpakking"
+    return f"{field}: {first.get('msg', 'ongeldig')}"

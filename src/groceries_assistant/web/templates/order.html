@@ -17,11 +17,20 @@
       <input type="hidden" name="have" value="{{ 0 if item.have else 1 }}">
       <button>{{ '[x]' if item.have else '[ ]' }}</button>
     </form>
-    {{ fmt(item.amount, item.unit) }} {{ item.product }}
+    {% if item.pack_count %}{{ fmt(item.pack_count, item.pack_unit) }} ({{ fmt(item.amount, item.unit) }}){% else %}{{ fmt(item.amount, item.unit) }}{% endif %} {{ item.product }}
+    {% if item.note and not item.pack_count %}<span class="muted">({{ item.note }})</span>{% endif %}
     {% if not item.webshop_id %}<span class="muted">(niet gevonden in AH)</span>{% endif %}
   </li>
   {% endfor %}
 </ul>
+{% if leftovers %}
+<p class="muted">Er blijft over tot je het volgende weekplan maakt:</p>
+<ul class="plain">
+  {% for entry in leftovers %}
+  <li class="item">{{ fmt(entry.qty, entry.unit) }} {{ entry.product }} <span class="muted">tot {{ entry.expires_on | dutch_date }}</span></li>
+  {% endfor %}
+</ul>
+{% endif %}
 <p>
   <a class="big-link" href="/order/link">Genereer AH-link &rarr;</a>
   <a class="big-link" href="/order/match">AH-artikelen koppelen</a>

@@ -298,7 +298,15 @@ form.custom-pin {
   border-radius: 7px;
 }
 form.custom-pin button { font-size: 0.9rem; padding: 0.35rem 0.55rem; white-space: nowrap; }
-.match-current { display: flex; align-items: center; gap: 0.4rem; }
+.match-current { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+form.inline { display: inline-flex; align-items: center; gap: 0.3rem; margin: 0; }
+form.inline button { font-size: 0.85rem; padding: 0.25rem 0.45rem; white-space: nowrap; }
+
+/* settings: a fact is one row of numbers, edited in place */
+.fact-row { display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap; margin: 0.3rem 0; }
+.fact-row input, .fact-row select { font-size: 0.9rem; }
+li.item { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+li.item .fact-row { flex: 1 1 auto; }
 
 ::selection { background: var(--accent-soft); }
 
