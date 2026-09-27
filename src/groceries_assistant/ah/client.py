@@ -36,6 +36,8 @@ class AHProduct:
     brand: str | None = None
     price_now: float | None = None
     unit_size: str | None = None
+    image_url: str | None = None
+    """First product image on AH's public CDN (hotlinkable, no auth)."""
 
 
 class AHClient:
@@ -97,6 +99,8 @@ class AHClient:
         products: list[AHProduct] = []
         for item in response.json().get("products", [])[:limit]:
             price = (item.get("price") or {}).get("now")
+            images = item.get("images") or []
+            image_url = images[0].get("url") if images else None
             products.append(
                 AHProduct(
                     webshop_id=int(item["webshopId"]),
@@ -104,6 +108,7 @@ class AHClient:
                     brand=item.get("brand"),
                     price_now=float(price) if price is not None else None,
                     unit_size=item.get("salesUnitSize"),
+                    image_url=image_url,
                 )
             )
         return products

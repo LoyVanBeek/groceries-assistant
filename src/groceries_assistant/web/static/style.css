@@ -237,6 +237,21 @@ li.item {
 }
 .ah-link { font-size: 0.92rem; color: var(--accent); }
 .source-link { color: var(--accent); }
+img.ah-thumb {
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
+  border-radius: 5px;
+  flex: 0 0 auto;
+}
+.match-suggestion {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.15rem 0.3rem;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
 form.custom-pin {
   display: inline-flex;
   gap: 0.3rem;

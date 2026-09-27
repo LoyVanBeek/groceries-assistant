@@ -173,6 +173,16 @@ def test_verdict_and_swap_flow(tmp_path):
         assert 'value="love" selected' in page.text
 
 
+class _FakeImageProduct:
+    """Search stub that also carries an image url, like the real AH API."""
+
+    def __init__(self, webshop_id: int, title: str, image_url: str) -> None:
+        self.webshop_id = webshop_id
+        self.title = title
+        self.image_url = image_url
+        self.unit_size = "500 g"
+
+
 class _FakeProduct:
     def __init__(self, webshop_id: int, title: str) -> None:
         self.webshop_id = webshop_id
@@ -984,3 +994,38 @@ def test_no_cook_evening(tmp_path):
         items = {i["product"] for i in store.order_items(plan_id)}
         assert items == {"spaghetti", "ui"}
         assert store.plan_entries(plan_id)[0].kind == "no_cook"
+
+
+def test_koppel_page_shows_ah_thumbnails(tmp_path):
+    """Suggestions and pinned items show the AH product image (hotlinked)."""
+    image = "https://static.ah.nl/dam/product/AHI_4354523130303637?rendition=800x800_WEBP"
+    with make_client(
+        tmp_path,
+        search_fn=lambda q: [_FakeImageProduct(111, "AH Pasta", image)] if q == "spaghetti" else [],
+    ) as client:
+        seed_recipe(tmp_path)
+        client.get("/plan")
+        client.post("/plan/approve", follow_redirects=False)
+
+        page = client.get("/order/match")
+        assert f'src="{image}"' in page.text
+        assert 'loading="lazy"' in page.text
+
+        pinned = client.post(
+            "/order/match/pin",
+            data={
+                "product": "spaghetti",
+                "unit": "g",
+                "webshop_id": "111",
+                "title": "AH Pasta",
+                "image": image,
+            },
+            follow_redirects=False,
+        )
+        assert pinned.status_code == 303
+
+        # the pin remembers the image so the 'gekoppeld' row keeps a thumbnail
+        assert image in (tmp_path / "ah_mappings.yaml").read_text(encoding="utf-8")
+        matched = client.get("/order/match").text
+        assert f'src="{image}"' in matched
+        assert "AH Pasta" in matched  # title instead of the raw webshop-id

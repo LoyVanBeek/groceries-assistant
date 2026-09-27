@@ -12,8 +12,11 @@
   </div>
   {% if item.webshop_id %}
   <div class="match-current">
+    {% if item.matched_image %}
+    <img class="ah-thumb" src="{{ item.matched_image }}" alt="" loading="lazy">
+    {% endif %}
     <a class="chip ah-link" href="{{ item.matched_url }}" target="_blank" rel="noopener">
-      &#10003; gekoppeld: webshop-id {{ item.webshop_id }}
+      &#10003; {% if item.matched_title %}{{ item.matched_title }}{% else %}webshop-id {{ item.webshop_id }}{% endif %}
     </a>
     <form method="post" action="/order/match/unpin">
       <input type="hidden" name="product" value="{{ item.product }}">
@@ -28,16 +31,18 @@
   {% else %}
   <div class="match-suggestions">
     {% for s in item.suggestions %}
-    <form method="post" action="/order/match/pin">
+    <form method="post" action="/order/match/pin" class="match-suggestion">
+      {% if s.image %}<img class="ah-thumb" src="{{ s.image }}" alt="" loading="lazy">{% endif %}
+      <a class="ah-link" href="{{ s.url }}" target="_blank" rel="noopener">
+        {{ s.title }}{% if s.unit_size %} ({{ s.unit_size }}){% endif %}
+      </a>
       <input type="hidden" name="product" value="{{ item.product }}">
       <input type="hidden" name="unit" value="{{ item.unit }}">
       <input type="hidden" name="webshop_id" value="{{ s.webshop_id }}">
       <input type="hidden" name="title" value="{{ s.title }}">
+      <input type="hidden" name="image" value="{{ s.image or '' }}">
       <button>koppel</button>
     </form>
-    <a class="ah-link" href="{{ s.url }}" target="_blank" rel="noopener">
-      {{ s.title }}{% if s.unit_size %} ({{ s.unit_size }}){% endif %}
-    </a>
     {% else %}
     <span class="muted">geen suggesties</span>
     {% endfor %}

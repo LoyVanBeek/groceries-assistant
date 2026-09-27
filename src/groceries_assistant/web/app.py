@@ -306,11 +306,13 @@ def create_app(
                             "title": s.title,
                             "unit_size": s.unit_size,
                             "url": product_url(s.webshop_id),
+                            "image": getattr(s, "image_url", None),
                         }
                         for s in _search(item["product"])[:5]
                     ]
                 except Exception as exc:
                     error = f"AH onbereikbaar ({exc})"
+            mapping = mappings().get(item["product"])
             matched_url = product_url(item["webshop_id"]) if item["webshop_id"] else None
             rows.append(
                 {
@@ -318,6 +320,8 @@ def create_app(
                     "suggestions": suggestions,
                     "search_error": error,
                     "matched_url": matched_url,
+                    "matched_title": mapping.ah_title if mapping else "",
+                    "matched_image": mapping.ah_image_url if mapping else None,
                 }
             )
         return render(request, "order_match.html", items=rows, fmt=format_amount)
@@ -335,6 +339,7 @@ def create_app(
         unit: str = Form(...),
         webshop_id: int = Form(...),
         title: str = Form(...),
+        image: str = Form(""),
     ):
         latest = store().latest_plan()
         if latest is None:
@@ -348,6 +353,7 @@ def create_app(
                 ah_title=title,
                 score=1.0,
                 confirmed=True,
+                ah_image_url=image.strip() or None,
             )
         )
         store().set_order_item_webshop_id(plan_id, product, unit, webshop_id)

@@ -24,4 +24,6 @@
       ('niet koken (eten elders)' per evening: no dish, no groceries, kok/attendance
       hidden for that evening).
 - [ ] Paste a AH.nl product URL to match the products
-- [ ] Include thumbnail of the AH-item. Just crosslinking to the image on AH.nl should be fine right?
+- [x] Include thumbnail of the AH-item. Just crosslinking to the image on AH.nl should be fine right?
+      (yes - AH's static.ah.nl CDN is public; suggestions and pinned items show a
+      lazy-loaded thumb, image url remembered in `ah_mappings.yaml`).

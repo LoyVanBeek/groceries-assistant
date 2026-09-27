@@ -23,6 +23,7 @@ class AHMapping:
     ah_title: str
     score: float
     confirmed: bool = False
+    ah_image_url: str | None = None
 
 
 class AHMappingStore:
@@ -46,6 +47,7 @@ class AHMappingStore:
                 ah_title=str(item.get("ah_title", "")),
                 score=float(item.get("score", 0.0)),
                 confirmed=bool(item.get("confirmed", False)),
+                ah_image_url=item.get("ah_image_url") or None,
             )
 
     def save(self) -> None:
@@ -57,6 +59,7 @@ class AHMappingStore:
                     "ah_title": m.ah_title,
                     "score": round(m.score, 3),
                     "confirmed": m.confirmed,
+                    **({"ah_image_url": m.ah_image_url} if m.ah_image_url else {}),
                 }
                 for m in sorted(self._mappings.values(), key=lambda m: m.product.lower())
             }
