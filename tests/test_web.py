@@ -75,7 +75,7 @@ def test_full_flow_to_ah_link(tmp_path):
         assert have.status_code == 303
 
         matched = client.get("/order/match")
-        assert "/producten/product/wa123" in matched.text  # matched article link
+        assert "/producten/product/wi123" in matched.text  # matched article link
         link_page = client.get("/order/link")
         assert link_page.status_code == 200
         # spaghetti is matched via the stub search; ui is not in the stub
@@ -716,7 +716,7 @@ def test_order_match_pin_unpin(tmp_path):
         page = client.get("/order/match")
         assert page.status_code == 200
         assert "AH Spaghetti 500 g" in page.text  # suggestion for spaghetti
-        assert "/producten/product/wa111" in page.text  # article link
+        assert "/producten/product/wi111" in page.text  # article link
         assert 'action="/order/match/pin"' in page.text
 
         # pin spaghetti to webshop 111
@@ -745,7 +745,7 @@ def test_order_match_pin_unpin(tmp_path):
 
         # matched row now links to the pinned article
         matched = client.get("/order/match")
-        assert "/producten/product/wa111" in matched.text
+        assert "/producten/product/wi111" in matched.text
         link_page = client.get("/order/link")
         assert link_page.status_code == 200
         assert "111%3A1" in link_page.text

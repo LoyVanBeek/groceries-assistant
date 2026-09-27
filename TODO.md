@@ -18,3 +18,5 @@
       (details/summary: the summary is the current dish, alternatives open below).
 - [x] On the koppel page, add a custom entry option as well (manual AH-id + title).
 - [ ] Recipes need an optional URL field where I can paste an URL to the original recipe
+- [ ] I also need a way to indicate we don'ty have to cook at all due to eating elsewhere etc. 
+- [ ] Paste a AH.nl product URL to match the products

@@ -24,8 +24,12 @@ def build_add_multiple_url(items: Sequence[tuple[int, int]]) -> str:
 
 
 def product_url(webshop_id: int) -> str:
-    """Human-checkable product page for an AH webshop id."""
-    return f"{PRODUCT_BASE}/wa{int(webshop_id)}"
+    """Human-checkable product page for an AH webshop id.
+
+    Product pages use the ``wi`` prefix (the ``wa`` prefix shows a
+    "product does not exist" page).
+    """
+    return f"{PRODUCT_BASE}/wi{int(webshop_id)}"
 
 
 def chunk_items(
