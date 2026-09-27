@@ -46,3 +46,13 @@
       each opens pre-filled in the editor with '1 van N' and a 'volgende' link;
       saving retires that card and returns to the queue, keeping the photo as
       the recipe's picture unless unticked)
+- [ ] Show thumbnails on the '/order' page
+- [x] A dish made of parts you pick yourself ('aardappel-groente-vlees')
+      (`data/dishes/<slug>.yaml`: each part lists the recipes that can fill it;
+      `/dishes` edits them; in the week plan a select per part, the row shows
+      the parts joined with ' + ' under the dish's name, and the longest part
+      decides the time you need -- with the total shown next to it)
+- [ ] Leftovers as arithmetic instead of a planner feature
+      (declare how one purchase looks and how long it keeps per product: you buy
+      whole things, what a purchase leaves over is stock with a shelf life, usable
+      in the same week and in any other dish; the list then says '2 stuk (700 g)'
