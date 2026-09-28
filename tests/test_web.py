@@ -1358,6 +1358,37 @@ def test_koppel_page_shows_ah_thumbnails(tmp_path):
         assert "AH Pasta" in matched  # title instead of the raw webshop-id
 
 
+def test_the_order_page_shows_matched_article_thumbnails(tmp_path):
+    """The flat list shows the pinned AH article's image next to the product."""
+    image = "https://static.ah.nl/dam/product/AHI_4354523130303637?rendition=800x800_WEBP"
+    with make_client(tmp_path, search_fn=lambda q: []) as client:
+        seed_recipe(tmp_path)
+        client.get("/plan")
+        client.post("/plan/approve", follow_redirects=False)
+
+        # nothing pinned yet: no thumbnails at all
+        before = client.get("/order").text
+        assert "ah-thumb" not in before
+
+        pinned = client.post(
+            "/order/match/pin",
+            data={
+                "product": "spaghetti",
+                "unit": "g",
+                "webshop_id": "111",
+                "title": "AH Pasta",
+                "image": image,
+            },
+            follow_redirects=False,
+        )
+        assert pinned.status_code == 303
+
+        page = client.get("/order").text
+        assert f'src="{image}"' in page
+        # the unpinned product keeps no thumbnail
+        assert page.count("ah-thumb") == 1
+
+
 def test_order_match_custom_entry_accepts_pasted_url(tmp_path):
     """Pasting an ah.nl product link in the custom field pins the right article."""
     with make_client(tmp_path, search_fn=lambda q: []) as client:

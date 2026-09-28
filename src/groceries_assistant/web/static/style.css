@@ -293,6 +293,8 @@ li.item {
   align-items: center;
   gap: 0.5rem;
 }
+/* order page: thumbnail of the matched AH article next to the text */
+li.order-item .order-text { flex: 1 1 auto; min-width: 0; }
 
 .match-row {
   display: flex;

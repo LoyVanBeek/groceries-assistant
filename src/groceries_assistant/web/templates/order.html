@@ -10,16 +10,19 @@
 {% endif %}
 <ul class="plain">
   {% for item in items %}
-  <li class="item">
+  <li class="item order-item">
     <form method="post" action="/order/have">
       <input type="hidden" name="product" value="{{ item.product }}">
       <input type="hidden" name="unit" value="{{ item.unit }}">
       <input type="hidden" name="have" value="{{ 0 if item.have else 1 }}">
       <button>{{ '[x]' if item.have else '[ ]' }}</button>
     </form>
-    {% if item.pack_count %}{{ fmt(item.pack_count, item.pack_unit) }} ({{ fmt(item.amount, item.unit) }}){% else %}{{ fmt(item.amount, item.unit) }}{% endif %} {{ item.product }}
-    {% if item.note and not item.pack_count %}<span class="muted">({{ item.note }})</span>{% endif %}
-    {% if not item.webshop_id %}<span class="muted">(niet gevonden in AH)</span>{% endif %}
+    {% if item.image %}<img class="ah-thumb" src="{{ item.image }}" alt="" loading="lazy">{% endif %}
+    <span class="order-text">
+      {% if item.pack_count %}{{ fmt(item.pack_count, item.pack_unit) }} ({{ fmt(item.amount, item.unit) }}){% else %}{{ fmt(item.amount, item.unit) }}{% endif %} {{ item.product }}
+      {% if item.note and not item.pack_count %}<span class="muted">({{ item.note }})</span>{% endif %}
+      {% if not item.webshop_id %}<span class="muted">(niet gevonden in AH)</span>{% endif %}
+    </span>
   </li>
   {% endfor %}
 </ul>

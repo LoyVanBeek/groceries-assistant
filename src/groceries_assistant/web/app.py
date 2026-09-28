@@ -621,10 +621,15 @@ def create_app(
         if latest is None:
             raise HTTPException(404, "Geen actieve week")
         plan_id = latest[0]
+        items = store().order_items(plan_id)
+        # thumbnail of the matched AH article, when one is known
+        for item in items:
+            mapping = mappings().get(item["product"])
+            item["image"] = mapping.ah_image_url if mapping else None
         return render(
             request,
             "order.html",
-            items=store().order_items(plan_id),
+            items=items,
             warnings=_plan_warnings(plan_id),
             leftovers=_plan_leftovers(plan_id),
             fmt=format_amount,
