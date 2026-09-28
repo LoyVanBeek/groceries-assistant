@@ -7,6 +7,7 @@ the Dutch line parser to split amount/unit/product.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 import httpx
@@ -51,6 +52,68 @@ def fetch_html(url: str, timeout: float = 20.0) -> str:
     return response.text
 
 
+def fetch_html_browser(url: str, timeout_s: float = 60.0) -> str:
+    """Fetch a recipe page in a real (headed) browser under a virtual display.
+
+    Some sites (ah.nl) sit behind Akamai's JavaScript challenge: no header or
+    TLS trick passes it — only a real browser does. Chromium runs headed under
+    Xvfb (headless Chromium is detected and refused). Slow (~15 s) and only
+    used when the plain fetch failed or bot-blocked.
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError as exc:
+        raise ExtractionError(
+            "Deze site blokkeert automatische imports (bot-bescherming) en "
+            "playwright is niet geinstalleerd."
+        ) from exc
+
+    launch_kwargs: dict = {
+        "headless": False,  # headless is detected by Akamai
+        "args": ["--disable-blink-features=AutomationControlled"],
+    }
+    executable = os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH")
+    if executable:
+        launch_kwargs["executable_path"] = executable
+
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(**launch_kwargs)
+            context = browser.new_context(locale="nl-NL", viewport={"width": 1280, "height": 800})
+            context.add_init_script(
+                "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+            )
+            page = context.new_page()
+            try:
+                page.goto(url, timeout=timeout_s * 1000)
+            except Exception as exc:
+                raise ExtractionError(f"Kon de pagina niet laden (browser): {exc}") from exc
+            # the challenge/hydration needs a few seconds; wait until the
+            # recipe markup shows up or give up after a few tries
+            html = page.content()
+            for _ in range(4):
+                if "application/ld+json" in html or "recipeIngredient" in html:
+                    break
+                page.wait_for_timeout(4000)
+                try:
+                    page.reload(timeout=timeout_s * 1000)
+                    html = page.content()
+                except Exception:
+                    break
+            browser.close()
+    except ExtractionError:
+        raise
+    except Exception as exc:
+        raise ExtractionError(f"Kon de pagina niet laden (browser): {exc}") from exc
+
+    if "application/ld+json" not in html and "recipeIngredient" not in html:
+        raise ExtractionError(
+            "De pagina liet zich niet uitlezen (bot-bescherming bleef in de weg); "
+            "plak de recepttekst handmatig in de tekst-import."
+        )
+    return html
+
+
 def extract_from_url(url: str, html: str | None = None) -> tuple[Recipe, UrlParseResult]:
     """Scrape a recipe URL into a Recipe plus the parse details.
 
@@ -62,7 +125,11 @@ def extract_from_url(url: str, html: str | None = None) -> tuple[Recipe, UrlPars
     from groceries_assistant.recipes.sites import RECIPE_SITES, generic_text_fallback
 
     if html is None:
-        html = fetch_html(url)
+        try:
+            html = fetch_html(url)
+        except ExtractionError:
+            # blocked (Akamai etc.): try a real browser before giving up
+            html = fetch_html_browser(url)
 
     # --- step 1: recipe-scrapers -------------------------------------------
     try:
