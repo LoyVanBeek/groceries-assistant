@@ -581,7 +581,7 @@ def create_app(
         plan_id = proposal[0]
         rows = apply_absences(store(), store().plan_entries(plan_id))
         store().update_proposal_rows(plan_id, rows)
-        by_slug = recipes_by_slug()
+        by_slug = all_known()
         dishes = dishes_by_slug()
         entries = rows_to_entries(rows, by_slug, dishes, store().plan_picks(plan_id))
         if not any(e.kind == "cook" for e in entries):
@@ -643,7 +643,7 @@ def create_app(
         Read-only, and never stored: the same arithmetic as approving the week
         ran, so the list cannot drift from the plan it came from.
         """
-        by_slug = recipes_by_slug()
+        by_slug = all_known()
         dishes = dishes_by_slug()
         facts = store().product_facts()
         if not facts:
@@ -669,7 +669,7 @@ def create_app(
         """
         entries = rows_to_entries(
             store().plan_entries(plan_id),
-            recipes_by_slug(),
+            all_known(),
             dishes_by_slug(),
             store().plan_picks(plan_id),
         )

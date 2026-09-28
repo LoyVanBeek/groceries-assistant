@@ -1417,16 +1417,6 @@ ingredients:
   - {product: sperziebonen, amount: 300, unit: g}
 """
 
-KIPFILET = """\
-name: Kipfilet
-component: true
-servings: 4
-time: {cook: 15}
-protein: kip
-ingredients:
-  - {product: kipfilet, amount: 600, unit: g}
-"""
-
 KIP = """\
 name: Kipdoner
 servings: 4
@@ -1456,7 +1446,14 @@ def seed_part_recipes(tmp_path: Path) -> None:
     (recipes / "aardappels-uit-de-oven.yaml").write_text(AARDAPPEL, encoding="utf-8")
     (recipes / "sperziebonen.yaml").write_text(SPERZIE, encoding="utf-8")
     (recipes / "kip-doner.yaml").write_text(KIP, encoding="utf-8")
-    (recipes / "kipfilet.yaml").write_text(KIPFILET, encoding="utf-8")
+    # write one component file alongside the dinner recipes
+    comps = tmp_path / "components"
+    comps.mkdir(parents=True, exist_ok=True)
+    from groceries_assistant.components.loader import save_component
+    from groceries_assistant.models import Component
+
+    c = Component(slug="kipfilet", name="Kipfilet", amount=600, unit="g", minutes=15)
+    save_component(comps / "kipfilet.yaml", c)
 
 
 # --- components: a part that is a recipe but never a dinner --------------------
@@ -1485,30 +1482,22 @@ def test_a_component_fills_a_dish_part_and_buys_its_ingredients(tmp_path):
         assert "kipfilet" in items
 
 
-def test_the_component_flag_survives_an_edit_and_shows_on_the_form(tmp_path):
+def test_recipes_filter_out_components_and_the_dish_form_lists_them(tmp_path):
+    """A component is its own file in data/components/, not a recipe."""
     seed_part_recipes(tmp_path)
     with make_client(tmp_path) as client:
-        form = client.get("/recipes/kipfilet/edit").text
-        assert 'name="component" value="true" checked' in form
+        text = client.get("/plan").text
+        # kipfilet is a component: it can fill a part, never an evening
+        assert "Kipdoner" in text
+        assert 'value="kipfilet"' not in text
 
-        client.post(
-            "/recipes/save",
-            data={
-                "original_slug": "kipfilet",
-                "name": "Kipfilet",
-                "component": "true",
-                "cook": "18",
-                "ingredients": "600 g kipfilet",
-            },
-            follow_redirects=False,
-        )
-
-        saved = yaml.safe_load((tmp_path / "recipes" / "kipfilet.yaml").read_text(encoding="utf-8"))
-        assert saved["component"] is True
-        assert saved["time"]["cook"] == 18
+        # the dish form offers kipfilet as a component option
+        dish_page = client.get("/dishes").text
+        assert "Onderdelen" in dish_page
+        assert "Kipfilet" in dish_page
 
 
-def test_components_have_their_own_tab_with_time_and_verdicts(tmp_path):
+def test_components_have_verdicts_and_appear_in_the_dish_form(tmp_path):
     seed_part_recipes(tmp_path)
     with make_client(tmp_path) as client:
         add_person(client, "steffie", "Steffie")
@@ -1518,18 +1507,10 @@ def test_components_have_their_own_tab_with_time_and_verdicts(tmp_path):
             follow_redirects=False,
         )
 
-        recipes_tab = client.get("/recipes").text
-        assert "Kipfilet" not in recipes_tab  # it lives on the other tab
-        assert "Onderdelen (1)" in recipes_tab
-
-        onderdelen = client.get("/recipes?soort=onderdelen").text
-        assert "Kipfilet" in onderdelen
-        assert "15 min" in onderdelen
-        assert ">love<" in onderdelen
-
-        # the 'new component' link opens the form with the box already ticked
-        new = client.get("/recipes/new?soort=onderdeel").text
-        assert 'name="component" value="true" checked' in new
+        text = client.get("/dishes").text
+        assert "Onderdelen" in text
+        assert "Kipfilet" in text
+        assert "15 min" in text
 
 
 def test_dishes_page_renders_empty(tmp_path):
