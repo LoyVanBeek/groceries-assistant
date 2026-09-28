@@ -30,6 +30,7 @@
       <span class="budget">
         {% if e.kind == 'leftovers' %}restjes
         {% elif e.kind == 'no_cook' %}niet koken
+        {% elif e.is_dish and e.unfilled %}nog te kiezen{% if e.minutes %} &middot; {{ e.minutes }} min al{% endif %}
         {% else %}{{ e.minutes }}/{{ e.budget }} min &middot; {{ e.people }} p{% endif %}
       </span>
       {% if e.over_total %}<div class="warnings">{{ e.total_minutes }} min samen</div>{% endif %}
@@ -118,7 +119,7 @@
                   onchange="this.form.requestSubmit()">
             <option value="" {% if not part.chosen %}selected{% endif %}>nog te kiezen</option>
             {% for opt in part.options %}
-            <option value="{{ opt.slug }}" {% if part.chosen == opt.slug %}selected{% endif %}>{{ opt.name }}</option>
+            <option value="{{ opt.slug }}" {% if part.chosen == opt.slug %}selected{% endif %}>{{ opt.name }}{% if opt.minutes is not none %} ({{ opt.minutes }} min){% endif %}</option>
             {% endfor %}
           </select>
         </label>

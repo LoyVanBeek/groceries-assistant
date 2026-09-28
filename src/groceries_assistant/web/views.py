@@ -214,7 +214,15 @@ def _dish_parts(
                 "chosen": chosen,
                 "chosen_name": recipe.name if recipe else "",
                 "options": [
-                    {"slug": slug, "name": by_slug[slug].name if slug in by_slug else slug}
+                    {
+                        "slug": slug,
+                        "name": by_slug[slug].name if slug in by_slug else slug,
+                        # the time is on the option, not on the part: swapping
+                        # kipfilet for wokjes changes what the evening costs
+                        "minutes": (
+                            by_slug[slug].time.same_day_minutes if slug in by_slug else None
+                        ),
+                    }
                     for slug in part.options
                 ],
             }

@@ -2053,6 +2053,32 @@ def test_a_dish_that_cannot_be_planned_shows_why_in_the_picker(tmp_path):
         assert "dish-option unavailable" in text
 
 
+def test_a_parts_options_show_what_they_cost_the_evening(tmp_path):
+    """The time belongs to the option: swapping a part changes the cost."""
+    seed_part_recipes(tmp_path)
+    seed_dish(tmp_path)
+    with make_client(tmp_path) as client:
+        day = plan_a_dish(client, tmp_path)
+        pick(client, day, groente="sperziebonen")  # 10 min
+
+        text = client.get("/plan").text
+        assert "Sperziebonen (10 min)" in text
+        assert "Kipdoner (20 min)" in text
+        assert "Aardappels uit de oven (30 min)" in text
+
+
+def test_an_unfilled_dish_does_not_claim_zero_minutes(tmp_path):
+    """0/40 min reads as 'this evening is free'; the part is simply not chosen."""
+    seed_part_recipes(tmp_path)
+    seed_dish(tmp_path)
+    with make_client(tmp_path) as client:
+        plan_a_dish(client, tmp_path)
+
+        text = client.get("/plan").text
+        assert "0/60 min" not in text
+        assert "nog te kiezen" in text
+
+
 def test_an_unfilled_dish_buys_only_the_filled_parts_and_warns(tmp_path):
     seed_part_recipes(tmp_path)
     seed_dish(tmp_path)
