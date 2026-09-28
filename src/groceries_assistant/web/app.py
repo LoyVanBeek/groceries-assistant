@@ -615,13 +615,14 @@ def create_app(
 
     # --- order ---------------------------------------------------------------
 
-    def _product_sources(plan_id: int) -> dict[str, list[str]]:
+    def _product_sources(plan_id: int) -> dict[str, list[dict]]:
         """Which recipes/dishes need each product, for display on the order page.
 
         Keyed by lowercase product name, exactly as `aggregate_ingredients`
         keys them. A composed dish part attributes to the dish (the combination
         is what the household cooks), not to the component that happens to
-        carry the ingredient.
+        carry the ingredient. Each reference is {name, href} so the order line
+        can link straight to the recipe or dish to fix.
         """
         by_slug = all_known()
         dishes = dishes_by_slug()
@@ -631,20 +632,24 @@ def create_app(
             dishes,
             store().plan_picks(plan_id),
         )
-        sources: dict[str, set[str]] = {}
+        sources: dict[str, dict[str, str]] = {}
         for entry in entries:
             if entry.kind != "cook":
                 continue
             if entry.dish_slug and entry.dish_slug in dishes:
-                display = dishes[entry.dish_slug].name
+                display, href = dishes[entry.dish_slug].name, f"/dishes/{entry.dish_slug}"
             elif entry.recipe is not None:
-                display = entry.recipe.name
+                display, href = entry.recipe.name, f"/recipes/{entry.recipe.slug}/edit"
             else:
                 continue
             for recipe in entry.dishes:
                 for ingredient in recipe.ingredients:
-                    sources.setdefault(ingredient.product.lower(), set()).add(display)
-        return {product: sorted(names) for product, names in sources.items()}
+                    per_product = sources.setdefault(ingredient.product.lower(), {})
+                    per_product.setdefault(display, href)
+        return {
+            product: [{"name": n, "href": h} for n, h in sorted(names.items())]
+            for product, names in sources.items()
+        }
 
     @app.get("/order", response_class=HTMLResponse)
     def order_page(request: Request):
@@ -723,8 +728,10 @@ def create_app(
         plan_id = latest[0]
         items = store().order_items(plan_id)
         facts = store().product_facts()
+        sources = _product_sources(plan_id)
         rows = []
         for item in items:
+            item["recipes"] = sources.get(item["product"].lower(), [])
             suggestions = []
             error = ""
             if not item["webshop_id"]:

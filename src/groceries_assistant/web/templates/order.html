@@ -23,7 +23,10 @@
       {% if item.note and not item.pack_count %}<span class="muted">({{ item.note }})</span>{% endif %}
       {% if not item.webshop_id %}<span class="muted">(niet gevonden in AH)</span>{% endif %}
     </span>
-    {% if item.recipes %}<span class="item-source">voor {{ item.recipes|join(', ') }}</span>{% endif %}
+    {% if item.recipes %}
+    <span class="item-source">voor
+      {%- for r in item.recipes %}{% if not loop.first %}, {% endif %}<a href="{{ r.href }}">{{ r.name }}</a>{% endfor %}</span>
+    {% endif %}
   </li>
   {% endfor %}
 </ul>

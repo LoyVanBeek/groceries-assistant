@@ -1422,7 +1422,7 @@ def test_the_order_page_names_the_recipe_per_product(tmp_path):
         client.post("/plan/approve", follow_redirects=False)
 
         page = client.get("/order").text
-        assert "voor Pasta" in page
+        assert 'href="/recipes/pasta/edit">Pasta</a>' in page
         assert "voor ui" not in page  # the product line itself is not a reference
 
 
@@ -1442,8 +1442,8 @@ def test_the_order_page_attributes_dish_parts_to_the_dish(tmp_path):
         client.post("/plan/approve", follow_redirects=False)
 
         page = client.get("/order").text
-        # aardappels belong to the composed dish, by its name
-        assert "voor Aardappel-groente-vlees" in page
+        # aardappels belong to the composed dish, by its name, linked to the dish
+        assert 'href="/dishes/aardappel-groente-vlees">Aardappel-groente-vlees</a>' in page
 
 
 def test_order_match_custom_entry_accepts_pasted_url(tmp_path):

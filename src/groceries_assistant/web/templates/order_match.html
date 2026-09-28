@@ -23,6 +23,10 @@
     <strong>{{ item.product }}</strong>
     <span class="budget">{{ fmt(item.amount, item.unit) }}</span>
     {% if item.have %}<span class="muted">(al in huis)</span>{% endif %}
+    {% if item.recipes %}
+    <span class="item-source">voor
+      {%- for r in item.recipes %}{% if not loop.first %}, {% endif %}<a href="{{ r.href }}">{{ r.name }}</a>{% endfor %}</span>
+    {% endif %}
   </div>
   {% if item.search_error %}
   <div class="match-suggestions">

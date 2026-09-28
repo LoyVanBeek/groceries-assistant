@@ -307,6 +307,8 @@ li.order-item .item-source { margin-left: auto; color: var(--muted); font-size: 
 }
 .match-row.even { background: var(--surface); }
 .match-product { min-width: 12rem; }
+.match-product .item-source { display: block; color: var(--muted); font-size: 0.85rem; }
+.match-product .item-source a { color: var(--muted); }
 .match-suggestions { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; }
 .match-suggestions button {
   font-weight: 400;
