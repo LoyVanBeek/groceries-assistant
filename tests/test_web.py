@@ -1479,6 +1479,7 @@ def test_a_line_without_a_colon_is_rejected_with_its_number(tmp_path):
 
 
 def test_a_duplicate_dish_name_is_rejected(tmp_path):
+    seed_part_recipes(tmp_path)
     with make_client(tmp_path) as client:
         data = {"name": "Samen", "parts": "Groente: sperziebonen"}
         client.post("/dishes", data=data)
@@ -1492,6 +1493,35 @@ def test_a_dish_needs_at_least_one_part(tmp_path):
     with make_client(tmp_path) as client:
         response = client.post("/dishes", data={"name": "Leeg", "parts": "  \n"})
         assert "minstens één onderdeel" in response.text
+
+
+def test_a_part_option_that_is_no_recipe_is_rejected(tmp_path):
+    """A name that resolves to nothing leaves the dish unplannable, silently."""
+    seed_part_recipes(tmp_path)
+    with make_client(tmp_path) as client:
+        response = client.post(
+            "/dishes",
+            data={"name": "Aardappel-groente-vlees", "parts": "Vlees: worstjes, kipfilet"},
+        )
+
+        assert "geen recepten of onderdelen" in response.text
+        assert "kipfilet" in response.text and "worstjes" in response.text
+        assert not (tmp_path / "dishes" / "aardappel-groente-vlees.yaml").exists()
+
+
+def test_editing_a_dish_rejects_an_option_that_is_no_recipe(tmp_path):
+    seed_part_recipes(tmp_path)
+    seed_dish(tmp_path)
+    with make_client(tmp_path) as client:
+        response = client.post(
+            "/dishes/aardappel-groente-vlees",
+            data={"name": "Aardappel-groente-vlees", "parts": "Groente: koolraap"},
+        )
+
+        assert "koolraap" in response.text
+        # the dish on disk is untouched
+        saved = (tmp_path / "dishes" / "aardappel-groente-vlees.yaml").read_text(encoding="utf-8")
+        assert "koolraap" not in saved
 
 
 def test_editing_a_dish_keeps_its_slug(tmp_path):
@@ -1535,6 +1565,7 @@ def test_editing_an_unknown_dish_is_a_404(tmp_path):
 
 
 def test_deleting_a_dish(tmp_path):
+    seed_part_recipes(tmp_path)
     with make_client(tmp_path) as client:
         client.post("/dishes", data={"name": "Samen", "parts": "Groente: sperziebonen"})
 
@@ -1546,13 +1577,16 @@ def test_deleting_a_dish(tmp_path):
         assert client.post("/dishes/samen/delete", follow_redirects=False).status_code == 404
 
 
-def test_unknown_recipe_slugs_are_warned_about_not_rejected(tmp_path):
-    with make_client(tmp_path) as client:
-        client.post("/dishes", data={"name": "Samen", "parts": "Groente: sperziebonen, weg-recept"})
+def test_a_dish_whose_component_disappeared_is_warned_about(tmp_path):
+    """Saving refuses an unknown option, but a component can vanish later."""
+    seed_part_recipes(tmp_path)
+    seed_dish(tmp_path)
+    (tmp_path / "recipes" / "sperziebonen.yaml").unlink()
 
+    with make_client(tmp_path) as client:
         page = client.get("/dishes")
         assert "Onbekende recepten" in page.text
-        assert "weg-recept" in page.text
+        assert "sperziebonen" in page.text
 
 
 def test_a_broken_dish_file_does_not_hide_the_page(tmp_path):
@@ -2164,6 +2198,7 @@ def test_a_dish_verdict_can_be_undone(tmp_path):
 def test_a_dish_may_not_take_a_recipes_name(tmp_path):
     """Both share one slug space for verdicts and history: keep them apart."""
     seed_recipe(tmp_path)
+    seed_part_recipes(tmp_path)
     (tmp_path / "dishes").mkdir(parents=True, exist_ok=True)
     with make_client(tmp_path) as client:
         page = client.post(

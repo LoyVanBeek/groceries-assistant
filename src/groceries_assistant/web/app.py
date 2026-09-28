@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 import tempfile
+from collections.abc import Mapping
 from datetime import date
 from pathlib import Path
 from typing import Annotated
@@ -679,6 +680,9 @@ def create_app(
             parsed = parse_part_lines(parts)
         except DishError as exc:
             return render(request, "dishes.html", **_dish_form_ctx(name, parts, str(exc)))
+        problem = _unknown_options(parsed, recipes_by_slug())
+        if problem:
+            return render(request, "dishes.html", **_dish_form_ctx(name, parts, problem))
         slug = slugify(name)
         if dish_file(dishes_dir(), slug).exists():
             return render(
@@ -741,6 +745,15 @@ def create_app(
                     form_action=f"/dishes/{slug}",
                 ),
             )
+        problem = _unknown_options(parsed, recipes_by_slug())
+        if problem:
+            return render(
+                request,
+                "dishes.html",
+                **_dish_form_ctx(
+                    name, parts, problem, form_title="Wijzigen", form_action=f"/dishes/{slug}"
+                ),
+            )
         _save_dish_file(slug, name, parsed)
         return RedirectResponse("/dishes", status_code=303)
 
@@ -751,6 +764,21 @@ def create_app(
             raise HTTPException(404, "Onbekend gerecht")
         path.unlink()
         return RedirectResponse("/dishes", status_code=303)
+
+    def _unknown_options(parts: list[DishPart], known: Mapping[str, Recipe]) -> str:
+        """Part options that name no recipe, as a message for the dish form.
+
+        Caught on save rather than at plan time: an option that resolves to
+        nothing leaves the part with no options at all, and the planner then
+        drops the dish from every list without saying why.
+        """
+        missing = sorted({slug for part in parts for slug in part.options if slug not in known})
+        if not missing:
+            return ""
+        return (
+            "dit zijn geen recepten of onderdelen, dus dit gerecht kan nooit gevuld "
+            f"worden: {', '.join(missing)}"
+        )
 
     def _save_dish_file(slug: str, name: str, parts: list[DishPart]) -> None:
         try:
