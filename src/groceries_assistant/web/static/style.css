@@ -120,6 +120,32 @@ button {
   font-weight: 600;
 }
 
+/* small row action: a compact bordered button (wijzig) */
+.btn-small {
+  display: inline-block;
+  padding: 0.25rem 0.7rem;
+  border: 1.5px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 0.95rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+.btn-small:hover { border-color: var(--ink); }
+
+/* icon-only row action (trash) */
+.btn-icon {
+  background: none;
+  border: none;
+  padding: 0.15rem 0.35rem;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  vertical-align: middle;
+}
+.btn-icon:hover { filter: brightness(0.6); }
+
 /* button that looks like a plain text link (row actions) */
 button.link {
   background: none;
@@ -132,6 +158,8 @@ button.link {
   cursor: pointer;
 }
 button.link:hover { color: var(--accent); }
+
+table td.actions { white-space: nowrap; }
 
 button:hover, select:hover, input:hover, textarea:hover { border-color: var(--ink); }
 button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible,
