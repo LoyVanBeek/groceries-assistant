@@ -1607,6 +1607,14 @@ def create_app(
         _set_verdict(slug, person, verdict)
         return RedirectResponse("/recipes", status_code=303)
 
+    @app.post("/recipes/{slug}/delete")
+    def recipe_delete(slug: str):
+        path = data / "recipes" / f"{slug}.yaml"
+        if not path.is_file():
+            raise HTTPException(404, "Onbekend recept")
+        path.unlink()
+        return RedirectResponse("/recipes", status_code=303)
+
     # --- components ----------------------------------------------------------
 
     @app.get("/components", response_class=HTMLResponse)
