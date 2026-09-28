@@ -22,6 +22,16 @@ from groceries_assistant.recipes.textparser import (
 )
 
 BROWSER_UA = "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0"
+BROWSER_HEADERS = {
+    "User-Agent": BROWSER_UA,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "nl-NL,nl;q=0.9,en;q=0.5",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
+}
 
 
 @dataclass
@@ -31,16 +41,14 @@ class UrlParseResult(ParseResult):
 
 
 def fetch_html(url: str, timeout: float = 20.0) -> str:
+    """Fetch a recipe page, preferring HTTP/2 for bot-blocked sites (Akamai)."""
     try:
-        response = httpx.get(
-            url,
-            headers={"User-Agent": BROWSER_UA, "Accept": "text/html"},
-            timeout=timeout,
-            follow_redirects=True,
-        )
-        response.raise_for_status()
+        with httpx.Client(http2=True, timeout=timeout, follow_redirects=True) as client:
+            response = client.get(url, headers=BROWSER_HEADERS)
+            response.raise_for_status()
     except httpx.HTTPError as exc:
         raise ExtractionError(f"Kon de pagina niet laden: {exc}") from exc
+    return response.text
     return response.text
 
 

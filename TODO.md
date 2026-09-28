@@ -79,3 +79,4 @@
       kipschnitzel, vegaschitzel -- amounts and times are placeholders to correct
       on each component's own page; the dish does not appear in the planner until
       they exist)
+- [ ] When there are 'restjes', use the thumbnail of the repeated dish but aith an icon overlayed on it
