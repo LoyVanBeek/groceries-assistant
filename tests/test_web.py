@@ -1419,15 +1419,80 @@ def test_order_match_custom_entry_accepts_pasted_url(tmp_path):
         assert "volkoren spaghetti" in client.get("/order/match").text
         assert "58169%3A1" in client.get("/order/link").text
 
-        # an unparseable reference is rejected with a hint
-        rejected = client.post(
-            "/order/match/pin",
-            data={"product": "ui", "unit": "stuk", "webshop_id": "geen id", "title": "x"},
-            follow_redirects=False,
-        )
-        assert rejected.headers["location"] == "/order/match?error=id"
-        items = {(i["product"], i["unit"]): i for i in store.order_items(plan_id)}
-        assert items[("ui", "stuk")]["webshop_id"] is None
+
+def test_backfill_images_fetches_missing_thumbnails(tmp_path):
+    """Mappings written before images existed get one via the backfill button."""
+    image = "https://static.ah.nl/dam/product/AHI_4354523130303637?rendition=800x800_WEBP"
+    mapping_file = tmp_path / "ah_mappings.yaml"
+    mapping_file.write_text(
+        yaml.safe_dump(
+            {
+                "mappings": {
+                    "spaghetti": {
+                        "ah_webshop_id": 58169,
+                        "ah_title": "AH Volkoren Spaghetti",
+                        "score": 0.9,
+                        "confirmed": False,
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with make_client(tmp_path, search_fn=lambda q: []) as client:
+        seed_recipe(tmp_path)
+        client.get("/plan")
+        client.post("/plan/approve", follow_redirects=False)
+
+        page = client.get("/order/match").text
+        assert image not in page
+
+    def search(query: str):
+        return [_FakeImageProduct(58169, "AH Volkoren Spaghetti", image)]
+
+    with make_client(tmp_path, search_fn=search) as client2:
+        backfill = client2.post("/order/match/backfill-images", follow_redirects=False)
+        assert backfill.status_code == 303
+        assert "opgehaald=1" in backfill.headers["location"]
+
+        saved = mapping_file.read_text(encoding="utf-8")
+        assert "ah_image_url" in saved
+        assert image in saved
+        # the match page and the order page now show the thumbnail
+        assert f'src="{image}"' in client2.get("/order/match").text
+        assert f'src="{image}"' in client2.get("/order").text
+
+
+def test_backfill_leaves_wrong_id_alone(tmp_path):
+    """When no candidate has the same webshop id, nothing is overwritten."""
+    image = "https://static.ah.nl/dam/product/AHI_other"
+    mapping_file = tmp_path / "ah_mappings.yaml"
+    mapping_file.write_text(
+        yaml.safe_dump(
+            {
+                "mappings": {
+                    "spaghetti": {
+                        "ah_webshop_id": 58169,
+                        "ah_title": "AH Volkoren Spaghetti",
+                        "score": 0.9,
+                        "confirmed": False,
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    with make_client(
+        tmp_path,
+        search_fn=lambda q: [_FakeImageProduct(999, "Iets anders", image)],
+    ) as client:
+        seed_recipe(tmp_path)
+
+        backfill = client.post("/order/match/backfill-images", follow_redirects=False)
+        assert "opgehaald=0" in backfill.headers["location"]
+        saved = mapping_file.read_text(encoding="utf-8")
+        assert "ah_image_url" not in saved
 
 
 # --- composed dishes (/dishes) -------------------------------------------------

@@ -804,6 +804,48 @@ def create_app(
         store().set_product_fact(fact)
         return RedirectResponse("/order/match", status_code=303)
 
+    @app.post("/order/match/backfill-images")
+    def order_match_backfill_images():
+        """Fetch images for mappings that lack one (older auto-matches).
+
+        For every mapping without an image, the product is searched once;
+        the candidate with the same webshop id donates its image URL. Misses
+        are left alone — a wrong image is worse than no image.
+        """
+        mapping_store = mappings()
+        targets = [m for m in mapping_store.all() if not m.ah_image_url]
+        updated = 0
+        if targets:
+            by_id = {}
+            try:
+                if search_fn is not None:
+                    for m in targets:
+                        by_id.update({c.webshop_id: c for c in search_fn(m.product)})
+                else:
+                    with AHClient() as client:
+                        for m in targets:
+                            by_id.update({c.webshop_id: c for c in client.search(m.product)})
+            except Exception:
+                by_id = {}
+            for m in targets:
+                hit = by_id.get(m.ah_webshop_id)
+                image = getattr(hit, "image_url", None) if hit else None
+                if not image:
+                    continue
+                mapping_store.put(
+                    AHMapping(
+                        product=m.product,
+                        ah_webshop_id=m.ah_webshop_id,
+                        ah_title=m.ah_title,
+                        score=m.score,
+                        confirmed=m.confirmed,
+                        ah_image_url=image,
+                        ah_unit_size=m.ah_unit_size,
+                    )
+                )
+                updated += 1
+        return RedirectResponse(f"/order/match?opgehaald={updated}", status_code=303)
+
     @app.get("/order/link", response_class=HTMLResponse)
     def order_link(request: Request):
         latest = store().latest_plan()

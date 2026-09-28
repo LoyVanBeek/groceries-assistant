@@ -80,6 +80,10 @@ class AHMappingStore:
     def get(self, product: str) -> AHMapping | None:
         return self._mappings.get(product.lower())
 
+    def all(self) -> list[AHMapping]:
+        """Every mapping, product name ascending."""
+        return sorted(self._mappings.values(), key=lambda m: m.product.lower())
+
     def put(self, mapping: AHMapping) -> None:
         self._mappings[mapping.product.lower()] = mapping
         self.save()

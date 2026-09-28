@@ -524,10 +524,14 @@ def match_products(
     `search(product)` returns AHProduct-like candidates; pass
     AHClient(...).search or a stub in tests. Confirmed pins in the mapping
     store always win; fresh suggestions are cached as unconfirmed.
+
+    A new match keeps the article's image URL; an existing mapping that
+    lacks one is re-searched once so older mappings get a thumbnail too.
     """
     matched: dict[str, tuple[int, str]] = {}
     for product in products:
-        if (known := mappings.get(product)) is not None:
+        known = mappings.get(product)
+        if known is not None and known.ah_image_url:
             matched[product] = (known.ah_webshop_id, known.ah_title)
             continue
         try:
@@ -536,6 +540,9 @@ def match_products(
             candidates = []
         hit, score = suggest_match(product, candidates, min_score=min_score)
         if hit is None:
+            if known is not None:
+                # keep the old match when a refresh finds nothing
+                matched[product] = (known.ah_webshop_id, known.ah_title)
             continue
         matched[product] = (hit.webshop_id, hit.title)
         mappings.put(
@@ -544,7 +551,10 @@ def match_products(
                 ah_webshop_id=hit.webshop_id,
                 ah_title=hit.title,
                 score=score,
-                ah_unit_size=getattr(hit, "unit_size", None),
+                ah_image_url=getattr(hit, "image_url", None)
+                or (known.ah_image_url if known else None),
+                ah_unit_size=getattr(hit, "unit_size", None)
+                or (known.ah_unit_size if known else None),
             )
         )
     return matched

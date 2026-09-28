@@ -9,6 +9,12 @@
 {% if request.query_params.error == 'pack' %}
 <p class="warnings">Verpakking onleesbaar; vul de verpakking zelf in op <a href="/settings">instellingen</a>.</p>
 {% endif %}
+{% if request.query_params.opgehaald %}
+<p>Afbeeldingen opgehaald voor {{ request.query_params.opgehaald }} artikelen.</p>
+{% endif %}
+<form method="post" action="/order/match/backfill-images" class="inline">
+  <button>afbeeldingen ophalen</button>
+</form>
 {% for item in items %}
 <div class="match-row {% if loop.index is even %}even{% endif %}">
   <div class="match-product">
