@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 from groceries_assistant.models import ComposedDish, Recipe
 from groceries_assistant.planner.availability import EveningAvailability
-from groceries_assistant.planner.engine import fill_dish
+from groceries_assistant.planner.engine import fill_dish, why_not
 from groceries_assistant.preferences import Preferences
 
 
@@ -21,6 +21,12 @@ class Alternative:
     is_dish: bool = False
     part_labels: tuple[str, ...] = ()
     """The part labels of a dish ('Groente', 'Vlees'); empty for a recipe."""
+    problem: str = ""
+    """Why this cannot be planned tonight; empty when it can.
+
+    Only dishes get one: a dish that is off the table is still listed, greyed
+    out, so a dish with a typo in it is visible instead of simply gone.
+    """
 
 
 def alternatives(
@@ -44,15 +50,15 @@ def alternatives(
         if dish.slug == exclude_slug:
             continue
         choice = fill_dish(dish, by_slug, prefs, evening)
-        if choice is None:
-            continue
+        problem = "" if choice is not None else why_not(dish, by_slug, prefs, evening) or ""
         dish_rows.append(
             Alternative(
                 slug=dish.slug,
                 name=dish.name,
-                score=choice.score,
+                score=choice.score if choice is not None else 0.0,
                 is_dish=True,
                 part_labels=tuple(part.label for part in dish.parts),
+                problem=problem,
             )
         )
     dish_rows.sort(key=lambda row: (-row.score, row.slug))
@@ -70,4 +76,11 @@ def alternatives(
             Alternative(slug=recipe.slug, name=recipe.name, score=prefs.recipe_score(recipe.slug))
         )
     scored.sort(key=lambda row: (-row.score, row.slug))
-    return dish_rows + scored[:limit]
+    # Dishes lead, because they are the meals the household put together on
+    # purpose. A dish that cannot be planned tonight goes to the very bottom,
+    # greyed out with the reason: visible, but never in the way of a real choice.
+    return (
+        [row for row in dish_rows if not row.problem]
+        + scored[:limit]
+        + [row for row in dish_rows if row.problem]
+    )

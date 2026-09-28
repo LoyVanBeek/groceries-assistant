@@ -375,6 +375,15 @@ table.plan .dish-option {
 }
 table.plan .dish-option:hover { background: var(--accent-soft); }
 table.plan .dish-option .thumb { width: 2.6rem; height: 2.6rem; margin-right: 0; }
+table.plan .dish-option.unavailable {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  opacity: 0.65;
+  cursor: default;
+  font-size: 0.85rem;
+}
+table.plan .dish-option.unavailable .muted { font-size: 0.8rem; }
 
 /* composed dish: the dish's own name small above, the parts you cook below */
 table.plan .dish-combo { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }

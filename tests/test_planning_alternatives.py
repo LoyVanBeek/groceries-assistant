@@ -91,33 +91,39 @@ def test_a_dish_is_offered_above_the_plain_recipes():
     assert not any(r.is_dish for r in scored[1:])
 
 
-def test_a_dish_that_does_not_fit_the_evening_is_not_offered():
+def test_a_dish_that_does_not_fit_the_evening_is_offered_with_the_reason():
     """The longest part decides, so a 90-minute part rules the dish out."""
     dish = _dish(groente="boerenkool", vlees="kip")
     recipes = [_recipe("pasta"), _recipe("boerenkool"), _recipe("kip", 90)]
 
     scored = alternatives(recipes, _prefs(), _evening(45), dishes=[dish])
 
-    assert dish.slug not in [r.slug for r in scored]
-    assert "pasta" in [r.slug for r in scored]
+    assert scored[0].slug == "boerenkool"  # what you can plan leads
+    row = scored[-1]
+    assert row.slug == dish.slug and row.is_dish
+    assert "kip" in row.problem and "90 min" in row.problem and "45" in row.problem
+    assert row.part_labels == ("Groente", "Vlees")  # still named, so it reads as a dish
 
 
-def test_a_dish_marked_never_is_not_offered():
+def test_a_dish_marked_never_is_offered_with_the_reason():
     dish = _dish(groente="boerenkool")
     recipes = [_recipe("boerenkool"), _recipe("pasta")]
     prefs = _prefs({dish.slug: {"kid1": "never"}})
 
     scored = alternatives(recipes, prefs, _evening(), dishes=[dish])
 
-    assert [r.slug for r in scored] == ["boerenkool", "pasta"]  # the dish itself is gone
+    assert [r.slug for r in scored if not r.problem] == ["boerenkool", "pasta"]
+    assert "nooit" in scored[-1].problem
 
 
-def test_a_dish_whose_part_recipe_was_deleted_is_not_offered():
+def test_a_dish_whose_part_recipe_was_deleted_is_offered_with_the_reason():
+    """A renamed component used to make the dish vanish with nothing to show."""
     dish = _dish(groente="weg-recept")
 
     scored = alternatives([_recipe("pasta")], _prefs(), _evening(), dishes=[dish])
 
-    assert [r.slug for r in scored] == ["pasta"]
+    assert scored[0].slug == "pasta"
+    assert "weg-recept" in scored[-1].problem
 
 
 def test_the_current_dish_is_excluded_from_the_picker():
@@ -155,5 +161,6 @@ def test_a_verdict_on_the_dish_itself_replaces_the_mean():
 
     scored = alternatives(recipes, prefs, _evening(), dishes=[dish])
 
+    # the verdict on the dish cannot rescue a part nobody will cook
     assert scored[0].slug == "pasta"
-    assert dish.slug not in [r.slug for r in scored]
+    assert "niemand wil dit" in scored[-1].problem

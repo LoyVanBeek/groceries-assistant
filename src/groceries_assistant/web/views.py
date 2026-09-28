@@ -182,6 +182,7 @@ def _alternatives(
             "name": row.name,
             "is_dish": row.is_dish,
             "part_labels": row.part_labels,
+            "problem": row.problem,
             "image": image_for(row.slug) if image_for and not row.is_dish else None,
         }
         for row in alternatives(recipes, prefs, evening, exclude_slug=exclude, dishes=dishes)

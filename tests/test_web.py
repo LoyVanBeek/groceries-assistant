@@ -1846,6 +1846,23 @@ def test_a_dish_appears_in_the_picker_with_its_part_labels(tmp_path):
         assert "(Aardappels + Groente + Vlees)" in text
 
 
+def test_a_dish_that_cannot_be_planned_shows_why_in_the_picker(tmp_path):
+    """The dish must not vanish: that is what a typo in a part option looks like."""
+    seed_part_recipes(tmp_path)
+    seed_dish(tmp_path)
+    (tmp_path / "recipes" / "sperziebonen.yaml").unlink()
+    with make_client(tmp_path) as client:
+        # a different evening's picker, since a row never offers its own dish
+        _open_week(client, tmp_path)
+
+        text = client.get("/plan").text
+        assert "Aardappel-groente-vlees" in text
+        assert "sperziebonen bestaat niet meer" in text
+        # greyed out, not a button you can press
+        assert 'value="aardappel-groente-vlees"' not in text
+        assert "dish-option unavailable" in text
+
+
 def test_an_unfilled_dish_buys_only_the_filled_parts_and_warns(tmp_path):
     seed_part_recipes(tmp_path)
     seed_dish(tmp_path)

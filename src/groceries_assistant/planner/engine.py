@@ -471,9 +471,8 @@ def fill_dish(
 
     Each part's options are scored with the planner's own rules, so a component
     that is already planned this week, marked 'never' or cooked recently is
-    passed over. Returns None when the whole dish is off the table: a 'never'
-    verdict on the dish itself, a part with no usable option left, a longest part
-    that does not fit the evening, or the dish already planned this week.
+    passed over. Returns None when the whole dish is off the table; use
+    `why_not` to learn which of those it was.
 
     A dish is offered once a week and never repeated, not even when the week is
     out of fresh ideas. Its parts may not be reused either, so repeating the
@@ -485,19 +484,68 @@ def fill_dish(
     average of its parts plus DISH_BONUS: the household wrote this dish down, so
     it is a candidate of its own, not just the sum of its components.
     """
+    return _fill_dish(
+        dish,
+        recipes_by_slug,
+        prefs,
+        evening,
+        history=history,
+        planned=planned,
+        dislike_used=dislike_used,
+        dislike_slots=dislike_slots,
+        repeat_window_days=repeat_window_days,
+        prep_capacity=prep_capacity,
+        previous_recipe=previous_recipe,
+        allow_reuse=allow_reuse,
+    )[0]
+
+
+def why_not(
+    dish: ComposedDish,
+    recipes_by_slug: dict[str, Recipe],
+    prefs: Preferences,
+    evening: EveningAvailability,
+) -> str | None:
+    """Why this dish is not on offer tonight, in words; None when it is.
+
+    For the week view's picker: a dish it cannot show is worse than a dish it
+    shows as unavailable with a reason, because a typo in a part option used to
+    make the dish disappear with nothing to show for it.
+    """
+    return _fill_dish(dish, recipes_by_slug, prefs, evening)[1] or None
+
+
+def _fill_dish(
+    dish: ComposedDish,
+    recipes_by_slug: dict[str, Recipe],
+    prefs: Preferences,
+    evening: EveningAvailability,
+    *,
+    history: dict[str, date] | None = None,
+    planned: set[str] | frozenset[str] = frozenset(),
+    dislike_used: int = 0,
+    dislike_slots: int = DEFAULT_DISLIKE_SLOTS,
+    repeat_window_days: int = DEFAULT_REPEAT_WINDOW_DAYS,
+    prep_capacity: int = 0,
+    previous_recipe: Recipe | None = None,
+    allow_reuse: bool = False,
+) -> tuple[DishChoice | None, str]:
+    """The fill, plus the reason there is none. See `fill_dish`."""
     if prefs.never_by(dish.slug, evening.joiners):
-        return None
+        return None, "nooit volgens een van de aanwezigen"
     if dish.slug in planned:
-        return None
+        return None, "staat al in deze week"
 
     used = set(planned)
     chosen: list[tuple[DishPart, Option]] = []
     for part in dish.parts:
         options: list[Option] = []
+        unknown: list[str] = []
         for slug in part.options:
             recipe = recipes_by_slug.get(slug)
             if recipe is None:
-                continue  # recipe deleted since the dish was defined
+                unknown.append(slug)  # deleted or renamed since the dish was written
+                continue
             option = score_option(
                 recipe,
                 prefs,
@@ -514,14 +562,18 @@ def fill_dish(
             if option is not None:
                 options.append(option)
         if not options:
-            return None  # this part cannot be filled tonight
+            return None, _part_problem(part, recipes_by_slug, prefs, evening, unknown)
         best = min(options, key=lambda option: (-option.score, option.minutes, option.recipe.slug))
         used.add(best.recipe.slug)
         chosen.append((part, best))
 
     minutes = max(option.minutes for _part, option in chosen)
+    longest = max(chosen, key=lambda pair: pair[1].minutes)
     if minutes > evening.free_minutes:
-        return None  # the longest part does not fit
+        return None, (
+            f"{longest[0].label} {longest[1].recipe.name} is {minutes} min, "
+            f"deze avond heeft {evening.free_minutes}"
+        )
 
     prep_ahead_used = sum(option.prep_ahead_used for _part, option in chosen)
     warnings = [w for _part, option in chosen for w in option.warnings]
@@ -541,16 +593,50 @@ def fill_dish(
     else:
         score = mean
     score += DISH_BONUS
-    return DishChoice(
-        dish=dish,
-        parts=tuple(option.recipe for _part, option in chosen),
-        score=score,
-        minutes=minutes,
-        total_minutes=sum(option.recipe.time.total_minutes for _part, option in chosen),
-        prep_ahead_used=prep_ahead_used,
-        warnings=warnings,
-        reason=_dish_reason(dish, chosen, evening, minutes, score),
+    return (
+        DishChoice(
+            dish=dish,
+            parts=tuple(option.recipe for _part, option in chosen),
+            score=score,
+            minutes=minutes,
+            total_minutes=sum(option.recipe.time.total_minutes for _part, option in chosen),
+            prep_ahead_used=prep_ahead_used,
+            warnings=warnings,
+            reason=_dish_reason(dish, chosen, evening, minutes, score),
+        ),
+        "",
     )
+
+
+def _part_problem(
+    part: DishPart,
+    recipes_by_slug: dict[str, Recipe],
+    prefs: Preferences,
+    evening: EveningAvailability,
+    unknown: list[str],
+) -> str:
+    """Why a part could not be filled, in the words of the part.
+
+    `score_option` drops an option for several reasons at once (too long, never,
+    cooked recently, already planned), so this only names a cause when it holds
+    for every option that does exist -- a true statement, not a guess at the
+    single reason the planner used.
+    """
+    if unknown:
+        gone = "bestaat niet meer" if len(unknown) == 1 else "bestaan niet meer"
+        return f"{part.label}: {', '.join(unknown)} {gone}"
+    existing = [recipes_by_slug[slug] for slug in part.options if slug in recipes_by_slug]
+    if not existing:
+        return f"{part.label}: geen opties"
+    if all(recipe.time.same_day_minutes > evening.free_minutes for recipe in existing):
+        longest = max(existing, key=lambda recipe: recipe.time.same_day_minutes)
+        return (
+            f"{part.label}: {longest.name} is {longest.time.same_day_minutes} min, "
+            f"deze avond heeft {evening.free_minutes}"
+        )
+    if all(prefs.never_by(recipe.slug, evening.joiners) for recipe in existing):
+        return f"{part.label}: niemand wil dit"
+    return f"{part.label}: geen optie beschikbaar"
 
 
 def _dish_reason(

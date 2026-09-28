@@ -68,6 +68,13 @@
         </summary>
         <div class="dish-options">
           {% for alt in e.alternatives %}
+          {% if alt.problem %}
+          <div class="dish-option unavailable" aria-disabled="true">
+            {{ alt.name }}
+            {% if alt.is_dish %}<span class="muted"> ({{ alt.part_labels|join(' + ') }})</span>{% endif %}
+            <div class="muted">{{ alt.problem }}</div>
+          </div>
+          {% else %}
           <form method="post" action="/plan/swap">
             <input type="hidden" name="day" value="{{ e.day_iso }}">
             <input type="hidden" name="choice" value="{{ alt.slug }}">
@@ -77,6 +84,7 @@
               {% if alt.is_dish %}<span class="muted"> ({{ alt.part_labels|join(' + ') }})</span>{% endif %}
             </button>
           </form>
+          {% endif %}
           {% endfor %}
           {% if e.can_leftovers %}
           <form method="post" action="/plan/swap">
