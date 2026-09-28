@@ -33,7 +33,12 @@ from the previous approved plan (`order_items` minus its demand), so there is no
 state to maintain and the order page stays read-only. Products without a fact are
 unaffected.
 
-**Planner**: `plan_week` scores a dish as the mean of its parts' scores (a verdict
-on the dish's own slug replaces that mean), `never` on a dish slug excludes the
-whole dish, and each part's option is filled with the engine's existing per-option
-penalties. Picks are persisted with the proposal.
+**Planner**: `plan_week` scores a dish as the mean of its parts' scores plus
+`DISH_BONUS` -- without it a mean could never beat its own best part and the dish
+would never be proposed (a verdict on the dish's own slug replaces the mean
+outright). The bonus is below one person's `love`, so a dish nobody judged still
+loses to a real preference. A dish is planned at most once a week and never
+repeated, not even in the pass that repeats recipes when the week runs dry: a
+second time round would reuse all its parts at once. `never` on a dish slug
+excludes the whole dish, and each part's option is filled with the engine's
+existing per-option penalties. Picks are persisted with the proposal.

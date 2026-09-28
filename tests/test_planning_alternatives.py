@@ -4,6 +4,7 @@ import pytest
 
 from groceries_assistant.models import ComposedDish, Recipe
 from groceries_assistant.planner.availability import EveningAvailability
+from groceries_assistant.planner.engine import DISH_BONUS
 from groceries_assistant.preferences import Person, Preferences
 from groceries_assistant.services.planning import alternatives
 
@@ -129,7 +130,7 @@ def test_the_current_dish_is_excluded_from_the_picker():
 
 
 def test_a_dish_scores_as_the_mean_of_its_parts():
-    """love(+6) and dislike(-8) average to -1; the dish is offered, just ranked below."""
+    """love(+6) and dislike(-8) average to -1, plus the dish bonus; still below pasta."""
     dish = _dish(groente="boerenkool", vlees="kip")
     recipes = [_recipe("boerenkool"), _recipe("kip"), _recipe("pasta")]
     prefs = _prefs(
@@ -143,7 +144,7 @@ def test_a_dish_scores_as_the_mean_of_its_parts():
     scored = alternatives(recipes, prefs, _evening(), dishes=[dish])
 
     dish_row = next(r for r in scored if r.is_dish)
-    assert dish_row.score == pytest.approx(-1.0)
+    assert dish_row.score == pytest.approx(-1.0 + DISH_BONUS)
     assert next(r for r in scored if r.slug == "pasta").score == pytest.approx(2.0)
 
 

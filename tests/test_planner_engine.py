@@ -2,7 +2,7 @@ from datetime import date
 
 from groceries_assistant.models import ComposedDish, Recipe
 from groceries_assistant.planner.availability import EveningAvailability
-from groceries_assistant.planner.engine import plan_week
+from groceries_assistant.planner.engine import DISH_BONUS, REUSE_PENALTY, fill_dish, plan_week
 from groceries_assistant.preferences import Person, Preferences
 
 D1 = date(2026, 9, 8)
@@ -329,7 +329,7 @@ def test_a_dish_is_proposed_with_every_part_filled():
     assert entry.dish_slug == "aardappel-vlees"
     assert entry.recipe is None  # the evening is the dish, not one recipe
     assert [part.slug for part in entry.parts] == ["aardappels", "sperziebonen"]
-    assert entry.score == 6.0
+    assert entry.score == 6.0 + DISH_BONUS  # the verdict, plus the dish bonus
     assert "Aardappels: aardappels" in entry.reason
     assert "Groente: sperziebonen" in entry.reason
 
@@ -349,7 +349,7 @@ def test_a_dish_verdict_replaces_the_mean_of_its_parts():
     plan = plan_week(recipes, prefs, [_evening(D1, 120)], dishes=[dish])
 
     assert plan.entries[0].dish_slug == "av"
-    assert plan.entries[0].score == 12.0
+    assert plan.entries[0].score == 12.0 + DISH_BONUS  # both verdicts, not the mean of 6
 
 
 def test_a_dish_verdict_can_be_worse_than_its_parts():
@@ -478,6 +478,22 @@ def test_a_dish_is_not_planned_twice_while_another_recipe_fits():
     assert plan.entries[1].recipe.slug == "soep"
 
 
+def test_a_dish_is_not_repeated_even_when_the_week_has_nothing_fresh_left():
+    """A repeat of the combination would repeat three recipes at once."""
+    recipes = [_recipe("aardappels"), _recipe("sperziebonen", minutes=10)]
+    dish = _dish("av", ("Aardappels", ["aardappels"]), ("Groente", ["sperziebonen"]))
+    prefs = _prefs({})
+
+    plan = plan_week(recipes, prefs, [_evening(D1, 120), _evening(D2, 120)], dishes=[dish])
+
+    # the dish took both recipes, and it is not offered again
+    assert [entry.dish_slug for entry in plan.entries] == ["av", None]
+    # so the escape hatch repeats one recipe, the shortest one available
+    assert plan.entries[1].recipe is not None
+    assert plan.entries[1].recipe.slug == "sperziebonen"
+    assert plan.entries[1].score == -REUSE_PENALTY
+
+
 def test_a_dish_evening_leaves_the_whole_evening_free():
     """A dish is 30 min on the evening (its longest part), not 30+10."""
     recipes = [_recipe("aardappels"), _recipe("sperziebonen", minutes=10)]
@@ -497,21 +513,45 @@ def test_a_verdict_does_not_hide_what_the_plan_took_off_the_parts():
     recipes = [_recipe("aardappels"), _recipe("sperziebonen", minutes=10)]
     dish = _dish("av", ("Aardappels", ["aardappels"]), ("Groente", ["sperziebonen"]))
     prefs = _prefs({"av": {"kid1": "love"}})
+    by_slug = {recipe.slug: recipe for recipe in recipes}
+    evening = _evening(D1, 120)
 
-    plan = plan_week(recipes, prefs, [_evening(D1, 120), _evening(D2, 120)], dishes=[dish])
+    fresh = fill_dish(dish, by_slug, prefs, evening)
+    reused = fill_dish(
+        dish,
+        by_slug,
+        prefs,
+        evening,
+        planned={"aardappels", "sperziebonen"},
+        allow_reuse=True,
+    )
 
-    assert [entry.dish_slug for entry in plan.entries] == ["av", "av"]
-    assert plan.entries[0].score == 6.0
-    # +6 for the combination, -4 for each of the two parts already cooked
-    assert plan.entries[1].score == -2.0
-    assert "totaal -2" in plan.entries[1].reason
+    # +6 for the combination, +2 for being a dish
+    assert fresh is not None and fresh.score == 8.0
+    assert reused is not None
+    # and -4 for each of the two parts that were already cooked this week
+    assert reused.score == 0.0
+    assert "totaal +0" in reused.reason
 
 
-def test_a_dish_nobody_judged_is_no_better_than_its_best_part():
-    """The mean is the rule: judge the combination if you want it served."""
+def test_a_dish_nobody_judged_beats_a_recipe_nobody_cares_about():
+    """The dish bonus is what makes a defined dish a candidate at all."""
     recipes = [_recipe("aardappels"), _recipe("sperziebonen", minutes=10)]
     dish = _dish("av", ("Aardappels", ["aardappels"]), ("Groente", ["sperziebonen"]))
-    prefs = _prefs({"aardappels": {"kid1": "love"}})  # +6 for one part, 0 for the other
+    prefs = _prefs({})  # nobody cares about anything
+
+    plan = plan_week(recipes, prefs, [_evening(D1, 120)], dishes=[dish])
+
+    entry = plan.entries[0]
+    assert entry.dish_slug == "av"
+    assert entry.score == DISH_BONUS  # a mean of 0, plus what being a dish is worth
+
+
+def test_one_person_loving_a_part_still_beats_an_unjudged_dish():
+    """The bonus is smaller than a single preference, so it never overruns one."""
+    recipes = [_recipe("aardappels"), _recipe("sperziebonen", minutes=10)]
+    dish = _dish("av", ("Aardappels", ["aardappels"]), ("Groente", ["sperziebonen"]))
+    prefs = _prefs({"aardappels": {"kid1": "love"}})  # +6, the dish mean is 3 + 2
 
     plan = plan_week(recipes, prefs, [_evening(D1, 120)], dishes=[dish])
 

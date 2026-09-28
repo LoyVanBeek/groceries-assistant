@@ -53,8 +53,11 @@
       the parts joined with ' + ' under the dish's name, and the longest part
       decides the time you need -- with the total shown next to it.
       The planner fills the parts itself too: dishes compete with every recipe,
-      'never' on a dish slug skips the whole dish, and a verdict on the dish
-      counts more than the mean of its parts. A proposal lands filled: the
+      'never' on a dish slug skips the whole dish, a verdict on the dish counts
+      more than the mean of its parts, and without a verdict the dish is worth
+      the mean plus a small bonus -- so a dish you wrote down gets proposed
+      about once a week, but still loses to a recipe someone loves. A proposal
+      lands filled: the
       planner's own picks show up as chosen in the week plan. On `/dishes` you
       can say something about a dish per person, just like about a recipe)
 - [x] Leftovers as arithmetic instead of a planner feature

@@ -10,9 +10,10 @@ Selection is greedy per evening and fully explainable:
 - optional leftover slot: an evening with `allow_leftovers` may repeat the
   previous evening's dish as 'restjes' (no extra shopping);
 - composed dishes compete with plain recipes: every part is filled with the
-  best option that evening allows, the dish scores as the mean of its parts
-  (unless the dish slug itself carries a verdict), and a dish that does not fit
-  the evening is simply not offered;
+  best option that evening allows, the dish scores as the mean of its parts plus
+  DISH_BONUS (unless the dish slug itself carries a verdict), a dish is offered
+  once a week and never repeated, and a dish that does not fit the evening is
+  simply not offered;
 - deterministic tie-break: higher score, then fewer minutes, then slug.
 Every pick carries a human-readable reason string.
 """
@@ -35,6 +36,15 @@ PROTEIN_REPEAT_PENALTY = 5.0
 DEFAULT_DISLIKE_SLOTS = 1
 LEFTOVER_MINUTES = 15
 LEFTOVER_SCORE = 0.5
+DISH_BONUS = 2.0
+"""What a defined dish is worth above the average of its own parts.
+
+The mean of a set can never beat its best element, and every part is also a
+recipe the planner could serve on its own, so without this a dish nobody has
+judged could never win an evening. A small bonus makes it a candidate: it
+outranks a plain recipe nobody cares about, and still loses to one person
+loving a component. Small enough that it does not outrank a real preference.
+"""
 
 
 @dataclass(frozen=True)
@@ -462,17 +472,22 @@ def fill_dish(
     Each part's options are scored with the planner's own rules, so a component
     that is already planned this week, marked 'never' or cooked recently is
     passed over. Returns None when the whole dish is off the table: a 'never'
-    verdict on the dish itself, the dish already planned this week, a part with
-    no usable option left, or a longest part that does not fit the evening.
+    verdict on the dish itself, a part with no usable option left, a longest part
+    that does not fit the evening, or the dish already planned this week.
+
+    A dish is offered once a week and never repeated, not even when the week is
+    out of fresh ideas. Its parts may not be reused either, so repeating the
+    combination would repeat three recipes at once; the escape hatch then falls
+    to a single plain recipe, which is the smaller thing to cook twice.
 
     A verdict on the dish's own slug says more about the combination than its
-    parts do, so it replaces their mean score -- a dish nobody has judged is
-    worth the average of its parts, which by definition never beats its best
-    part. Mark the combination if you want the planner to serve it.
+    parts do, so it replaces their mean score. Without one, the dish is worth the
+    average of its parts plus DISH_BONUS: the household wrote this dish down, so
+    it is a candidate of its own, not just the sum of its components.
     """
     if prefs.never_by(dish.slug, evening.joiners):
         return None
-    if dish.slug in planned and not allow_reuse:
+    if dish.slug in planned:
         return None
 
     used = set(planned)
@@ -525,6 +540,7 @@ def fill_dish(
         )
     else:
         score = mean
+    score += DISH_BONUS
     return DishChoice(
         dish=dish,
         parts=tuple(option.recipe for _part, option in chosen),
