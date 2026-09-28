@@ -2005,7 +2005,6 @@ def test_the_week_row_shows_the_longest_part_and_the_total(tmp_path):
 
         text = client.get("/plan").text
         assert "30/45 min" in text  # the longest part decides the evening
-        assert "60 min samen" in text  # the sum is shown as a note
 
 
 def test_a_dish_appears_in_the_picker_with_its_part_labels(tmp_path):

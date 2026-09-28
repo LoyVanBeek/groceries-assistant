@@ -33,7 +33,6 @@
         {% elif e.is_dish and e.unfilled %}nog te kiezen{% if e.minutes %} &middot; {{ e.minutes }} min al{% endif %}
         {% else %}{{ e.minutes }}/{{ e.budget }} min &middot; {{ e.people }} p{% endif %}
       </span>
-      {% if e.over_total %}<div class="warnings">{{ e.total_minutes }} min samen</div>{% endif %}
       {% if e.over_budget %}<div class="warnings">over!</div>{% endif %}
     </td>
     <td class="col-dish">

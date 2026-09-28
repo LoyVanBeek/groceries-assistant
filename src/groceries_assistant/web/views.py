@@ -157,9 +157,6 @@ def plan_view(
                 "alternatives": alts,
                 "can_leftovers": (row.kind in ("cook", "no_cook") and last_cook_slug is not None),
                 "over_budget": row.kind == "cook" and minutes > budget,
-                "over_total": row.kind == "cook"
-                and total_minutes > budget
-                and not (minutes > budget),
             }
         )
         if row.kind == "cook":
@@ -202,12 +199,12 @@ def _dish_parts(
 ) -> tuple[list[dict], list[str], int, int]:
     """Per part: its options, the pick, the chosen name; plus the times.
 
-    Returns (part rows, labels of unfilled parts, longest part, sum of parts).
+    Returns (part rows, labels of unfilled parts, longest part, longest part again).
+    Parts are prepared in parallel so the longest one determines the evening.
     """
     rows: list[dict] = []
     unfilled: list[str] = []
     minutes = 0
-    total = 0
     for part in dish.parts:
         chosen = day_picks.get(part.key, "")
         recipe = by_slug.get(chosen)
@@ -215,7 +212,6 @@ def _dish_parts(
             unfilled.append(part.label)
         else:
             minutes = max(minutes, recipe.time.same_day_minutes)
-            total += recipe.time.total_minutes
         rows.append(
             {
                 "key": part.key,
@@ -236,7 +232,7 @@ def _dish_parts(
                 ],
             }
         )
-    return rows, unfilled, minutes, total
+    return rows, unfilled, minutes, minutes
 
 
 def format_amount(amount: float, unit: str) -> str:
