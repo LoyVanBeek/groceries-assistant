@@ -52,7 +52,6 @@ from groceries_assistant.planner.pantry import StockEntry
 from groceries_assistant.recipes.extract import extract_from_images
 from groceries_assistant.recipes.loader import (
     RecipeError,
-    dinners,
     load_recipe,
     load_recipes_with_errors,
     save_recipe,
@@ -233,22 +232,12 @@ def _choices(recipes: list[Recipe]) -> list[OptionChoice]:
     ]
 
 
-def _component_choices(
-    components: list[Component], recipes: list[Recipe] | None = None
-) -> list[OptionChoice]:
-    """Component checkboxes for the dish form, with a fallback to recipes
-    marked as `component: True` for backward compat during migration."""
-    result = {
-        c.slug: OptionChoice(slug=c.slug, name=c.name, minutes=c.minutes)
-        for c in sorted(components, key=lambda c: c.name.lower())
-    }
-    if recipes:
-        for r in recipes:
-            if r.component and r.slug not in result:
-                result[r.slug] = OptionChoice(
-                    slug=r.slug, name=r.name, minutes=r.time.total_minutes
-                )
-    return sorted(result.values(), key=lambda o: o["name"].lower())
+def _component_choices(components: list[Component]) -> list[OptionChoice]:
+    """Component checkboxes for the dish form."""
+    return sorted(
+        (OptionChoice(slug=c.slug, name=c.name, minutes=c.minutes) for c in components),
+        key=lambda o: o["name"].lower(),
+    )
 
 
 def _stage_dir(root: Path, folder: str) -> Path:
@@ -337,7 +326,6 @@ def create_app(
                     servings=4,
                     time=TimeInfo(cook=c.minutes),
                     ingredients=[Ingredient(product=c.name, amount=c.amount, unit=c.unit)],
-                    component=True,
                 )
         return result
 
@@ -379,7 +367,7 @@ def create_app(
             start = parse_start(None)
             dishes = dishes_by_slug()
             components = list(all_known().values())
-            dinners_only = dinners(all_recipes)
+            dinners_only = all_recipes
             plan = propose(
                 dinners_only, store(), start, dishes=list(dishes.values()), components=components
             )
@@ -390,7 +378,8 @@ def create_app(
         evenings = plan_view(
             store(),
             plan_id,
-            list(all_known().values()),
+            all_known(),
+            [r for r in all_recipes],
             prefs,
             store().people(),
             image_for=image_path,
@@ -519,7 +508,7 @@ def create_app(
         evening = evenings_for(store(), target, days=1)[0]
         prefs = preferences_from_store(store())
         all_recipes, _ = load_all()
-        meals = dinners(all_recipes)
+        meals = all_recipes
         source = _previous_cook_slug(rows, target)
         # rows with a reason cannot be planned, so they are not candidates here
         usable = [
@@ -865,7 +854,7 @@ def create_app(
             "name": name,
             "slots": rows,
             "min_part_slots": MIN_PART_SLOTS,
-            "components": _component_choices(all_components, all_recipes),
+            "components": _component_choices(all_components),
             "dinners": _choices(all_recipes),
             "error": error,
             "people": people,
@@ -1164,15 +1153,8 @@ def create_app(
         )
 
     @app.get("/recipes", response_class=HTMLResponse)
-    def recipes_page(request: Request, soort: str = "recepten"):
-        """The recipe list, or the components when `soort=onderdelen`.
-
-        Both are the same records with the same edit form and the same per-person
-        verdicts; a component just never becomes an evening on its own.
-        """
+    def recipes_page(request: Request):
         all_recipes, errors = load_all()
-        show_components = soort == "onderdelen"
-        listed = [r for r in all_recipes if r.component == show_components]
         people = store().people()
         verdicts = store().verdicts()
         rows = [
@@ -1184,7 +1166,7 @@ def create_app(
                 "image": image_path(r.slug),
                 "verdicts": {p["id"]: verdicts.get(r.slug, {}).get(p["id"], "") for p in people},
             }
-            for r in sorted(listed, key=lambda r: r.name.lower())
+            for r in sorted(all_recipes, key=lambda r: r.name.lower())
         ]
         return render(
             request,
@@ -1192,8 +1174,6 @@ def create_app(
             recipes=rows,
             people=people,
             errors=errors,
-            show_components=show_components,
-            component_count=sum(1 for r in all_recipes if r.component),
         )
 
     @app.get("/recipes/import", response_class=HTMLResponse)
@@ -1285,7 +1265,6 @@ def create_app(
             "steps_text": "",
             "parsed": None,
             "note": "",
-            "component_value": False,
             "has_image": False,
             "image_ext": "",
             "images": [],
@@ -1326,18 +1305,16 @@ def create_app(
                 has_image=image is not None,
                 image_ext=image.suffix if image else "",
                 images=images,
-                component_value=recipe.component,
             ),
             original_slug=recipe.slug,
         )
 
     @app.get("/recipes/new", response_class=HTMLResponse)
-    def new_recipe_page(request: Request, soort: str = "recepten"):
-        """The blank recipe form; `soort=onderdeel` pre-ticks the component box."""
+    def new_recipe_page(request: Request):
         return render(
             request,
             "recipe_edit.html",
-            **editor_ctx(component_value=soort == "onderdeel"),
+            **editor_ctx(),
             original_slug=None,
         )
 
@@ -1450,7 +1427,6 @@ def create_app(
         url: str = Form(""),
         ingredients: str = Form(""),
         steps: str = Form(""),
-        component: bool = Form(False),
         image: Annotated[list[UploadFile] | None, File()] = None,
         ocr_stage: str = Form(""),
         card_photo: str = Form(""),
@@ -1497,7 +1473,6 @@ def create_app(
             url=url.strip() or None,
             steps=number_steps(steps.splitlines()),
             ingredients=parsed_ingredients,
-            component=component,
         )
         old_path = data / "recipes" / f"{original_slug}.yaml" if original_slug else None
         new_path = data / "recipes" / f"{recipe.slug}.yaml"

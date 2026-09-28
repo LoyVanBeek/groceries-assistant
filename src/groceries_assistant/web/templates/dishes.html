@@ -101,9 +101,7 @@
   <p><button name="more" value="1">Nog een onderdeel</button></p>
   {% if unknown %}<p class="warnings">Onbekende recepten in opgeslagen gerechten: {{ unknown|join(', ') }}</p>{% endif %}
   <p class="muted">
-    Staat een onderdeel er niet bij? Maak het eerst zelf:
-    <a href="/recipes/new?soort=onderdeel">nieuw onderdeel</a>. De minuten per onderdeel
-    pas je daar aan, niet hier.
+    Staat een onderdeel er niet bij? Voeg het toe in de <code>data/components/</code> map.
   </p>
   <p><button type="submit" class="primary">Opslaan</button></p>
 </form>

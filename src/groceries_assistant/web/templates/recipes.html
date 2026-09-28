@@ -4,23 +4,13 @@
 <h1>Recepten</h1>
 <p>
   <a class="big-link" href="/recipes/new">Nieuw recept</a>
-  {% if show_components %}
-  <a class="big-link" href="/recipes">Alle recepten</a>
-  <a class="big-link" href="/recipes/new?soort=onderdeel">Nieuw onderdeel</a>
-  {% else %}
-  <a class="big-link" href="/recipes?soort=onderdelen">Onderdelen ({{ component_count }})</a>
-  {% endif %}
   <a class="big-link" href="/recipes/import">Importeren (foto / tekst / URL)</a>
   <a class="big-link" href="/recipes/photos">Foto's toewijzen</a>
   <a class="big-link" href="/recipes/ocr">Bulk importeren (foto's)</a>
 </p>
-{% if show_components %}
-<p class="muted">Onderdelen vullen één onderdeel van een gerecht. Ze hebben hun eigen tijd,
-ingrediënten en voorkeuren, maar worden nooit als avondmaaltijd gepland.</p>
-{% endif %}
 {% if errors %}<p class="warnings">{{ errors|join('; ') }}</p>{% endif %}
 <table>
-  <tr><th>{% if show_components %}Onderdeel{% else %}Recept{% endif %}</th><th>Tijd</th><th>Protein</th><th></th>{% for p in people %}<th>{{ p['name'] or p['id'] }}</th>{% endfor %}</tr>
+  <tr><th>Recept</th><th>Tijd</th><th>Protein</th><th></th>{% for p in people %}<th>{{ p['name'] or p['id'] }}</th>{% endfor %}</tr>
   {% for r in recipes %}
   <tr>
     <td>

@@ -1603,8 +1603,8 @@ def test_the_part_form_offers_components_and_recipes_with_their_time(tmp_path):
         assert 'value="kipfilet"' in text
         assert 'value="kip-doner"' in text
         assert "15 min" in text and "20 min" in text
-        # a component is not a dinner, so it is not in the recipe group
-        assert "nieuw onderdeel" in text
+        # a component is not a dinner, so it is not shown as a recipe option
+        assert "Onderdelen" in text
 
 
 def test_another_part_adds_a_row_and_keeps_what_was_typed(tmp_path):

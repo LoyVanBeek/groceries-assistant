@@ -9,7 +9,7 @@ from pathlib import Path
 from groceries_assistant.models import ComposedDish, Recipe
 from groceries_assistant.planner.availability import EveningAvailability
 from groceries_assistant.preferences import Preferences
-from groceries_assistant.recipes.loader import dinners, load_recipes_with_errors
+from groceries_assistant.recipes.loader import load_recipes_with_errors
 from groceries_assistant.services import planner_service as planner
 from groceries_assistant.services.planning import alternatives
 from groceries_assistant.store.db import Store
@@ -58,7 +58,8 @@ def cook_view(stored_cook: str, members: list[dict], joiners: list[str]) -> dict
 def plan_view(
     store: Store,
     plan_id: int,
-    recipes: list[Recipe],
+    by_slug: dict[str, Recipe],
+    meals: list[Recipe],
     prefs: Preferences,
     people: list[dict],
     image_for=None,
@@ -66,11 +67,9 @@ def plan_view(
 ) -> list[dict]:
     """Per-evening view model: label, dish, cook, joiners, swap options.
 
-    A composed dish evening carries one pick per part: the row shows the parts
-    joined with ' + ' under the dish's name, and offers a select per part.
+    `by_slug` includes all recipes and component-as-recipe objects for
+    resolving dish part picks; `meals` is the subset shown in the picker.
     """
-    by_slug = {r.slug: r for r in recipes}
-    meals = dinners(recipes)  # a component is a part option, never a swap candidate
     dishes_by_slug = {d.slug: d for d in dishes}
     picks = store.plan_picks(plan_id)
     view: list[dict] = []
