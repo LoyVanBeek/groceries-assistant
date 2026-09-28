@@ -74,6 +74,23 @@ def _cook_minutes(text: str) -> int | None:
     return None
 
 
+def _og_image(html: str) -> str | None:
+    """Extract og:image from HTML meta tags."""
+    m = re.search(
+        r'<meta[^>]+property\s*=\s*["\']og:image["\'][^>]*content\s*=\s*["\']([^"\']+)["\']',
+        html,
+        re.I,
+    )
+    if m:
+        return m.group(1)
+    m = re.search(
+        r'<meta[^>]+content\s*=\s*["\']([^"\']+)["\'][^>]*property\s*=\s*["\']og:image["\']',
+        html,
+        re.I,
+    )
+    return m.group(1) if m else None
+
+
 def _parse_bullet_list(lines: list[str]) -> list[Ingredient]:
     """Try to parse each line as an ingredient; unparseable ones become 1 stuk."""
     ingredients: list[Ingredient] = []
@@ -95,13 +112,24 @@ def _parse_bullet_list(lines: list[str]) -> list[Ingredient]:
 
 
 def _numbered_steps(lines: list[str]) -> list[str]:
-    """Extract lines that start with a digit-dot pair, stripping the number."""
+    """Extract lines that start with a digit-dot pair, stripping the number.
+
+    Also splits inline on step markers like ``1. A … 2. B … 3. C …``
+    found on a single line (Knorr product pages do this).
+    """
     steps: list[str] = []
     for line in lines:
         stripped = line.strip()
         m = re.match(r"^\s*(\d+)\s*[.:)\s]\s*(.*)", stripped)
         if m:
             steps.append(m.group(2).strip())
+        else:
+            # inline split — one line, multiple step markers
+            parts = re.split(r"\s+(?=\d+\s*[.:)\s])", stripped)
+            for part in parts:
+                m = re.match(r"^\s*(\d+)\s*[.:)\s]\s*(.*)", part.strip())
+                if m and m.group(2).strip():
+                    steps.append(m.group(2).strip())
     return steps
 
 
@@ -150,6 +178,7 @@ def generic_text_fallback(html: str, url: str) -> UrlParseResult | None:
         steps=steps,
         cook_minutes=cook,
         servings=4,
+        image_url=_og_image(html),
     )
 
 
@@ -218,4 +247,5 @@ class KnorrParser:
             steps=steps,
             cook_minutes=cook_minutes,
             servings=4,
+            image_url=_og_image(html),
         )

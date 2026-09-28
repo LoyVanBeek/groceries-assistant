@@ -9,7 +9,7 @@ from collections.abc import Mapping
 from datetime import date
 from pathlib import Path
 from typing import Annotated, TypedDict
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 from uuid import uuid4
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -1179,6 +1179,34 @@ def create_app(
             errors=errors,
         )
 
+        def _stage_web_image(url: str) -> str | None:
+            """Download an image from a URL to the OCR staging dir; returns uid."""
+            from urllib.request import Request, urlopen
+
+            content: bytes | None = None
+            content_type: str = ""
+            try:
+                ua = "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0"
+                req = Request(url, headers={"User-Agent": ua})
+                with urlopen(req, timeout=15) as resp:
+                    content = resp.read()
+                    content_type = resp.headers.get_content_type() or ""
+            except Exception:
+                return None
+            if not content:
+                return None
+            ext = "".join(Path(urlparse(url).path).suffixes)
+            if ext not in {".jpg", ".jpeg", ".png", ".webp"}:
+                ext = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}.get(
+                    content_type.lower(), ""
+                )
+            if not ext:
+                return None
+            uid = uuid4().hex
+            staging = ocr_staging()
+            (staging / f"{uid}{ext}").write_bytes(content)
+            return uid
+
     @app.get("/recipes/import", response_class=HTMLResponse)
     def import_page(request: Request):
         return render(request, "import.html")
@@ -1215,12 +1243,24 @@ def create_app(
                     raw = text
         except Exception as exc:
             return render(request, "import.html", error=f"Importeren mislukt: {exc}")
+        stage_uid = ""
+        staged_url = ""
+        if not used_photo and url.strip() and getattr(parsed, "image_url", None):
+            try:
+                stage_uid = _stage_web_image(getattr(parsed, "image_url", ""))  # noqa: F821  # type: ignore
+                if stage_uid:
+                    staged_url = ocr_staged_url(stage_uid)
+            except Exception:
+                pass  # image is optional, silence failures
         if not used_photo:
             parsed = parse_recipe_text(raw)
+        ctx = _editor_ctx_from_parse(parsed, url_value=url.strip())
+        ctx["staged_photo"] = staged_url
+        ctx["stage_uid"] = stage_uid
         return render(
             request,
             "recipe_edit.html",
-            **_editor_ctx_from_parse(parsed, url_value=url.strip()),
+            **ctx,
             original_slug=None,
         )
 
