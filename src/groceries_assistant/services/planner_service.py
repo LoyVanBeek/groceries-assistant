@@ -90,8 +90,13 @@ def propose(
     servings: int = DEFAULT_SERVINGS,
     repeat_window_days: int = DEFAULT_REPEAT_WINDOW_DAYS,
     dishes: Sequence[ComposedDish] = (),
+    components: list[Recipe] | None = None,
 ) -> WeeklyPlan:
-    """Run the planner for the week starting at `start`."""
+    """Run the planner for the week starting at `start`.
+
+    Pass `components` (as Recipe-shaped objects) alongside `recipes` so the
+    engine can resolve dish part options that reference component slugs.
+    """
     return plan_week(
         recipes,
         preferences_from_store(store),
@@ -99,6 +104,7 @@ def propose(
         history=store.history(),
         repeat_window_days=repeat_window_days,
         dishes=dishes,
+        components=components,
     )
 
 

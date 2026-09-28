@@ -28,6 +28,9 @@ from groceries_assistant.ah.deeplink import (
     product_url,
 )
 from groceries_assistant.ah.matching import AHMapping, AHMappingStore, fact_from_unit_size
+from groceries_assistant.components.loader import (
+    load_components_with_errors,
+)
 from groceries_assistant.dishes.loader import (
     DishError,
     dish_file,
@@ -35,7 +38,16 @@ from groceries_assistant.dishes.loader import (
     load_dishes_with_errors,
     save_dish,
 )
-from groceries_assistant.models import ComposedDish, DishPart, ProductFact, Recipe, slugify
+from groceries_assistant.models import (
+    Component,
+    ComposedDish,
+    DishPart,
+    Ingredient,
+    ProductFact,
+    Recipe,
+    TimeInfo,
+    slugify,
+)
 from groceries_assistant.planner.pantry import StockEntry
 from groceries_assistant.recipes.extract import extract_from_images
 from groceries_assistant.recipes.loader import (
@@ -208,7 +220,7 @@ class OptionChoice(TypedDict):
     minutes: int
 
 
-def _choices(recipes: list[Recipe], components_only: bool) -> list[OptionChoice]:
+def _choices(recipes: list[Recipe]) -> list[OptionChoice]:
     """The checkboxes a part row offers, with the time each option costs.
 
     A composed dish is mostly components ('kipfilet', 'brocolli') with a few whole
@@ -218,8 +230,25 @@ def _choices(recipes: list[Recipe], components_only: bool) -> list[OptionChoice]
     return [
         OptionChoice(slug=recipe.slug, name=recipe.name, minutes=recipe.time.total_minutes)
         for recipe in sorted(recipes, key=lambda r: r.name.lower())
-        if recipe.component is components_only
     ]
+
+
+def _component_choices(
+    components: list[Component], recipes: list[Recipe] | None = None
+) -> list[OptionChoice]:
+    """Component checkboxes for the dish form, with a fallback to recipes
+    marked as `component: True` for backward compat during migration."""
+    result = {
+        c.slug: OptionChoice(slug=c.slug, name=c.name, minutes=c.minutes)
+        for c in sorted(components, key=lambda c: c.name.lower())
+    }
+    if recipes:
+        for r in recipes:
+            if r.component and r.slug not in result:
+                result[r.slug] = OptionChoice(
+                    slug=r.slug, name=r.name, minutes=r.time.total_minutes
+                )
+    return sorted(result.values(), key=lambda o: o["name"].lower())
 
 
 def _stage_dir(root: Path, folder: str) -> Path:
@@ -254,6 +283,7 @@ def create_app(
     """search_fn: injectable AH search(product) -> candidates; None = real client."""
     data = Path(data_dir)
     (data / "recipes").mkdir(parents=True, exist_ok=True)
+    (data / "components").mkdir(parents=True, exist_ok=True)
     # staged uploads are scratch space for the current run only
     for folder in (PHOTO_STAGING, OCR_STAGING):
         for stale in (data / folder).glob("*"):
@@ -282,6 +312,34 @@ def create_app(
     def recipes_by_slug() -> dict[str, Recipe]:
         all_recipes, _errors = load_all()
         return {r.slug: r for r in all_recipes}
+
+    def load_components_all() -> tuple[list[Component], list[str]]:
+        return load_components_with_errors(data / "components")
+
+    def components_by_slug() -> dict[str, Component]:
+        all_components, _errors = load_components_all()
+        return {c.slug: c for c in all_components}
+
+    def all_known() -> dict[str, Recipe]:
+        """Recipes and components together, the latter converted to Recipe shape.
+
+        Downstream code (engine, planning, views) works with Recipe objects, so a
+        component is converted to a minimal Recipe whose sole ingredient is its own
+        product and whose cook time is its minutes. This way the dish's part
+        options (component slugs) resolve without touching the engine.
+        """
+        result = {r.slug: r for r in load_all()[0]}
+        for c in load_components_all()[0]:
+            if c.slug not in result:
+                result[c.slug] = Recipe(
+                    slug=c.slug,
+                    name=c.name,
+                    servings=4,
+                    time=TimeInfo(cook=c.minutes),
+                    ingredients=[Ingredient(product=c.name, amount=c.amount, unit=c.unit)],
+                    component=True,
+                )
+        return result
 
     templates.env.filters["dutch_date"] = dutch_date
 
@@ -320,7 +378,11 @@ def create_app(
         if proposal is None:
             start = parse_start(None)
             dishes = dishes_by_slug()
-            plan = propose(dinners(all_recipes), store(), start, dishes=list(dishes.values()))
+            components = list(all_known().values())
+            dinners_only = dinners(all_recipes)
+            plan = propose(
+                dinners_only, store(), start, dishes=list(dishes.values()), components=components
+            )
             plan_id = store().save_proposal(start, plan_to_rows(plan), plan_to_picks(plan, dishes))
             proposal = (plan_id, start)
         plan_id, start = proposal[0], proposal[1]
@@ -328,7 +390,7 @@ def create_app(
         evenings = plan_view(
             store(),
             plan_id,
-            all_recipes,
+            list(all_known().values()),
             prefs,
             store().people(),
             image_for=image_path,
@@ -783,6 +845,8 @@ def create_app(
         dishes = sorted(loaded, key=lambda d: d.name.lower())
         all_recipes, _load_errors = load_all()
         known = {r.slug: r.name for r in all_recipes}
+        all_components, _component_errors = load_components_all()
+        known.update({c.slug: c.name for c in all_components})
         missing: list[str] = []
         for dish in loaded:
             missing += [slug for slug in sorted(dish.option_slugs) if slug not in known]
@@ -801,12 +865,10 @@ def create_app(
             "name": name,
             "slots": rows,
             "min_part_slots": MIN_PART_SLOTS,
-            "components": _choices(all_recipes, components_only=True),
-            "dinners": _choices(all_recipes, components_only=False),
+            "components": _component_choices(all_components, all_recipes),
+            "dinners": _choices(all_recipes),
             "error": error,
             "people": people,
-            # A verdict on a dish is a verdict on the combination, and it is keyed
-            # by the dish's slug: the same slug space as a recipe.
             "verdicts": {
                 dish.slug: {
                     person["id"]: verdicts.get(dish.slug, {}).get(person["id"], "")
@@ -869,7 +931,7 @@ def create_app(
         parts, problem = _parts_from_slots(slots)
         if problem:
             return again(problem)
-        stale = _unknown_options(parts, recipes_by_slug())
+        stale = _unknown_options(parts, {**recipes_by_slug(), **components_by_slug()})
         if stale:
             # A browser can replay a form from before a component was renamed.
             return again(stale)
@@ -878,10 +940,10 @@ def create_app(
             return again("geef het gerecht een naam")
         if dish_file(dishes_dir(), target).exists() and slug != target:
             return again(f"'{target}' bestaat al")
-        if target in recipes_by_slug():
-            # A dish shares its slug space with the recipes (verdicts, history),
-            # so a name clash would make the two indistinguishable.
-            return again(f"'{target}' is al een recept; kies een andere naam")
+        if target in recipes_by_slug() or target in components_by_slug():
+            # A dish shares its slug space with recipes and components,
+            # so a name clash would make them indistinguishable.
+            return again(f"'{target}' is al een recept of onderdeel; kies een andere naam")
         _save_dish_file(target, name, parts)
         return RedirectResponse("/dishes", status_code=303)
 
@@ -929,7 +991,7 @@ def create_app(
         path.unlink()
         return RedirectResponse("/dishes", status_code=303)
 
-    def _unknown_options(parts: list[DishPart], known: Mapping[str, Recipe]) -> str:
+    def _unknown_options(parts: list[DishPart], known: Mapping[str, object]) -> str:
         """Part options that name no recipe, as a message for the dish form.
 
         Caught on save rather than at plan time: an option that resolves to

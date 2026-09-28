@@ -115,6 +115,7 @@ def plan_week(
     dislike_slots: int = DEFAULT_DISLIKE_SLOTS,
     repeat_window_days: int = DEFAULT_REPEAT_WINDOW_DAYS,
     dishes: Sequence[ComposedDish] = (),
+    components: list[Recipe] | None = None,
 ) -> WeeklyPlan:
     """Pick a dish per evening, honouring time, verdicts and variety.
 
@@ -122,9 +123,16 @@ def plan_week(
     filled with one option per part, each scored by the same rules, and stands
     or falls as a whole. `dishes` is a plain sequence so callers that only know
     recipes need not change.
+
+    Pass `components` (as Recipe-shaped objects) alongside `recipes` so the
+    engine can resolve dish part options that reference component slugs.
     """
     history = history or {}
     recipes_by_slug = {recipe.slug: recipe for recipe in recipes}
+    if components:
+        for c in components:
+            if c.slug not in recipes_by_slug:
+                recipes_by_slug[c.slug] = c
     entries: list[PlanEntry] = []
     planned: set[str] = set()
     dislike_used = 0

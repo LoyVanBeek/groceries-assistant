@@ -215,3 +215,27 @@ class ProductFact(BaseModel):
     @property
     def shelf_life(self) -> timedelta:
         return timedelta(days=self.shelf_life_days)
+
+
+class Component(BaseModel):
+    """A product you buy in the store, used as part of a composed dish.
+
+    Unlike a Recipe, a Component has no steps, tags, servings or ingredients
+    list. It is the item you buy: 'zak krieltjes 750 g', 'brocolli'. Its
+    minutes is how long it takes to prepare (boil krieltjes, steam broccoli).
+    Verdicts and product facts attach to the component's slug.
+    """
+
+    slug: str
+    name: str
+    amount: float = Field(default=1.0, gt=0)
+    unit: str = "stuk"
+    minutes: int = Field(default=0, ge=0)
+    notes: str | None = None
+
+    @field_validator("name", "slug")
+    @classmethod
+    def _non_empty(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must not be empty")
+        return value.strip()
