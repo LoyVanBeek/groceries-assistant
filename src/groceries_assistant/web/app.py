@@ -29,7 +29,10 @@ from groceries_assistant.ah.deeplink import (
 )
 from groceries_assistant.ah.matching import AHMapping, AHMappingStore, fact_from_unit_size
 from groceries_assistant.components.loader import (
+    ComponentError,
+    load_component,
     load_components_with_errors,
+    save_component,
 )
 from groceries_assistant.dishes.loader import (
     DishError,
@@ -1550,6 +1553,96 @@ def create_app(
     def set_verdict_route(slug: str = Form(...), person: str = Form(...), verdict: str = Form("")):
         _set_verdict(slug, person, verdict)
         return RedirectResponse("/recipes", status_code=303)
+
+    # --- components ----------------------------------------------------------
+
+    @app.get("/components", response_class=HTMLResponse)
+    def components_page(request: Request):
+        all_components, errors = load_components_all()
+        people = store().people()
+        verdicts = store().verdicts()
+        rows = [
+            {
+                "slug": c.slug,
+                "name": c.name,
+                "amount": c.amount,
+                "unit": c.unit,
+                "minutes": c.minutes,
+                "verdicts": {p["id"]: verdicts.get(c.slug, {}).get(p["id"], "") for p in people},
+            }
+            for c in sorted(all_components, key=lambda c: c.name.lower())
+        ]
+        return render(
+            request,
+            "components.html",
+            components=rows,
+            people=people,
+            errors=errors,
+        )
+
+    def _component_edit_ctx(
+        *, title: str, action: str, component: Component | None = None, error: str = ""
+    ):
+        return {
+            "title": title,
+            "action": action,
+            "name": component.name if component else "",
+            "amount": component.amount if component else 1.0,
+            "unit": component.unit if component else "stuk",
+            "minutes": component.minutes if component else 0,
+            "original_slug": component.slug if component else "",
+            "error": error,
+        }
+
+    @app.get("/components/new", response_class=HTMLResponse)
+    def new_component_page(request: Request):
+        return render(
+            request,
+            "component_edit.html",
+            **_component_edit_ctx(title="Nieuw onderdeel", action="/components/save"),
+        )
+
+    @app.get("/components/{slug}/edit", response_class=HTMLResponse)
+    def edit_component_page(request: Request, slug: str):
+        try:
+            c = load_component(data / "components" / f"{slug}.yaml")
+        except ComponentError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        return render(
+            request,
+            "component_edit.html",
+            **_component_edit_ctx(title=f"Wijzig {c.name}", action="/components/save", component=c),
+        )
+
+    @app.post("/components/save")
+    def save_component_route(
+        name: str = Form(...),
+        amount: float = Form(1.0),
+        unit: str = Form("stuk"),
+        minutes: int = Form(0),
+        original_slug: str = Form(""),
+    ):
+        slug = original_slug if original_slug else slugify(name)
+        c = Component(
+            slug=slug, name=name.strip(), amount=amount, unit=unit.strip(), minutes=minutes
+        )
+        save_component(data / "components" / f"{slug}.yaml", c)
+        return RedirectResponse("/components", status_code=303)
+
+    @app.post("/components/{slug}/delete")
+    def delete_component(slug: str):
+        path = data / "components" / f"{slug}.yaml"
+        if not path.exists():
+            raise HTTPException(404)
+        path.unlink()
+        return RedirectResponse("/components", status_code=303)
+
+    @app.post("/components/verdict")
+    def component_verdict_route(
+        slug: str = Form(...), person: str = Form(...), verdict: str = Form("")
+    ):
+        _set_verdict(slug, person, verdict)
+        return RedirectResponse("/components", status_code=303)
 
     # --- settings ---------------------------------------------------------------
 

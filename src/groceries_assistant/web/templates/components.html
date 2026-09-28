@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Onderdelen{% endblock %}
+{% block content %}
+<h1>Onderdelen</h1>
+<p>
+  <a class="big-link" href="/components/new">Nieuw onderdeel</a>
+  <a class="big-link" href="/dishes">Gerechten</a>
+</p>
+{% if errors %}<p class="warnings">{{ errors|join('; ') }}</p>{% endif %}
+<table>
+  <tr>
+    <th>Onderdeel</th>
+    <th>Hoeveelheid</th>
+    <th>Tijd</th>
+    <th></th>
+    {% for p in people %}<th>{{ p['name'] or p['id'] }}</th>{% endfor %}
+  </tr>
+  {% for c in components %}
+  <tr>
+    <td>
+      <a href="/components/{{ c.slug }}/edit">{{ c.name }}</a>
+    </td>
+    <td>{{ c.amount }} {{ c.unit }}</td>
+    <td>{{ c.minutes }} min</td>
+    <td>
+      <form method="post" action="/components/{{ c.slug }}/delete"
+        onsubmit="return confirm('Onderdeel &#39;{{ c.name }}&#39; verwijderen?')">
+        <button class="link">verwijder</button>
+      </form>
+    </td>
+    {% for p in people %}
+    <td>
+      <form method="post" action="/components/verdict">
+        <input type="hidden" name="slug" value="{{ c.slug }}">
+        <input type="hidden" name="person" value="{{ p['id'] }}">
+        <select name="verdict" onchange="this.form.submit()">
+          <option value=""></option>
+          {% for v in ['love','ok','dislike','never'] %}
+          <option value="{{ v }}" {% if c.verdicts[p['id']] == v %}selected{% endif %}>{{ v }}</option>
+          {% endfor %}
+        </select>
+      </form>
+    </td>
+    {% endfor %}
+  </tr>
+  {% else %}
+  <tr><td colspan="9">Nog geen onderdelen.</td></tr>
+  {% endfor %}
+</table>
+{% endblock %}

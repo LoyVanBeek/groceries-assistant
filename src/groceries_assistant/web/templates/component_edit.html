@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block content %}
+<h1>{{ title }}</h1>
+{% if error %}<p class="warnings">{{ error }}</p>{% endif %}
+<form method="post" action="{{ action }}">
+  {% if original_slug %}<input type="hidden" name="original_slug" value="{{ original_slug }}">{% endif %}
+  <p>
+    <label>Naam<br><input type="text" name="name" value="{{ name }}" size="40"></label>
+  </p>
+  <p>
+    <label>Aantal<br><input type="number" name="amount" value="{{ amount }}" min="0.1" step="any"></label>
+  </p>
+  <p>
+    <label>Eenheid<br><input type="text" name="unit" value="{{ unit }}" size="10"></label>
+  </p>
+  <p>
+    <label>Minuten<br><input type="number" name="minutes" value="{{ minutes }}" min="0"></label>
+  </p>
+  <p><button type="submit">Opslaan</button></p>
+</form>
+{% endblock %}
