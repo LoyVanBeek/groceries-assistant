@@ -120,6 +120,19 @@ button {
   font-weight: 600;
 }
 
+/* button that looks like a plain text link (row actions) */
+button.link {
+  background: none;
+  border: none;
+  padding: 0 0.25rem;
+  font: inherit;
+  font-size: 0.95rem;
+  color: var(--ink);
+  text-decoration: underline;
+  cursor: pointer;
+}
+button.link:hover { color: var(--accent); }
+
 button:hover, select:hover, input:hover, textarea:hover { border-color: var(--ink); }
 button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible,
 a:focus-visible, input[type="checkbox"]:focus-visible {

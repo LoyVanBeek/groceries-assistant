@@ -19,7 +19,8 @@
     </td>
     <td>{{ r.minutes }} min</td>
     <td>{{ r.protein or '' }}</td>
-    <td><a href="/recipes/{{ r.slug }}/edit">wijzig</a>
+    <td>
+      <a href="/recipes/{{ r.slug }}/edit">wijzig</a>
       <form method="post" action="/recipes/{{ r.slug }}/delete" style="display:inline"
         onsubmit="return confirm('Recept &#39;{{ r.name }}&#39; verwijderen?')">
         <button class="link">verwijder</button>

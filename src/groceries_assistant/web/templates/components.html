@@ -23,7 +23,8 @@
     <td>{{ c.amount }} {{ c.unit }}</td>
     <td>{{ c.minutes }} min</td>
     <td>
-      <form method="post" action="/components/{{ c.slug }}/delete"
+      <a href="/components/{{ c.slug }}/edit">wijzig</a>
+      <form method="post" action="/components/{{ c.slug }}/delete" style="display:inline"
         onsubmit="return confirm('Onderdeel &#39;{{ c.name }}&#39; verwijderen?')">
         <button class="link">verwijder</button>
       </form>
