@@ -1236,23 +1236,23 @@ def create_app(
             if not used_photo:
                 if url.strip():
                     _recipe, parsed = extract_from_url(url.strip())
-                    raw = "\n".join(
-                        [parsed.name or "", *(i.product for i in parsed.ingredients), *parsed.steps]
-                    )
                 else:
                     raw = text
         except Exception as exc:
             return render(request, "import.html", error=f"Importeren mislukt: {exc}")
         stage_uid = ""
         staged_url = ""
-        if not used_photo and url.strip() and getattr(parsed, "image_url", None):
-            try:
-                stage_uid = _stage_web_image(getattr(parsed, "image_url", ""))  # noqa: F821  # type: ignore
-                if stage_uid:
-                    staged_url = ocr_staged_url(stage_uid)
-            except Exception:
-                pass  # image is optional, silence failures
-        if not used_photo:
+        if not used_photo and url.strip():
+            # URL import: use the structured result directly, no flatten/reparse
+            if getattr(parsed, "image_url", None):
+                try:
+                    stage_uid = _stage_web_image(parsed.image_url)  # noqa: F821  # type: ignore
+                    if stage_uid:
+                        staged_url = ocr_staged_url(stage_uid)
+                except Exception:
+                    pass
+        elif not used_photo:
+            # text import: flatten then reparse
             parsed = parse_recipe_text(raw)
         ctx = _editor_ctx_from_parse(parsed, url_value=url.strip())
         ctx["staged_photo"] = staged_url

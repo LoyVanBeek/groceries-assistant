@@ -120,16 +120,16 @@ def _numbered_steps(lines: list[str]) -> list[str]:
     steps: list[str] = []
     for line in lines:
         stripped = line.strip()
-        m = re.match(r"^\s*(\d+)\s*[.:)\s]\s*(.*)", stripped)
-        if m:
-            steps.append(m.group(2).strip())
-        else:
-            # inline split — one line, multiple step markers
-            parts = re.split(r"\s+(?=\d+\s*[.:)\s])", stripped)
+        parts = re.split(r"\s+(?=\d+\s*[.:)])", stripped)
+        if len(parts) > 1:
             for part in parts:
-                m = re.match(r"^\s*(\d+)\s*[.:)\s]\s*(.*)", part.strip())
+                m = re.match(r"^\s*(\d+)\s*[.:)]\s*(.*)", part.strip())
                 if m and m.group(2).strip():
                     steps.append(m.group(2).strip())
+        else:
+            m = re.match(r"^\s*(\d+)\s*[.:)]\s*(.*)", stripped)
+            if m:
+                steps.append(m.group(2).strip())
     return steps
 
 
@@ -240,12 +240,22 @@ class KnorrParser:
         if not name:
             return None
 
+        # servings: breadcrumb often says "2-3 Persoons" or "2 Personnen"
+        servings = 4
+        m = re.search(r"(\d)\s*[-–]\s*(\d)\s*(persoons|personen|porties)", html, re.I)
+        if m:
+            servings = max(int(m.group(1)), int(m.group(2)))
+        else:
+            m = re.search(r"(\d+)\s*(persoons|personen|porties)", html, re.I)
+            if m:
+                servings = int(m.group(1))
+
         return UrlParseResult(
             source_url=url,
             name=name,
             ingredients=ingredients,
             steps=steps,
             cook_minutes=cook_minutes,
-            servings=4,
+            servings=servings,
             image_url=_og_image(html),
         )
