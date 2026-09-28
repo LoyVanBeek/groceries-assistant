@@ -393,6 +393,7 @@ table.plan .parts-form { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top
 table.plan .parts-form .part { display: flex; flex-direction: column; gap: 0.1rem; }
 table.plan .parts-form .part-label { font-size: 0.75rem; color: var(--muted); }
 table.plan .parts-form select { max-width: 11rem; }
+table.plan .parts-form button { align-self: flex-end; margin-left: auto; }
 table.plan .col-cook { width: 13rem; }
 table.plan .col-cook form { display: flex; flex-wrap: nowrap; gap: 0.3rem; align-items: center; }
 table.plan .col-cook select { width: 100%; min-width: 0; }
