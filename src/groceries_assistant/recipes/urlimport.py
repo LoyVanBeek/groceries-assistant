@@ -7,6 +7,7 @@ the Dutch line parser to split amount/unit/product.
 
 from __future__ import annotations
 
+import concurrent.futures
 import os
 from dataclasses import dataclass
 
@@ -76,7 +77,7 @@ def fetch_html_browser(url: str, timeout_s: float = 60.0) -> str:
     if executable:
         launch_kwargs["executable_path"] = executable
 
-    try:
+    def _grab() -> str:
         with sync_playwright() as p:
             browser = p.chromium.launch(**launch_kwargs)
             context = browser.new_context(locale="nl-NL", viewport={"width": 1280, "height": 800})
@@ -101,6 +102,13 @@ def fetch_html_browser(url: str, timeout_s: float = 60.0) -> str:
                 except Exception:
                     break
             browser.close()
+        return html
+
+    # The web app runs on an asyncio loop; playwright's Sync API refuses to run
+    # inside one. Run _grab on a worker thread with its own loop.
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            html: str = pool.submit(_grab).result(timeout=timeout_s + 120)
     except ExtractionError:
         raise
     except Exception as exc:
