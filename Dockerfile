@@ -20,5 +20,6 @@ ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 ENV DISPLAY=:99
 VOLUME ["/app/data"]
 
-# xvfb (virtual display) runs alongside the app; the app talks to it via DISPLAY
-CMD ["/bin/sh", "-c", "Xvfb :99 -screen 0 1280x800x24 & uv run --no-dev groceries-assistant serve --host 0.0.0.0 --port 8901"]
+# xvfb (virtual display) runs alongside the app; the app talks to it via DISPLAY.
+# The sh & trick dies with the parent: keep Xvfb alive with a supervising loop.
+CMD ["/bin/sh", "-c", "Xvfb :99 -screen 0 1280x800x24 & xvfb_pid=$!; trap 'kill $xvfb_pid' EXIT; uv run --no-dev groceries-assistant serve --host 0.0.0.0 --port 8901"]
