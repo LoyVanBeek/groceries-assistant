@@ -1180,17 +1180,30 @@ def create_app(
         )
 
         def _stage_web_image(url: str) -> str | None:
-            """Download an image from a URL to the OCR staging dir; returns uid."""
-            from urllib.request import Request, urlopen
+            """Download an image from a URL to the OCR staging dir; returns uid.
 
-            content: bytes | None = None
-            content_type: str = ""
+            Uses httpx with HTTP/2 and browser headers because many image CDNs
+            (Unilever Assets, Akamai) block HTTP/1.1 requests.
+            """
+            import httpx
+
             try:
                 ua = "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0"
-                req = Request(url, headers={"User-Agent": ua})
-                with urlopen(req, timeout=15) as resp:
-                    content = resp.read()
-                    content_type = resp.headers.get_content_type() or ""
+                with httpx.Client(http2=True, timeout=15, follow_redirects=True) as c:
+                    resp = c.get(
+                        url,
+                        headers={
+                            "User-Agent": ua,
+                            "Accept": "image/jpeg,image/png,image/webp,image/*;q=0.8,*/*;q=0.5",
+                            "Accept-Language": "nl-NL,nl;q=0.9,en;q=0.5",
+                            "Sec-Fetch-Dest": "image",
+                            "Sec-Fetch-Mode": "no-cors",
+                            "Sec-Fetch-Site": "cross-site",
+                        },
+                    )
+                    resp.raise_for_status()
+                    content = resp.content
+                    content_type = resp.headers.get("content-type", "")
             except Exception:
                 return None
             if not content:
@@ -1198,7 +1211,7 @@ def create_app(
             ext = "".join(Path(urlparse(url).path).suffixes)
             if ext not in {".jpg", ".jpeg", ".png", ".webp"}:
                 ext = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}.get(
-                    content_type.lower(), ""
+                    content_type.split(";")[0].strip().lower(), ""
                 )
             if not ext:
                 return None
