@@ -59,6 +59,14 @@ class Recipe(BaseModel):
     """Optional link to the original recipe (e.g. the page it was copied from)."""
     barcode: str | None = None
     """Optional EAN for the future barcode-scanner add-on."""
+    component: bool = False
+    """True when this is a part of a dish rather than a meal on its own.
+
+    'kipfilet' or 'brocolli' has a time, ingredients and verdicts of its own and
+    fills one part of a composed dish, but it is never planned as an evening. A
+    component is still a recipe: it is a part option, it is judged per person,
+    and its time is the time that part costs.
+    """
 
     @field_validator("url")
     @classmethod

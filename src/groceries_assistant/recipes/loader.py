@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +39,15 @@ def load_recipes(directory: Path) -> list[Recipe]:
     if errors:
         raise RecipeError("Failed to load recipes:\n" + "\n".join(errors))
     return recipes
+
+
+def dinners(recipes: Iterable[Recipe]) -> list[Recipe]:
+    """The recipes that are a meal on their own, i.e. everything but a component.
+
+    A component ('kipfilet', 'brocolli') lives in the same directory and is a
+    valid part option, but the planner must never offer it as an evening.
+    """
+    return [recipe for recipe in recipes if not recipe.component]
 
 
 def load_recipes_with_errors(directory: Path) -> tuple[list[Recipe], list[str]]:

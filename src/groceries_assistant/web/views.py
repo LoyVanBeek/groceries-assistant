@@ -9,7 +9,7 @@ from pathlib import Path
 from groceries_assistant.models import ComposedDish, Recipe
 from groceries_assistant.planner.availability import EveningAvailability
 from groceries_assistant.preferences import Preferences
-from groceries_assistant.recipes.loader import load_recipes_with_errors
+from groceries_assistant.recipes.loader import dinners, load_recipes_with_errors
 from groceries_assistant.services import planner_service as planner
 from groceries_assistant.services.planning import alternatives
 from groceries_assistant.store.db import Store
@@ -70,6 +70,7 @@ def plan_view(
     joined with ' + ' under the dish's name, and offers a select per part.
     """
     by_slug = {r.slug: r for r in recipes}
+    meals = dinners(recipes)  # a component is a part option, never a swap candidate
     dishes_by_slug = {d.slug: d for d in dishes}
     picks = store.plan_picks(plan_id)
     view: list[dict] = []
@@ -88,7 +89,7 @@ def plan_view(
             name = "Niet koken (we eten elders)"
             minutes = 0
             # offer dishes again so the evening can be switched back to cooking
-            alts = _alternatives(list(recipes), prefs, evening, image_for, dishes)
+            alts = _alternatives(meals, prefs, evening, image_for, dishes)
         elif row.kind == "cook":
             dish = dishes_by_slug.get(row.recipe_slug or "")
             recipe = by_slug.get(row.recipe_slug) if row.recipe_slug else None
@@ -106,9 +107,7 @@ def plan_view(
                 name = recipe.name
                 minutes = recipe.time.same_day_minutes
                 total_minutes = recipe.time.total_minutes
-            alts = _alternatives(
-                list(recipes), prefs, evening, image_for, dishes, exclude=row.recipe_slug
-            )
+            alts = _alternatives(meals, prefs, evening, image_for, dishes, exclude=row.recipe_slug)
         else:
             source = by_slug.get(row.source_slug or "")
             dish = dishes_by_slug.get(row.source_slug or "")

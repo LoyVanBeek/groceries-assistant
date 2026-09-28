@@ -41,6 +41,7 @@ from groceries_assistant.planner.pantry import StockEntry
 from groceries_assistant.recipes.extract import extract_from_images
 from groceries_assistant.recipes.loader import (
     RecipeError,
+    dinners,
     load_recipe,
     load_recipes_with_errors,
     save_recipe,
@@ -186,7 +187,7 @@ def create_app(
         if proposal is None:
             start = parse_start(None)
             dishes = dishes_by_slug()
-            plan = propose(all_recipes, store(), start, dishes=list(dishes.values()))
+            plan = propose(dinners(all_recipes), store(), start, dishes=list(dishes.values()))
             plan_id = store().save_proposal(start, plan_to_rows(plan), plan_to_picks(plan, dishes))
             proposal = (plan_id, start)
         plan_id, start = proposal[0], proposal[1]
@@ -323,12 +324,18 @@ def create_app(
         evening = evenings_for(store(), target, days=1)[0]
         prefs = preferences_from_store(store())
         all_recipes, _ = load_all()
+        meals = dinners(all_recipes)
         source = _previous_cook_slug(rows, target)
-        scored = alternatives(all_recipes, prefs, evening, exclude_slug=source)
-        if scored:
-            slug = scored[0].slug
-        elif all_recipes:
-            slug = min(all_recipes, key=lambda r: (r.time.same_day_minutes, r.slug)).slug
+        # rows with a reason cannot be planned, so they are not candidates here
+        usable = [
+            row
+            for row in alternatives(meals, prefs, evening, exclude_slug=source)
+            if not row.problem
+        ]
+        if usable:
+            slug = usable[0].slug
+        elif meals:
+            slug = min(meals, key=lambda r: (r.time.same_day_minutes, r.slug)).slug
         else:
             raise HTTPException(400, "Geen recepten om te koken")
         return PlanEntryRow(day=target, kind="cook", recipe_slug=slug, people=4)
@@ -938,8 +945,15 @@ def create_app(
         )
 
     @app.get("/recipes", response_class=HTMLResponse)
-    def recipes_page(request: Request):
+    def recipes_page(request: Request, soort: str = "recepten"):
+        """The recipe list, or the components when `soort=onderdelen`.
+
+        Both are the same records with the same edit form and the same per-person
+        verdicts; a component just never becomes an evening on its own.
+        """
         all_recipes, errors = load_all()
+        show_components = soort == "onderdelen"
+        listed = [r for r in all_recipes if r.component == show_components]
         people = store().people()
         verdicts = store().verdicts()
         rows = [
@@ -951,9 +965,17 @@ def create_app(
                 "image": image_path(r.slug),
                 "verdicts": {p["id"]: verdicts.get(r.slug, {}).get(p["id"], "") for p in people},
             }
-            for r in sorted(all_recipes, key=lambda r: r.name.lower())
+            for r in sorted(listed, key=lambda r: r.name.lower())
         ]
-        return render(request, "recipes.html", recipes=rows, people=people, errors=errors)
+        return render(
+            request,
+            "recipes.html",
+            recipes=rows,
+            people=people,
+            errors=errors,
+            show_components=show_components,
+            component_count=sum(1 for r in all_recipes if r.component),
+        )
 
     @app.get("/recipes/import", response_class=HTMLResponse)
     def import_page(request: Request):
@@ -1044,6 +1066,7 @@ def create_app(
             "steps_text": "",
             "parsed": None,
             "note": "",
+            "component_value": False,
             "has_image": False,
             "image_ext": "",
             "images": [],
@@ -1084,16 +1107,18 @@ def create_app(
                 has_image=image is not None,
                 image_ext=image.suffix if image else "",
                 images=images,
+                component_value=recipe.component,
             ),
             original_slug=recipe.slug,
         )
 
     @app.get("/recipes/new", response_class=HTMLResponse)
-    def new_recipe_page(request: Request):
+    def new_recipe_page(request: Request, soort: str = "recepten"):
+        """The blank recipe form; `soort=onderdeel` pre-ticks the component box."""
         return render(
             request,
             "recipe_edit.html",
-            **editor_ctx(),
+            **editor_ctx(component_value=soort == "onderdeel"),
             original_slug=None,
         )
 
@@ -1206,6 +1231,7 @@ def create_app(
         url: str = Form(""),
         ingredients: str = Form(""),
         steps: str = Form(""),
+        component: bool = Form(False),
         image: Annotated[list[UploadFile] | None, File()] = None,
         ocr_stage: str = Form(""),
         card_photo: str = Form(""),
@@ -1252,6 +1278,7 @@ def create_app(
             url=url.strip() or None,
             steps=number_steps(steps.splitlines()),
             ingredients=parsed_ingredients,
+            component=component,
         )
         old_path = data / "recipes" / f"{original_slug}.yaml" if original_slug else None
         new_path = data / "recipes" / f"{recipe.slug}.yaml"

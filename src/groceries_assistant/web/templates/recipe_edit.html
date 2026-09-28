@@ -69,6 +69,10 @@
     <label>Protein</label> <input type="text" name="protein" value="{{ protein_value }}" placeholder="kip, rund, vis, vegetarisch">
   </p>
   <p>
+    <label class="chip"><input type="checkbox" name="component" value="true" {% if component_value %}checked{% endif %}>
+      onderdeel van een gerecht (geen heel diner)</label>
+  </p>
+  <p>
     <label>Ingredi&euml;nten (hoeveelheid + eenheid + product, per regel)</label><br>
      <textarea name="ingredients" rows="10" cols="60">{{ ingredient_lines }}</textarea></p>
   <p><label>Link naar het originele recept</label><br>
