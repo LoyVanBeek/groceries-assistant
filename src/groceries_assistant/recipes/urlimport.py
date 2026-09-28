@@ -49,22 +49,64 @@ def fetch_html(url: str, timeout: float = 20.0) -> str:
     except httpx.HTTPError as exc:
         raise ExtractionError(f"Kon de pagina niet laden: {exc}") from exc
     return response.text
-    return response.text
 
 
 def extract_from_url(url: str, html: str | None = None) -> tuple[Recipe, UrlParseResult]:
-    """Scrape a recipe URL into a Recipe plus the parse details."""
+    """Scrape a recipe URL into a Recipe plus the parse details.
+
+    Tries, in order:
+    1. recipe-scrapers (schema.org / site-specific).
+    2. A dedicated site parser (for sites without schema markup).
+    3. A generic text-heuristic fallback (bullet ingredients + numbered steps).
+    """
+    from groceries_assistant.recipes.sites import RECIPE_SITES, generic_text_fallback
+
     if html is None:
         html = fetch_html(url)
-    try:
-        # wild_mode: fall back to generic schema.org parsing for domains that
-        # have no dedicated scraper
-        scraper = scrape_html(html, org_url=url, wild_mode=True)
-    except Exception as exc:
-        raise ExtractionError(
-            f"Geen recept gevonden op {url}. Kopieer de tekst handmatig en gebruik de tekst-import."
-        ) from exc
 
+    # --- step 1: recipe-scrapers -------------------------------------------
+    try:
+        scraper = scrape_html(html, org_url=url, wild_mode=True)
+    except Exception:
+        scraper = None
+
+    if scraper is not None:
+        try:
+            recipe, result = _build_from_scraper(scraper, url, html)
+            return recipe, result
+        except Exception:
+            pass  # fall through to the next step
+
+    # --- step 2: site-specific parser ---------------------------------------
+    from urllib.parse import urlparse
+
+    host = urlparse(url).hostname or ""
+    site_cls = RECIPE_SITES.get(host.lower())
+    if site_cls is not None:
+        try:
+            result = site_cls.parse(html, url)
+            if result is not None and result.ingredients:
+                recipe = _build_result_to_recipe(result)
+                return recipe, result
+        except Exception:
+            pass
+
+    # --- step 3: generic fallback -------------------------------------------
+    try:
+        result = generic_text_fallback(html, url)
+        if result is not None and result.ingredients:
+            recipe = _build_result_to_recipe(result)
+            return recipe, result
+    except Exception:
+        pass
+
+    raise ExtractionError(
+        f"Geen recept gevonden op {url}. Kopieer de tekst handmatig en gebruik de tekst-import."
+    )
+
+
+def _build_from_scraper(scraper, url: str, html: str) -> tuple[Recipe, UrlParseResult]:
+    """Turn a recipe-scrapers result into a Recipe + ParseResult."""
     result = UrlParseResult(source_url=url)
 
     try:
@@ -117,11 +159,17 @@ def extract_from_url(url: str, html: str | None = None) -> tuple[Recipe, UrlPars
         result.servings = 4
         result.warnings.append("Geen aantal personen gevonden (standaard 4)")
 
-    recipe = Recipe.model_validate(
+    recipe = _build_result_to_recipe(result)
+    return recipe, result
+
+
+def _build_result_to_recipe(result: UrlParseResult) -> Recipe:
+    """Build a Recipe from a parse result."""
+    return Recipe.model_validate(
         {
             "name": result.name or "Naamloos recept",
             "slug": result.name or "naamloos-recept",
-            "servings": result.servings,
+            "servings": result.servings or 4,
             "time": {"prep": result.prep_minutes or 0, "cook": result.cook_minutes or 0},
             "steps": result.steps,
             "url": result.source_url or None,
@@ -131,7 +179,6 @@ def extract_from_url(url: str, html: str | None = None) -> tuple[Recipe, UrlPars
             ],
         }
     )
-    return recipe, result
 
 
 def _parse_ingredient_strings(strings: list[str]):
