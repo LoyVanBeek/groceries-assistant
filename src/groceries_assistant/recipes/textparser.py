@@ -130,6 +130,18 @@ INGREDIENT_HEADER = re.compile(
     r"voor de |voor het |dat heb je nodig|benodigdheden)\b",
     re.IGNORECASE,
 )
+
+# Page furniture: when a pasted whole webpage says one of these, the recipe
+# section is over. Everything from there on is navigation, FAQ, ads.
+PAGE_END_MARKERS = re.compile(
+    r"^\s*(anderen (?:bekeken|keken) ook|gerelateerde recepten|ook leuk|"
+    r"voedingswaarden|voedingswaarde|allergenen|bewaren &|bewaren:|bron:|"
+    r"delen via|deel dit|reageer|reacties|over allerhande|over albert heijn|"
+    r"prijs per|wanneer je op|volg ons|nieuwsbrief|klantenservice|"
+    r"bekijk alle|meer recepten|recepten die|populaire recepten|"
+    r"variatietip|tips van de|kooktips|vragen en antwoorden|frequently)\b",
+    re.IGNORECASE,
+)
 STEP_HEADER = re.compile(
     r"^\s*(bereiding|bereidingswijze|instructies|aanbereiden|werkwijze|aan de slag|"
     r"instructie|bereiden|stappen)\b",
@@ -322,8 +334,9 @@ def _strip_step_marker(line: str) -> str:
 
 def parse_recipe_text(text: str) -> ParseResult:
     """Parse free Dutch recipe text into structured fields."""
+    trimmed = trim_page_paste(text)
     result = ParseResult()
-    lines = [line.rstrip() for line in text.splitlines()]
+    lines = [line.rstrip() for line in trimmed.splitlines()]
 
     mode = "seek"  # seek | ingredients | steps
     non_empty = [(i, line) for i, line in enumerate(lines) if line.strip()]
@@ -331,8 +344,10 @@ def parse_recipe_text(text: str) -> ParseResult:
         result.warnings.append("Geen tekst om te parsen")
         return result
 
-    result.servings = parse_servings(text)
-    result.prep_minutes, result.cook_minutes = parse_times(text)
+    # servings/time may sit just above the ingredients header, where the
+    # page-trimmer keeps them
+    result.servings = parse_servings(trimmed)
+    result.prep_minutes, result.cook_minutes = parse_times(trimmed)
 
     first_done = False
     for _, line in non_empty:
@@ -354,6 +369,10 @@ def parse_recipe_text(text: str) -> ParseResult:
             continue
         if (
             re.match(r"^\s*(bereidingstijd|voorbereidingstijd|wachtijd|oventijd)\s*[:=]?", lowered)
+            and _line_minutes(lowered) is not None
+        ) or (
+            # '15 min bereiden' / '20 min bereidingstijd' shape
+            re.search(r"\b(bereiden|bereidingstijd)\b", lowered)
             and _line_minutes(lowered) is not None
         ):
             continue  # already handled by parse_times
@@ -410,6 +429,58 @@ def parse_recipe_text(text: str) -> ParseResult:
 
 def _is_servings_line(line: str) -> bool:
     return any(pattern.search(line) for pattern in SERVINGS_PATTERNS)
+
+
+def trim_page_paste(text: str) -> str:
+    """Trim a pasted webpage down to its recipe block.
+
+    'Copy the page as a whole' (ah.nl blocks scrapers) dumps navigation, menu
+    items, FAQ and ads around the recipe. The recipe block starts at an
+    ingredients header ('Ingrediënten', 'Boodschappenlijstje', ...) and ends
+    at the first piece of page furniture ('Anderen bekeken ook', 'Voedings-
+    waarden', ...). When no such markers are present, the text is returned
+    untouched — a short clean paste is unaffected.
+    """
+    lines = text.splitlines()
+    if len(lines) < 15:
+        return text  # clearly not a full page
+
+    header_at = next(
+        (i for i, line in enumerate(lines) if INGREDIENT_HEADER.match(line.strip())),
+        None,
+    )
+    if header_at is None:
+        return text
+
+    end_at = len(lines)
+    for i in range(header_at, len(lines)):
+        if PAGE_END_MARKERS.match(lines[i].strip()):
+            end_at = i
+            break
+
+    # Keep servings/time lines (recipe data) in the block; only breadcrumbs,
+    # the site header and furniture between title and ingredients are dropped.
+    # The title is the last clean line above the header.
+    above = lines[:header_at]
+    title_lines: list[str] = []
+    data_lines: list[str] = []
+    for line in reversed(above):
+        stripped = line.strip()
+        if not stripped:
+            if title_lines:
+                break  # a blank after the title ends the search
+            continue  # blanks between title and servings/time are fine
+        lowered = stripped.lower()
+        if _is_servings_line(stripped) or _line_minutes(lowered) is not None:
+            data_lines.insert(0, stripped)
+            continue
+        if PAGE_END_MARKERS.match(stripped) or len(stripped) > 80:
+            continue
+        title_lines.insert(0, stripped)
+        if len(title_lines) >= 1:
+            break
+    block = title_lines + data_lines + lines[header_at:end_at]
+    return "\n".join(block)
 
 
 def _looks_like_step(line: str) -> bool:

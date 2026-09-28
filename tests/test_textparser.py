@@ -169,3 +169,47 @@ def test_parse_empty_text():
     result = parse_recipe_text("")
     assert result.warnings  # something reported
     assert result.ingredients == []
+
+
+def test_a_pasted_whole_webpage_trims_to_the_recipe():
+    """'Copy the page as a whole' (ah.nl) keeps navigation/FAQ out of the parse."""
+    page = """AH.nl - Recepten
+Home
+Recepten
+Hoofdgerecht
+Vis
+Gerookte zalm met avocadosalsa
+4 personen
+15 min bereiden
+Ingrediënten en bereiding
+2 limoenen
+1 avocado
+200 g gerookte zalm
+Bereidingswijze
+Boen de helft van de limoenen goed schoon.
+Snijd de avocado overlangs doormidden.
+Voedingswaarden per portie
+energie 420 kcal
+Anderen bekeken ook
+Pasta pesto
+Nieuwsbrief
+© 2026 Albert Heijn"""
+    result = parse_recipe_text(page)
+    assert result.name == "Gerookte zalm met avocadosalsa"
+    assert result.servings == 4
+    assert result.cook_minutes == 15
+    assert [i.product for i in result.ingredients] == ["limoenen", "avocado", "gerookte zalm"]
+    assert result.steps == [
+        "Boen de helft van de limoenen goed schoon.",
+        "Snijd de avocado overlangs doormidden.",
+    ]
+    assert result.warnings == []
+
+
+def test_a_short_clean_paste_is_not_trimmed():
+    """The existing paste format keeps parsing exactly as before."""
+    text = "Pasta pesto\n2 personen\nIngrediënten:\n200 g spaghetti\nBereiding\nKook de pasta."
+    result = parse_recipe_text(text)
+    assert result.name == "Pasta pesto"
+    assert result.servings == 2
+    assert result.ingredients[0].product == "spaghetti"
