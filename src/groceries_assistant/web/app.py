@@ -52,6 +52,7 @@ from groceries_assistant.models import (
     slugify,
 )
 from groceries_assistant.planner.pantry import StockEntry
+from groceries_assistant.planner.shopping import order_product
 from groceries_assistant.recipes.extract import extract_from_images
 from groceries_assistant.recipes.loader import (
     RecipeError,
@@ -644,7 +645,8 @@ def create_app(
                 continue
             for recipe in entry.dishes:
                 for ingredient in recipe.ingredients:
-                    per_product = sources.setdefault(ingredient.product.lower(), {})
+                    name, _note = order_product(ingredient.product)
+                    per_product = sources.setdefault(name.lower(), {})
                     per_product.setdefault(display, href)
         return {
             product: [{"name": n, "href": h} for n, h in sorted(names.items())]

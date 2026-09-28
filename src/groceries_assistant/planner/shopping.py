@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 
 from groceries_assistant.models import Recipe
+
+_BRACKETS = re.compile(r"\s*\([^)]*\)")
 
 
 @dataclass
@@ -22,6 +25,26 @@ class ShoppingItem:
     """What the packs add up to: '700 g', '2 x 500 g', '6 per verpakking'."""
 
 
+def order_product(product: str) -> tuple[str, str | None]:
+    """Split an ingredient name into the orderable product and a note.
+
+    Recipe names carry preparation hints in brackets ('kipfilet (in
+    stukjes)', 'fijne spaghetti (pak à 500 g)') that are not part of what
+    you buy. The brackets move to the note so the product stays one clean,
+    matchable name. Multiple brackets join with ', '.
+    """
+    notes = re.findall(r"\(([^)]*)\)", product)
+    clean = _BRACKETS.sub("", product)
+    clean = re.sub(r"\s{2,}", " ", clean).strip()
+    if not clean:
+        # the whole name was in brackets; keep it as-is rather than an empty line
+        clean = product.strip()
+        return clean, None
+    if not notes:
+        return clean, None
+    return clean, ", ".join(note.strip() for note in notes if note.strip()) or None
+
+
 def demand_by_day(
     entries: Sequence[tuple[date, Recipe, int]],
 ) -> dict[date, dict[tuple[str, str], float]]:
@@ -30,13 +53,17 @@ def demand_by_day(
     Leftovers entries pass the original recipe with a doubled people count, so
     the extra portions land on the day they are eaten. Demand is per day
     because whether stock is still good is a question about a date, not a sum.
+
+    Products are keyed by their orderable name (brackets stripped), so a fact
+    on 'kipfilet' also covers 'kipfilet (in stukjes)'.
     """
     per_day: dict[date, dict[tuple[str, str], float]] = {}
     for day, recipe, people in entries:
         factor = people / recipe.servings
         totals = per_day.setdefault(day, {})
         for ingredient in recipe.ingredients:
-            key = (ingredient.product.lower(), ingredient.unit)
+            name, _note = order_product(ingredient.product)
+            key = (name.lower(), ingredient.unit)
             totals[key] = totals.get(key, 0.0) + ingredient.amount * factor
     return per_day
 
@@ -49,17 +76,25 @@ def aggregate_ingredients(
     Each entry is (date, recipe, people_count); leftovers entries pass the
     original recipe with a doubled people count so the extra portions are
     bought. Returns (items sorted by product name, warnings).
+
+    Bracketed preparation hints are stripped from the product and kept as the
+    item's note, so the list says 'kipfilet (in stukjes)' without that text
+    landing in the AH search.
     """
     warnings: list[str] = []
     totals: dict[tuple[str, str], float] = {}
+    notes: dict[tuple[str, str], str] = {}
     for _day, recipe, people in entries:
         factor = people / recipe.servings
         for ingredient in recipe.ingredients:
-            key = (ingredient.product.lower(), ingredient.unit)
+            name, note = order_product(ingredient.product)
+            key = (name.lower(), ingredient.unit)
             totals[key] = totals.get(key, 0.0) + ingredient.amount * factor
+            if note:
+                notes[key] = note
 
     items = [
-        ShoppingItem(product=product, amount=amount, unit=unit)
+        ShoppingItem(product=product, amount=amount, unit=unit, note=notes.get((product, unit)))
         for (product, unit), amount in totals.items()
     ]
     items.sort(key=lambda item: item.product.lower())

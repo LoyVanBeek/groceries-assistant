@@ -272,3 +272,50 @@ def test_the_demand_lands_on_the_day_it_is_eaten():
         MON: {("broccoli", "g"): 450.0},
         TUE: {("broccoli", "g"): 450.0},
     }
+
+
+def test_bracketed_preparation_hints_move_to_the_note():
+    """'kipfilet (in stukjes)' orders as 'kipfilet'; the hint becomes the note.
+
+    The brackets are a preparation, not a product: without the split the text
+    lands in the AH search and a fact on 'kipfilet' is never found.
+    """
+    from groceries_assistant.planner.shopping import aggregate_ingredients, order_product
+
+    assert order_product("kipfilet (in stukjes)") == ("kipfilet", "in stukjes")
+    assert order_product("fijne spaghetti (pak à 500 g)") == ("fijne spaghetti", "pak à 500 g")
+    assert order_product("ui (gesnipperd) (vers)") == ("ui", "gesnipperd, vers")
+    assert order_product("broccoli") == ("broccoli", None)
+    # a name entirely inside brackets is not a product name at all; keep it
+    assert order_product("(onbekend)") == ("(onbekend)", None)
+
+    recipe = Recipe.model_validate(
+        {
+            "slug": "soep",
+            "name": "soep",
+            "servings": 4,
+            "ingredients": [
+                {"product": "kipfilet (in stukjes)", "amount": 300, "unit": "g"},
+                {"product": "uien (gesnipperd)", "amount": 1, "unit": "stuk"},
+            ],
+        }
+    )
+    items, _ = aggregate_ingredients([(MON, recipe, 4)])
+    by_product = {item.product: item for item in items}
+    assert set(by_product) == {"kipfilet", "uien"}
+    assert by_product["kipfilet"].note == "in stukjes"
+    assert by_product["uien"].note == "gesnipperd"
+
+
+def test_the_fact_lookup_hits_bracketed_names():
+    """A fact declared on 'kipfilet' is found for 'kipfilet (in stukjes)'."""
+    recipe = Recipe.model_validate(
+        {
+            "slug": "roerbak",
+            "name": "roerbak",
+            "servings": 4,
+            "ingredients": [{"product": "kipfilet (in stukjes)", "amount": 300, "unit": "g"}],
+        }
+    )
+    demand = demand_by_day([(MON, recipe, 4)])
+    assert demand == {MON: {("kipfilet", "g"): 300.0}}
