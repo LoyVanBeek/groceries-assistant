@@ -423,7 +423,10 @@ def build_order(
     """
     work = cooking_work(entries, recipes_by_slug, servings)
     items, _flat_warnings = aggregate_ingredients(work)
-    allocation = allocate(demand_by_day(work), facts or {}, carried=carried)
+    # Bracketed preparation hints (aggregate's notes) follow their product into
+    # the allocation, so its lines keep the hint alongside the pack arithmetic.
+    ingredient_notes = {item.product.lower(): item.note for item in items if item.note}
+    allocation = allocate(demand_by_day(work), facts or {}, carried=carried, notes=ingredient_notes)
     # A product with a fact gets one line from the allocation; the rest keeps
     # the flat sum, untouched.
     allocated = {item.product.lower() for item in allocation.items}

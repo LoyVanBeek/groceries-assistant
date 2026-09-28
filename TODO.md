@@ -38,8 +38,8 @@
 - [x] Drag and drop photo import
       (drop zone on the recipe editor and the bulk page, plus a drag-over
       highlight; dropped files land in the same input as a hand-picked set)
-- [x] Import one recipe from several photos
-      (the import form takes a list: front and back of one card are read as a
+- [x] Import one recipe from several photo
+s      (the import form takes a list: front and back of one card are read as a
       single recipe, ingredients and steps merged; picking/camera/drop as before)
 - [x] Bulk OCR import: one recipe per photo
       (`/recipes/ocr`: queue a pile of photos, click through them one by one,
@@ -80,3 +80,7 @@
       on each component's own page; the dish does not appear in the planner until
       they exist)
 - [ ] When there are 'restjes', use the thumbnail of the repeated dish but aith an icon overlayed on it
+- [ ] Have a preference for recipes when ingredients of it are in Bonus
+- [ ] Configure week-start. Groceries are delivered on Tuesdays, for a week ahead
+- [ ] Color-coded like-dislike rating. 
+- [ ] Import recipes from Albert Heijn's Allerhande.

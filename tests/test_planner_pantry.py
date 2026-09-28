@@ -319,3 +319,13 @@ def test_the_fact_lookup_hits_bracketed_names():
     )
     demand = demand_by_day([(MON, recipe, 4)])
     assert demand == {MON: {("kipfilet", "g"): 300.0}}
+
+
+def test_allocate_keeps_the_bracket_note_without_a_fact():
+    """A factless product's allocation line carries the preparation hint."""
+    from groceries_assistant.planner.pantry import allocate
+
+    allocation = allocate({MON: {("kipfilet", "g"): 300.0}}, {}, notes={"kipfilet": "in stukjes"})
+    assert [(i.product, i.amount, i.note) for i in allocation.items] == [
+        ("kipfilet", 300.0, "in stukjes")
+    ]

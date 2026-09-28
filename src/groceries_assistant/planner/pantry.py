@@ -154,7 +154,9 @@ def _by_unit(
 
 
 def _flat_sum(
-    demand: Mapping[date, Mapping[tuple[str, str], float]], product: str
+    demand: Mapping[date, Mapping[tuple[str, str], float]],
+    product: str,
+    note: str | None = None,
 ) -> list[ShoppingItem]:
     """The summed need, one line per unit -- what a product without a fact gets."""
     totals: dict[str, float] = {}
@@ -162,7 +164,8 @@ def _flat_sum(
         for unit, qty in per_unit.items():
             totals[unit] = totals.get(unit, 0.0) + qty
     return [
-        ShoppingItem(product=product, amount=qty, unit=unit) for unit, qty in sorted(totals.items())
+        ShoppingItem(product=product, amount=qty, unit=unit, note=note)
+        for unit, qty in sorted(totals.items())
     ]
 
 
@@ -207,6 +210,7 @@ def allocate(
     facts: Mapping[str, ProductFact],
     carried: Sequence[StockEntry] = (),
     days: Sequence[date] = (),
+    notes: Mapping[str, str] | None = None,
 ) -> Allocation:
     """Turn a week's demand into whole purchases, dated stock and warnings.
 
@@ -214,7 +218,13 @@ def allocate(
     batch first), then whole packs are bought and whatever they have left over
     becomes stock dated that day. A product with no fact, or whose units the
     fact cannot express, keeps its plain sum.
+
+    `notes` carries the bracketed preparation hints `aggregate_ingredients`
+    stripped from the product names (by lowercase product); they land back on
+    the item's note so the list says 'kipfilet (in stukjes)' without the text
+    reaching the AH search.
     """
+    notes = notes or {}
     order = sorted(set(days) | set(demand))
     # Oldest batch first, once: a remainder is eaten before a fresher one.
     on_hand: dict[str, list[StockEntry]] = {}
@@ -226,12 +236,12 @@ def allocate(
         fact = facts.get(product)
         per_day = _by_unit(demand, product)
         if fact is None:
-            allocation.items += _flat_sum(demand, product)
+            allocation.items += _flat_sum(demand, product, notes.get(product))
             continue
         converted, warning = _convert_all(per_day, fact)
         if warning is not None:
             allocation.warnings.append(warning)
-            allocation.items += _flat_sum(demand, product)
+            allocation.items += _flat_sum(demand, product, notes.get(product))
             continue
         if not any(need > 0.0 for need in converted.values()):
             continue  # nobody needs any of it, so there is nothing to buy
