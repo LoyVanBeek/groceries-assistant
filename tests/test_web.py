@@ -1389,6 +1389,63 @@ def test_the_order_page_shows_matched_article_thumbnails(tmp_path):
         assert page.count("ah-thumb") == 1
 
 
+def test_the_match_page_puts_unmatched_items_first(tmp_path):
+    """Unmatched items form the top section; matched ones become reference."""
+    with make_client(tmp_path, search_fn=lambda q: []) as client:
+        seed_recipe(tmp_path)
+        client.get("/plan")
+        client.post("/plan/approve", follow_redirects=False)
+        # pin one of the two products
+        client.post(
+            "/order/match/pin",
+            data={"product": "spaghetti", "unit": "g", "webshop_id": "111", "title": "AH Pasta"},
+            follow_redirects=False,
+        )
+
+        page = client.get("/order/match").text
+        unmatched_at = page.find("Nog te koppelen")
+        matched_at = page.find("Gekoppeld")
+        assert unmatched_at >= 0 and matched_at > unmatched_at
+        ui_row = page.find("ui")
+        pasta_row = page.find("AH Pasta")
+        # the unpinned product (ui) lives in the first section
+        assert 0 < ui_row < matched_at
+        # the pinned product (spaghetti/AH Pasta) lives in the second
+        assert matched_at < pasta_row
+
+
+def test_the_order_page_names_the_recipe_per_product(tmp_path):
+    """Each line says on the right which recipe (or dish) needs it."""
+    with make_client(tmp_path, search_fn=lambda q: []) as client:
+        seed_recipe(tmp_path)  # pasta needs spaghetti + ui
+        client.get("/plan")
+        client.post("/plan/approve", follow_redirects=False)
+
+        page = client.get("/order").text
+        assert "voor Pasta" in page
+        assert "voor ui" not in page  # the product line itself is not a reference
+
+
+def test_the_order_page_attributes_dish_parts_to_the_dish(tmp_path):
+    """A component's ingredient shows the dish name, not the component's own."""
+    seed_part_recipes(tmp_path)
+    seed_dish(tmp_path)
+    with make_client(tmp_path, search_fn=lambda q: []) as client:
+        day = plan_a_dish(client, tmp_path)
+        pick(
+            client,
+            day,
+            aardappels="aardappels-uit-de-oven",
+            groente="sperziebonen",
+            vlees="kip-doner",
+        )
+        client.post("/plan/approve", follow_redirects=False)
+
+        page = client.get("/order").text
+        # aardappels belong to the composed dish, by its name
+        assert "voor Aardappel-groente-vlees" in page
+
+
 def test_order_match_custom_entry_accepts_pasted_url(tmp_path):
     """Pasting an ah.nl product link in the custom field pins the right article."""
     with make_client(tmp_path, search_fn=lambda q: []) as client:

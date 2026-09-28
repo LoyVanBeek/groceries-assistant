@@ -615,6 +615,37 @@ def create_app(
 
     # --- order ---------------------------------------------------------------
 
+    def _product_sources(plan_id: int) -> dict[str, list[str]]:
+        """Which recipes/dishes need each product, for display on the order page.
+
+        Keyed by lowercase product name, exactly as `aggregate_ingredients`
+        keys them. A composed dish part attributes to the dish (the combination
+        is what the household cooks), not to the component that happens to
+        carry the ingredient.
+        """
+        by_slug = all_known()
+        dishes = dishes_by_slug()
+        entries = rows_to_entries(
+            store().plan_entries(plan_id),
+            by_slug,
+            dishes,
+            store().plan_picks(plan_id),
+        )
+        sources: dict[str, set[str]] = {}
+        for entry in entries:
+            if entry.kind != "cook":
+                continue
+            if entry.dish_slug and entry.dish_slug in dishes:
+                display = dishes[entry.dish_slug].name
+            elif entry.recipe is not None:
+                display = entry.recipe.name
+            else:
+                continue
+            for recipe in entry.dishes:
+                for ingredient in recipe.ingredients:
+                    sources.setdefault(ingredient.product.lower(), set()).add(display)
+        return {product: sorted(names) for product, names in sources.items()}
+
     @app.get("/order", response_class=HTMLResponse)
     def order_page(request: Request):
         latest = store().latest_plan()
@@ -622,10 +653,12 @@ def create_app(
             raise HTTPException(404, "Geen actieve week")
         plan_id = latest[0]
         items = store().order_items(plan_id)
+        sources = _product_sources(plan_id)
         # thumbnail of the matched AH article, when one is known
         for item in items:
             mapping = mappings().get(item["product"])
             item["image"] = mapping.ah_image_url if mapping else None
+            item["recipes"] = sources.get(item["product"].lower(), [])
         return render(
             request,
             "order.html",
@@ -730,7 +763,16 @@ def create_app(
                     "has_fact": item["product"].lower() in facts,
                 }
             )
-        return render(request, "order_match.html", items=rows, fmt=format_amount)
+        # Unmatched first: that is the work to do. Matched rows become reference.
+        unmatched = [row for row in rows if not row["webshop_id"]]
+        matched_rows = [row for row in rows if row["webshop_id"]]
+        return render(
+            request,
+            "order_match.html",
+            unmatched=unmatched,
+            matched=matched_rows,
+            fmt=format_amount,
+        )
 
     def _search(query: str) -> list:
         """AH product search, using the injected stub or the real client."""
