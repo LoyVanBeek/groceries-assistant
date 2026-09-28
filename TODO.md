@@ -64,3 +64,18 @@
       (declare how one purchase looks and how long it keeps per product: you buy
       whole things, what a purchase leaves over is stock with a shelf life, usable
       in the same week and in any other dish; the list then says '2 stuk (700 g)'
+- [x] A component: a recipe that is a part of a dish instead of a meal
+      (`component: true` on a recipe, so it keeps its own time, ingredients and
+      verdicts but is never planned as an evening; `/recipes?soort=onderdelen`
+      lists them, the editor has a checkbox, and the dish form offers them as
+      checkboxes with their minutes on the label)
+- [x] A dish you cannot plan says why instead of vanishing
+      (a part option that names no recipe, a part everyone marks 'never', a part
+      that does not fit the evening: the dish stays in the week view, greyed out,
+      with the reason underneath)
+- [ ] Copy the 13 prepared components for 'aardappel-groente-vlees' into
+      `data/recipes/` (wokjes, krieltjes, rosti, aardappelfrietjes, brocolli,
+      sperzieboontjes, bloemkool, boontjes, worstjes, kipfilet, speklapje,
+      kipschnitzel, vegaschitzel -- amounts and times are placeholders to correct
+      on each component's own page; the dish does not appear in the planner until
+      they exist)
