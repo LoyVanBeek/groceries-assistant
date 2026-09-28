@@ -278,6 +278,7 @@ def create_app(
     (data / "components").mkdir(parents=True, exist_ok=True)
     # staged uploads are scratch space for the current run only
     for folder in (PHOTO_STAGING, OCR_STAGING):
+        (data / folder).mkdir(parents=True, exist_ok=True)
         for stale in (data / folder).glob("*"):
             stale.unlink(missing_ok=True)
     app = FastAPI(title="Groceries Assistant")
@@ -1179,46 +1180,46 @@ def create_app(
             errors=errors,
         )
 
-        def _stage_web_image(url: str) -> str | None:
-            """Download an image from a URL to the OCR staging dir; returns uid.
+    def _stage_web_image(url: str) -> str | None:
+        """Download an image from a URL to the OCR staging dir; returns uid.
 
-            Uses httpx with HTTP/2 and browser headers because many image CDNs
-            (Unilever Assets, Akamai) block HTTP/1.1 requests.
-            """
-            import httpx
+        Uses httpx with HTTP/2 and browser headers because many image CDNs
+        (Unilever Assets, Akamai) block HTTP/1.1 requests.
+        """
+        import httpx
 
-            try:
-                ua = "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0"
-                with httpx.Client(http2=True, timeout=15, follow_redirects=True) as c:
-                    resp = c.get(
-                        url,
-                        headers={
-                            "User-Agent": ua,
-                            "Accept": "image/jpeg,image/png,image/webp,image/*;q=0.8,*/*;q=0.5",
-                            "Accept-Language": "nl-NL,nl;q=0.9,en;q=0.5",
-                            "Sec-Fetch-Dest": "image",
-                            "Sec-Fetch-Mode": "no-cors",
-                            "Sec-Fetch-Site": "cross-site",
-                        },
-                    )
-                    resp.raise_for_status()
-                    content = resp.content
-                    content_type = resp.headers.get("content-type", "")
-            except Exception:
-                return None
-            if not content:
-                return None
-            ext = "".join(Path(urlparse(url).path).suffixes)
-            if ext not in {".jpg", ".jpeg", ".png", ".webp"}:
-                ext = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}.get(
-                    content_type.split(";")[0].strip().lower(), ""
+        try:
+            ua = "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0"
+            with httpx.Client(http2=True, timeout=15, follow_redirects=True) as c:
+                resp = c.get(
+                    url,
+                    headers={
+                        "User-Agent": ua,
+                        "Accept": "image/jpeg,image/png,image/webp,image/*;q=0.8,*/*;q=0.5",
+                        "Accept-Language": "nl-NL,nl;q=0.9,en;q=0.5",
+                        "Sec-Fetch-Dest": "image",
+                        "Sec-Fetch-Mode": "no-cors",
+                        "Sec-Fetch-Site": "cross-site",
+                    },
                 )
-            if not ext:
-                return None
-            uid = uuid4().hex
-            staging = ocr_staging()
-            (staging / f"{uid}{ext}").write_bytes(content)
-            return uid
+                resp.raise_for_status()
+                content = resp.content
+                content_type = resp.headers.get("content-type", "")
+        except Exception:
+            return None
+        if not content:
+            return None
+        ext = "".join(Path(urlparse(url).path).suffixes)
+        if ext not in {".jpg", ".jpeg", ".png", ".webp"}:
+            ext = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}.get(
+                content_type.split(";")[0].strip().lower(), ""
+            )
+        if not ext:
+            return None
+        uid = uuid4().hex
+        staging = ocr_staging()
+        (staging / f"{uid}{ext}").write_bytes(content)
+        return uid
 
     @app.get("/recipes/import", response_class=HTMLResponse)
     def import_page(request: Request):
@@ -1259,7 +1260,7 @@ def create_app(
             # URL import: use the structured result directly, no flatten/reparse
             if getattr(parsed, "image_url", None):
                 try:
-                    stage_uid = _stage_web_image(parsed.image_url)  # noqa: F821  # type: ignore
+                    stage_uid = _stage_web_image(getattr(parsed, "image_url", ""))
                     if stage_uid:
                         staged_url = ocr_staged_url(stage_uid)
                 except Exception:

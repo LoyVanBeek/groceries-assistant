@@ -50,11 +50,15 @@ def _plain_text(html: str) -> str:
 
 
 def _title(html: str) -> str | None:
-    """Extract <title> or <h1> text."""
+    """Extract <title> or <h1> text.
+
+    Site suffixes are split off on |, en dash or em dash only -- a plain
+    hyphen stays, so 'Zuid-Afrikaanse Bobotie | Knorr' keeps its name.
+    """
     m = re.search(r"<title[^>]*>(.*?)</title>", html, re.S | re.I)
     if m:
         t = re.sub(r"\s+", " ", m.group(1)).strip()
-        parts = [p for p in re.split(r"\s*[–\-—|]\s*", t) if p.strip()]
+        parts = [p for p in re.split(r"\s*[–—|]\s*", t) if p.strip()]
         return parts[0].strip()
     m = re.search(r"<h1[^>]*>(.*?)</h1>", html, re.S | re.I)
     if m:
