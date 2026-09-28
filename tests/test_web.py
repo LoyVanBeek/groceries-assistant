@@ -1436,6 +1436,20 @@ ingredients:
 """
 
 
+def dish_form(name: str, *parts: tuple[str, list[str]], **extra) -> dict:
+    """The dish form's fields: a name and a slot per part.
+
+    Parts are (label, option slugs); an empty trailing slot is added by the page
+    itself, so a test only names the parts it means.
+    """
+    fields: dict[str, str | list[str]] = {"name": name}
+    for index, (label, options) in enumerate(parts):
+        fields[f"part_{index}"] = label
+        fields[f"opt_{index}"] = list(options)
+    fields.update(extra)
+    return fields
+
+
 def seed_part_recipes(tmp_path: Path) -> None:
     recipes = tmp_path / "recipes"
     recipes.mkdir(parents=True, exist_ok=True)
@@ -1530,10 +1544,11 @@ def test_creating_a_dish_writes_the_file_and_lists_it(tmp_path):
     with make_client(tmp_path) as client:
         created = client.post(
             "/dishes",
-            data={
-                "name": "Aardappel-Groente-Vlees",
-                "parts": "Groente: sperziebonen\nVlees: kip-doner",
-            },
+            data=dish_form(
+                "Aardappel-Groente-Vlees",
+                ("Groente", ["sperziebonen"]),
+                ("Vlees", ["kip-doner"]),
+            ),
             follow_redirects=False,
         )
 
@@ -1549,23 +1564,45 @@ def test_creating_a_dish_writes_the_file_and_lists_it(tmp_path):
         assert "Groente: Sperziebonen" in page.text
 
 
-def test_a_line_without_a_colon_is_rejected_with_its_number(tmp_path):
+def test_a_part_with_options_but_no_name_is_rejected(tmp_path):
+    seed_part_recipes(tmp_path)
     with make_client(tmp_path) as client:
-        response = client.post(
-            "/dishes", data={"name": "Fout", "parts": "Groente: sperziebonen\ngeen punt"}
-        )
+        response = client.post("/dishes", data=dish_form("Fout", ("", ["sperziebonen"])))
 
         assert response.status_code == 200
-        assert "regel 2" in response.text
+        assert "geef elk onderdeel een naam" in response.text
         assert not (tmp_path / "dishes" / "fout.yaml").exists()
-        # the form keeps what you typed
-        assert "Groente: sperziebonen" in response.text
+
+
+def test_a_part_with_a_name_but_no_options_is_rejected(tmp_path):
+    seed_part_recipes(tmp_path)
+    with make_client(tmp_path) as client:
+        response = client.post("/dishes", data=dish_form("Fout", ("Groente", [])))
+
+        assert "kies minstens één optie voor" in response.text
+        assert "Groente" in response.text
+        assert not (tmp_path / "dishes" / "fout.yaml").exists()
+
+
+def test_two_parts_with_the_same_name_are_rejected(tmp_path):
+    seed_part_recipes(tmp_path)
+    with make_client(tmp_path) as client:
+        response = client.post(
+            "/dishes",
+            data=dish_form("Fout", ("Groente", ["sperziebonen"]), ("groente", ["kip-doner"])),
+        )
+
+        assert "geef ze andere namen" in response.text
+        assert not (tmp_path / "dishes" / "fout.yaml").exists()
+        # the form keeps what you typed, so the names can be fixed in place
+        assert 'name="part_0" value="Groente"' in response.text
+        assert 'name="opt_0" value="sperziebonen" checked' in response.text
 
 
 def test_a_duplicate_dish_name_is_rejected(tmp_path):
     seed_part_recipes(tmp_path)
     with make_client(tmp_path) as client:
-        data = {"name": "Samen", "parts": "Groente: sperziebonen"}
+        data = dish_form("Samen", ("Groente", ["sperziebonen"]))
         client.post("/dishes", data=data)
 
         response = client.post("/dishes", data=data)
@@ -1573,9 +1610,74 @@ def test_a_duplicate_dish_name_is_rejected(tmp_path):
         assert "bestaat al" in response.text
 
 
+def test_the_part_form_offers_components_and_recipes_with_their_time(tmp_path):
+    """Picking an option is a tick, and what it costs is on the label."""
+    seed_part_recipes(tmp_path)
+    with make_client(tmp_path) as client:
+        text = client.get("/dishes").text
+
+        # components and whole recipes are offered in separate groups
+        assert "Onderdelen" in text and "Recepten" in text
+        # kipfilet (component, 15 min) and kip-doner (recipe, 20 min) both offered
+        assert 'value="kipfilet"' in text
+        assert 'value="kip-doner"' in text
+        assert "15 min" in text and "20 min" in text
+        # a component is not a dinner, so it is not in the recipe group
+        assert "nieuw onderdeel" in text
+
+
+def test_another_part_adds_a_row_and_keeps_what_was_typed(tmp_path):
+    seed_part_recipes(tmp_path)
+    with make_client(tmp_path) as client:
+        # posted the way a browser does: every name field, only the ticked boxes
+        page = client.post(
+            "/dishes",
+            data={
+                "name": "Aardappel-groente-vlees",
+                "part_0": "Groente",
+                "opt_0": ["sperziebonen"],
+                "part_1": "",
+                "part_2": "",
+                "more": "1",
+            },
+        ).text
+
+        assert 'name="part_0" value="Groente"' in page
+        assert 'name="opt_0" value="sperziebonen" checked' in page
+        # a fourth row appeared, empty and ready to fill
+        assert 'name="part_3"' in page
+        assert 'name="part_4"' not in page
+        # and nothing was written yet: adding a row is not saving
+        assert not (tmp_path / "dishes" / "aardappel-groente-vlees.yaml").exists()
+
+
+def test_removing_a_part_takes_its_row_and_keeps_the_rest(tmp_path):
+    seed_part_recipes(tmp_path)
+    with make_client(tmp_path) as client:
+        page = client.post(
+            "/dishes",
+            data={
+                "name": "Drie",
+                "part_0": "Aardappels",
+                "opt_0": ["aardappels-uit-de-oven"],
+                "part_1": "Groente",
+                "opt_1": ["sperziebonen"],
+                "part_2": "Vlees",
+                "opt_2": ["kip-doner"],
+                "remove": "1",
+            },
+        ).text
+
+        # Groente is gone, the other two are still there
+        assert 'value="Groente"' not in page
+        assert 'name="part_0" value="Aardappels"' in page
+        assert 'name="part_1" value="Vlees"' in page
+        assert 'name="opt_1" value="kip-doner" checked' in page
+
+
 def test_a_dish_needs_at_least_one_part(tmp_path):
     with make_client(tmp_path) as client:
-        response = client.post("/dishes", data={"name": "Leeg", "parts": "  \n"})
+        response = client.post("/dishes", data=dish_form("Leeg"))
         assert "minstens één onderdeel" in response.text
 
 
@@ -1585,7 +1687,8 @@ def test_a_part_option_that_is_no_recipe_is_rejected(tmp_path):
     with make_client(tmp_path) as client:
         response = client.post(
             "/dishes",
-            data={"name": "Aardappel-groente-vlees", "parts": "Vlees: worstjes, kipfilet"},
+            # a stale form: the browser still has the old slugs after a rename
+            data=dish_form("Aardappel-groente-vlees", ("Vlees", ["worstjes", "kipfilet"])),
         )
 
         assert "geen recepten of onderdelen" in response.text
@@ -1599,7 +1702,7 @@ def test_editing_a_dish_rejects_an_option_that_is_no_recipe(tmp_path):
     with make_client(tmp_path) as client:
         response = client.post(
             "/dishes/aardappel-groente-vlees",
-            data={"name": "Aardappel-groente-vlees", "parts": "Groente: koolraap"},
+            data=dish_form("Aardappel-groente-vlees", ("Groente", ["koolraap"])),
         )
 
         assert "koolraap" in response.text
@@ -1613,19 +1716,22 @@ def test_editing_a_dish_keeps_its_slug(tmp_path):
     with make_client(tmp_path) as client:
         client.post(
             "/dishes",
-            data={"name": "Aardappel-groente-vlees", "parts": "Groente: sperziebonen"},
+            data=dish_form("Aardappel-groente-vlees", ("Groente", ["sperziebonen"])),
         )
 
         page = client.get("/dishes/aardappel-groente-vlees")
         assert page.status_code == 200
-        assert "Groente: sperziebonen" in page.text
+        # the form comes back with the part's name and its option still ticked
+        assert 'name="part_0" value="Groente"' in page.text
+        assert 'name="opt_0" value="sperziebonen" checked' in page.text
 
         saved = client.post(
             "/dishes/aardappel-groente-vlees",
-            data={
-                "name": "Aardappels, groente en vlees",
-                "parts": "Groente: sperziebonen\nVlees: kip-doner",
-            },
+            data=dish_form(
+                "Aardappels, groente en vlees",
+                ("Groente", ["sperziebonen"]),
+                ("Vlees", ["kip-doner"]),
+            ),
             follow_redirects=False,
         )
 
@@ -1651,7 +1757,7 @@ def test_editing_an_unknown_dish_is_a_404(tmp_path):
 def test_deleting_a_dish(tmp_path):
     seed_part_recipes(tmp_path)
     with make_client(tmp_path) as client:
-        client.post("/dishes", data={"name": "Samen", "parts": "Groente: sperziebonen"})
+        client.post("/dishes", data=dish_form("Samen", ("Groente", ["sperziebonen"])))
 
         deleted = client.post("/dishes/samen/delete", follow_redirects=False)
 
@@ -2304,7 +2410,7 @@ def test_a_dish_may_not_take_a_recipes_name(tmp_path):
     with make_client(tmp_path) as client:
         page = client.post(
             "/dishes",
-            data={"name": "Pasta", "parts": "Groente: sperziebonen"},
+            data=dish_form("Pasta", ("Groente", ["sperziebonen"])),
             follow_redirects=False,
         )
 

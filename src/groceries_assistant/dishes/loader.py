@@ -8,7 +8,7 @@ from typing import Any
 import yaml
 from pydantic import ValidationError
 
-from groceries_assistant.models import ComposedDish, DishPart, slugify
+from groceries_assistant.models import ComposedDish, slugify
 
 DISH_SUFFIXES = (".yaml", ".yml")
 
@@ -80,46 +80,3 @@ def _validate(path: Path, data: Any) -> ComposedDish:
         return ComposedDish.model_validate(data)
     except ValidationError as exc:
         raise DishError(f"{path}: {exc}") from exc
-
-
-# --- the authoring line format ------------------------------------------------
-#
-# One part per line: "<label>: <option slug>, <option slug>". Keeps the whole
-# definition editable as a single textarea, so no JavaScript is needed.
-
-
-def parse_part_lines(text: str) -> list[DishPart]:
-    """Parse the textarea format into parts.
-
-    Raises DishError naming the line, so the page can show which line is wrong.
-    """
-    parts: list[DishPart] = []
-    seen: dict[str, int] = {}
-    for number, line in enumerate(text.splitlines(), 1):
-        line = line.strip()
-        if not line:
-            continue
-        label, separator, options = line.partition(":")
-        if not separator or not label.strip():
-            raise DishError(f"regel {number}: 'label: optie, optie' verwacht, kreeg '{line}'")
-        slugs = [slug.strip() for slug in options.split(",") if slug.strip()]
-        if not slugs:
-            raise DishError(f"regel {number}: geen opties voor '{label.strip()}'")
-        key = slugify(label)
-        if key in seen:
-            raise DishError(
-                f"regel {number}: '{label.strip()}' staat al op regel {seen[key]} "
-                "(geef een ander onderdeel een eigen naam)"
-            )
-        seen[key] = number
-        parts.append(
-            DishPart.model_validate({"key": key, "label": label.strip(), "options": slugs})
-        )
-    if not parts:
-        raise DishError("minstens één onderdeel nodig")
-    return parts
-
-
-def format_part_lines(parts: list[DishPart]) -> str:
-    """Render parts back into the textarea format."""
-    return "\n".join(f"{p.label}: {', '.join(p.options)}" for p in parts)

@@ -8,7 +8,7 @@ import tempfile
 from collections.abc import Mapping
 from datetime import date
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, TypedDict
 from urllib.parse import quote
 from uuid import uuid4
 
@@ -17,6 +17,7 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
+from starlette.datastructures import FormData
 
 from groceries_assistant.ah.client import AHClient
 from groceries_assistant.ah.deeplink import (
@@ -30,10 +31,8 @@ from groceries_assistant.ah.matching import AHMapping, AHMappingStore, fact_from
 from groceries_assistant.dishes.loader import (
     DishError,
     dish_file,
-    format_part_lines,
     load_dish,
     load_dishes_with_errors,
-    parse_part_lines,
     save_dish,
 )
 from groceries_assistant.models import ComposedDish, DishPart, ProductFact, Recipe, slugify
@@ -87,6 +86,140 @@ def _image_ext(filename: str | None) -> str:
     """Lowercase extension of an upload, if we serve that type."""
     ext = Path(filename or "").suffix.lower()
     return ext if ext in ALLOWED_IMAGE_EXTS else ""
+
+
+# --- the dish form ------------------------------------------------------------
+#
+# A dish is a list of parts, each part a name and a list of recipes that can fill
+# it. The form offers a fixed number of part slots: a name field and one checkbox
+# per recipe, so picking three options is three clicks instead of typing slugs.
+
+MIN_PART_SLOTS = 3
+"""Slots a fresh dish form shows: enough for 'aardappel, groente, vlees'."""
+
+
+class PartSlot(TypedDict):
+    """One row of the dish form: a name, and the recipes ticked for it."""
+
+    label: str
+    options: list[str]
+
+
+def empty_slot() -> PartSlot:
+    """One blank part row: a name and nothing chosen yet."""
+    return PartSlot(label="", options=[])
+
+
+def _text_field(form: FormData, name: str) -> str:
+    """One submitted text field; a file part is never a field we asked for."""
+    value = form.get(name)
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _part_slots(form: FormData) -> list[PartSlot]:
+    """The submitted part rows, in order, as the form sent them."""
+    indices = sorted(
+        {
+            int(matched.group(1))
+            for key in form
+            if (matched := re.fullmatch(r"(?:part|opt)_(\d+)", key)) is not None
+        }
+    )
+    return [
+        PartSlot(
+            label=_text_field(form, f"part_{index}"),
+            # a checkbox only ever submits its value as a string
+            options=[value for value in form.getlist(f"opt_{index}") if isinstance(value, str)],
+        )
+        for index in indices
+    ]
+
+
+def _is_row_change(form: FormData) -> bool:
+    """Did the click come from 'another part' or 'remove' rather than save?
+
+    Both are buttons in the same form, so the only thing that tells them apart is
+    which button carried the name. A row change only reshapes the form: it must
+    never write the file, or removing a part would save the dish without it.
+    """
+    return bool(_text_field(form, "more") or _text_field(form, "remove"))
+
+
+def _slot_rows(form: FormData) -> list[PartSlot]:
+    """The rows to redisplay: what was submitted, minus a removed one, plus a spare.
+
+    'Another part' and 'remove' both re-render the form with everything typed so
+    far, so neither click loses work; only the number of rows changes.
+    """
+    rows = _part_slots(form)
+    remove = _text_field(form, "remove")
+    if remove:
+        try:
+            index = int(remove)
+        except ValueError:
+            index = -1
+        if 0 <= index < len(rows):
+            rows.pop(index)
+    if form.get("more"):
+        rows.append(empty_slot())
+    while len(rows) < MIN_PART_SLOTS:
+        rows.append(empty_slot())
+    return rows
+
+
+def _slots_from_parts(parts: list[DishPart]) -> list[PartSlot]:
+    """A dish's parts as form rows, with one spare row to add to."""
+    return [PartSlot(label=part.label, options=list(part.options)) for part in parts] + [
+        empty_slot()
+    ]
+
+
+def _parts_from_slots(slots: list[PartSlot]) -> tuple[list[DishPart], str]:
+    """Turn the form's rows into parts, or explain what is missing.
+
+    A row nobody filled in is not an error: the form always shows a spare slot or
+    two, and the user is not obliged to use them.
+    """
+    parts: list[DishPart] = []
+    seen: dict[str, str] = {}
+    for slot in slots:
+        label, options = slot["label"], slot["options"]
+        if not label and not options:
+            continue
+        if not label:
+            return [], "geef elk onderdeel een naam, of vink niets aan"
+        if not options:
+            return [], f"kies minstens één optie voor '{label}'"
+        key = slugify(label)
+        if key in seen:
+            return [], f"'{label}' en '{seen[key]}' zijn hetzelfde onderdeel; geef ze andere namen"
+        seen[key] = label
+        parts.append(DishPart.model_validate({"key": key, "label": label, "options": options}))
+    if not parts:
+        return [], "minstens één onderdeel nodig"
+    return parts, ""
+
+
+class OptionChoice(TypedDict):
+    """One checkbox in a part row: a recipe and what choosing it costs."""
+
+    slug: str
+    name: str
+    minutes: int
+
+
+def _choices(recipes: list[Recipe], components_only: bool) -> list[OptionChoice]:
+    """The checkboxes a part row offers, with the time each option costs.
+
+    A composed dish is mostly components ('kipfilet', 'brocolli') with a few whole
+    recipes to swap in, so the two lists are shown separately -- and the time is
+    on the label, because a part's time is the component's own time.
+    """
+    return [
+        OptionChoice(slug=recipe.slug, name=recipe.name, minutes=recipe.time.total_minutes)
+        for recipe in sorted(recipes, key=lambda r: r.name.lower())
+        if recipe.component is components_only
+    ]
 
 
 def _stage_dir(root: Path, folder: str) -> Path:
@@ -639,7 +772,7 @@ def create_app(
 
     def _dish_form_ctx(
         name: str = "",
-        parts: str = "",
+        slots: list[PartSlot] | None = None,
         error: str = "",
         *,
         form_title: str = "Nieuw gerecht",
@@ -648,10 +781,14 @@ def create_app(
         """The dish page with its form filled in (also used to redisplay errors)."""
         loaded, errors = load_dishes_with_errors(dishes_dir())
         dishes = sorted(loaded, key=lambda d: d.name.lower())
-        known = {r.slug: r.name for r in load_all()[0]}
+        all_recipes, _load_errors = load_all()
+        known = {r.slug: r.name for r in all_recipes}
         missing: list[str] = []
         for dish in loaded:
             missing += [slug for slug in sorted(dish.option_slugs) if slug not in known]
+        rows = list(slots or [])
+        while len(rows) < MIN_PART_SLOTS:
+            rows.append(empty_slot())
         people = store().people()
         verdicts = store().verdicts()
         return {
@@ -662,7 +799,10 @@ def create_app(
             "form_title": form_title,
             "form_action": form_action,
             "name": name,
-            "parts": parts,
+            "slots": rows,
+            "min_part_slots": MIN_PART_SLOTS,
+            "components": _choices(all_recipes, components_only=True),
+            "dinners": _choices(all_recipes, components_only=False),
             "error": error,
             "people": people,
             # A verdict on a dish is a verdict on the combination, and it is keyed
@@ -681,31 +821,68 @@ def create_app(
         return render(request, "dishes.html", **_dish_form_ctx())
 
     @app.post("/dishes")
-    def dishes_create(request: Request, name: str = Form(...), parts: str = Form("")):
-        """Create one dish from the line format; the slug comes from the name."""
-        try:
-            parsed = parse_part_lines(parts)
-        except DishError as exc:
-            return render(request, "dishes.html", **_dish_form_ctx(name, parts, str(exc)))
-        problem = _unknown_options(parsed, recipes_by_slug())
-        if problem:
-            return render(request, "dishes.html", **_dish_form_ctx(name, parts, problem))
-        slug = slugify(name)
-        if dish_file(dishes_dir(), slug).exists():
+    async def dishes_create(request: Request):
+        """Create one dish; the slug comes from the name."""
+        form = await request.form()
+        slots = _slot_rows(form)
+        if _is_row_change(form):
+            return _redisplay(request, str(form.get("name") or ""), slots, slug=None)
+        return _save_dish(request, str(form.get("name") or ""), slots, slug=None)
+
+    def _redisplay(
+        request: Request, name: str, slots: list[PartSlot], *, slug: str | None
+    ) -> HTMLResponse:
+        """The form again, with the rows as they are now and no error to show."""
+        return render(
+            request,
+            "dishes.html",
+            **_dish_form_ctx(
+                name,
+                slots,
+                form_title="Nieuw gerecht" if slug is None else "Wijzigen",
+                form_action="/dishes" if slug is None else f"/dishes/{slug}",
+            ),
+        )
+
+    def _save_dish(
+        request: Request,
+        name: str,
+        slots: list[PartSlot],
+        *,
+        slug: str | None,
+    ) -> HTMLResponse | RedirectResponse:
+        """Check and store one dish, redisplaying the form when something is off.
+
+        `slug` is None for a new dish, whose slug comes from its name. An
+        existing dish keeps its slug, so plans keep pointing at it.
+        """
+        title = "Nieuw gerecht" if slug is None else "Wijzigen"
+        action = "/dishes" if slug is None else f"/dishes/{slug}"
+
+        def again(error: str) -> HTMLResponse:
             return render(
                 request,
                 "dishes.html",
-                **_dish_form_ctx(name, parts, f"'{slug}' bestaat al"),
+                **_dish_form_ctx(name, slots, error, form_title=title, form_action=action),
             )
-        if slug in recipes_by_slug():
+
+        parts, problem = _parts_from_slots(slots)
+        if problem:
+            return again(problem)
+        stale = _unknown_options(parts, recipes_by_slug())
+        if stale:
+            # A browser can replay a form from before a component was renamed.
+            return again(stale)
+        target = slug or slugify(name)
+        if not name.strip():
+            return again("geef het gerecht een naam")
+        if dish_file(dishes_dir(), target).exists() and slug != target:
+            return again(f"'{target}' bestaat al")
+        if target in recipes_by_slug():
             # A dish shares its slug space with the recipes (verdicts, history),
             # so a name clash would make the two indistinguishable.
-            return render(
-                request,
-                "dishes.html",
-                **_dish_form_ctx(name, parts, f"'{slug}' is al een recept; kies een andere naam"),
-            )
-        _save_dish_file(slug, name, parsed)
+            return again(f"'{target}' is al een recept; kies een andere naam")
+        _save_dish_file(target, name, parts)
         return RedirectResponse("/dishes", status_code=303)
 
     @app.post("/dishes/verdict")
@@ -725,44 +902,24 @@ def create_app(
             "dishes.html",
             **_dish_form_ctx(
                 dish.name,
-                format_part_lines(dish.parts),
+                _slots_from_parts(dish.parts),
                 form_title=f"{dish.name} wijzigen",
                 form_action=f"/dishes/{slug}",
             ),
         )
 
     @app.post("/dishes/{slug}")
-    def dish_save(request: Request, slug: str, name: str = Form(...), parts: str = Form("")):
+    async def dish_save(request: Request, slug: str):
         """Save a dish in place; the slug stays fixed, so plans keep pointing at it."""
         try:
             load_dish(dish_file(dishes_dir(), slug))  # 404 on a slug that is gone
         except DishError as exc:
             raise HTTPException(404, str(exc)) from exc
-        try:
-            parsed = parse_part_lines(parts)
-        except DishError as exc:
-            return render(
-                request,
-                "dishes.html",
-                **_dish_form_ctx(
-                    name,
-                    parts,
-                    str(exc),
-                    form_title="Wijzigen",
-                    form_action=f"/dishes/{slug}",
-                ),
-            )
-        problem = _unknown_options(parsed, recipes_by_slug())
-        if problem:
-            return render(
-                request,
-                "dishes.html",
-                **_dish_form_ctx(
-                    name, parts, problem, form_title="Wijzigen", form_action=f"/dishes/{slug}"
-                ),
-            )
-        _save_dish_file(slug, name, parsed)
-        return RedirectResponse("/dishes", status_code=303)
+        form = await request.form()
+        slots = _slot_rows(form)
+        if _is_row_change(form):
+            return _redisplay(request, str(form.get("name") or ""), slots, slug=slug)
+        return _save_dish(request, str(form.get("name") or ""), slots, slug=slug)
 
     @app.post("/dishes/{slug}/delete")
     def dish_delete(slug: str):

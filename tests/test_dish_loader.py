@@ -1,4 +1,4 @@
-"""Composed-dish definitions: YAML loading, saving and the authoring format."""
+"""Composed-dish definitions: YAML loading and saving."""
 
 from __future__ import annotations
 
@@ -10,11 +10,9 @@ from pydantic import ValidationError
 from groceries_assistant.dishes.loader import (
     DishError,
     dish_file,
-    format_part_lines,
     load_dish,
     load_dishes,
     load_dishes_with_errors,
-    parse_part_lines,
     save_dish,
 )
 from groceries_assistant.models import ComposedDish
@@ -173,47 +171,6 @@ def test_save_creates_the_directory(tmp_path):
         ),
     )
     assert (tmp_path / "nieuw" / "vis.yaml").is_file()
-
-
-# --- the authoring line format ------------------------------------------------
-
-
-def test_parse_part_lines_derives_keys_from_labels():
-    parts = parse_part_lines("Aardappels: oven, gekookt\nGroente: boerenkool\n")
-
-    assert [p.key for p in parts] == ["aardappels", "groente"]
-    assert [p.label for p in parts] == ["Aardappels", "Groente"]
-    assert parts[0].options == ["oven", "gekookt"]
-
-
-def test_parse_part_lines_ignores_blank_lines_and_keeps_order():
-    parts = parse_part_lines("\n  A: x\n\n  B: y\n")
-    assert [p.key for p in parts] == ["a", "b"]
-
-
-def test_parse_part_lines_reports_the_line_number():
-    with pytest.raises(DishError, match="regel 2"):
-        parse_part_lines("A: x\ngeen kolon hier\n")
-
-
-def test_parse_part_lines_reports_a_part_without_options():
-    with pytest.raises(DishError, match="regel 1"):
-        parse_part_lines("Groente:")
-
-
-def test_parse_part_lines_reports_duplicate_labels():
-    with pytest.raises(DishError, match="regel 2"):
-        parse_part_lines("Groente: a\nGroente: b\n")
-
-
-def test_parse_part_lines_needs_a_part():
-    with pytest.raises(DishError, match="minstens één onderdeel"):
-        parse_part_lines("   \n\n")
-
-
-def test_part_lines_round_trip():
-    parts = parse_part_lines("Aardappels: oven, gekookt\nGroente: boerenkool")
-    assert format_part_lines(parts) == "Aardappels: oven, gekookt\nGroente: boerenkool"
 
 
 def test_validate_error_is_wrapped_as_a_dish_error(tmp_path):

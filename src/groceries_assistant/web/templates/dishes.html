@@ -65,16 +65,46 @@
 {% if error %}<p class="warnings">{{ error }}</p>{% endif %}
 <form method="post" action="{{ form_action }}">
   <p><input type="text" name="name" value="{{ name }}" placeholder="naam, bijv. Aardappel-groente-vlees" required></p>
-  <p>
-    <label for="parts">Onderdelen, één per regel:<br>
-      <code>Groente: sperziebonen, boerenkool</code></label><br>
-    <textarea id="parts" name="parts" rows="5" cols="40"
-              placeholder="Aardappels: aardappels-uit-de-oven, gekookte-aardappels
-Groente: sperziebonen, boerenkool
-Vlees: kip-doner, runderlapjes">{{ parts }}</textarea>
+
+  {% for slot in slots %}
+  {% set slot_index = loop.index0 %}
+  <fieldset class="part">
+    <legend>Onderdeel {{ loop.index }}</legend>
+    <p>
+      <input type="text" name="part_{{ slot_index }}" value="{{ slot.label }}"
+             placeholder="naam, bijv. Groente" size="24">
+      {% if slots|length > min_part_slots or not slot.label %}
+      <button class="muted" name="remove" value="{{ slot_index }}" title="Dit onderdeel weg">verwijder</button>
+      {% endif %}
+    </p>
+    {% if components %}
+    <p class="muted">Onderdelen</p>
+    <div class="option-list">
+      {% for opt in components %}
+      <label><input type="checkbox" name="opt_{{ slot_index }}" value="{{ opt.slug }}"{% if opt.slug in slot.options %} checked{% endif %}>
+        {{ opt.name }} <span class="muted">{{ opt.minutes }} min</span></label>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if dinners %}
+    <p class="muted">Recepten</p>
+    <div class="option-list">
+      {% for opt in dinners %}
+      <label><input type="checkbox" name="opt_{{ slot_index }}" value="{{ opt.slug }}"{% if opt.slug in slot.options %} checked{% endif %}>
+        {{ opt.name }} <span class="muted">{{ opt.minutes }} min</span></label>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </fieldset>
+  {% endfor %}
+
+  <p><button name="more" value="1">Nog een onderdeel</button></p>
+  {% if unknown %}<p class="warnings">Onbekende recepten in opgeslagen gerechten: {{ unknown|join(', ') }}</p>{% endif %}
+  <p class="muted">
+    Staat een onderdeel er niet bij? Maak het eerst zelf:
+    <a href="/recipes/new?soort=onderdeel">nieuw onderdeel</a>. De minuten per onderdeel
+    pas je daar aan, niet hier.
   </p>
-  <p class="muted">Na de dubbele punt de slugs van de recepten, waaruit je voor dit onderdeel kunt kiezen.</p>
-  {% if unknown %}<p class="warnings">Onbekende recepten: {{ unknown|join(', ') }}</p>{% endif %}
   <p><button type="submit" class="primary">Opslaan</button></p>
 </form>
 {% endblock %}
