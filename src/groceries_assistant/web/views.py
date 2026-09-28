@@ -89,7 +89,7 @@ def plan_view(
             name = "Niet koken (we eten elders)"
             minutes = 0
             # offer dishes again so the evening can be switched back to cooking
-            alts = _alternatives(meals, prefs, evening, image_for, dishes)
+            alts = _alternatives(meals, prefs, evening, image_for, dishes, by_slug=by_slug)
         elif row.kind == "cook":
             dish = dishes_by_slug.get(row.recipe_slug or "")
             recipe = by_slug.get(row.recipe_slug) if row.recipe_slug else None
@@ -107,7 +107,9 @@ def plan_view(
                 name = recipe.name
                 minutes = recipe.time.same_day_minutes
                 total_minutes = recipe.time.total_minutes
-            alts = _alternatives(meals, prefs, evening, image_for, dishes, exclude=row.recipe_slug)
+            alts = _alternatives(
+                meals, prefs, evening, image_for, dishes, exclude=row.recipe_slug, by_slug=by_slug
+            )
         else:
             source = by_slug.get(row.source_slug or "")
             dish = dishes_by_slug.get(row.source_slug or "")
@@ -173,8 +175,14 @@ def _alternatives(
     image_for,
     dishes: Sequence[ComposedDish],
     exclude: str | None = None,
+    *,
+    by_slug: dict[str, Recipe] | None = None,
 ) -> list[dict]:
-    """Swap options for the picker, with the thumbnails it shows."""
+    """Swap options for the picker, with the thumbnails it shows.
+
+    When dish options reference components, pass the full `by_slug` dict so
+    the engine can resolve them. `recipes` is the picker's display list.
+    """
     return [
         {
             "slug": row.slug,
@@ -184,7 +192,9 @@ def _alternatives(
             "problem": row.problem,
             "image": image_for(row.slug) if image_for and not row.is_dish else None,
         }
-        for row in alternatives(recipes, prefs, evening, exclude_slug=exclude, dishes=dishes)
+        for row in alternatives(
+            recipes, prefs, evening, exclude_slug=exclude, dishes=dishes, by_slug=by_slug
+        )
     ]
 
 

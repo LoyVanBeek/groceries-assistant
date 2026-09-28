@@ -36,6 +36,8 @@ def alternatives(
     exclude_slug: str | None = None,
     limit: int = 8,
     dishes: Sequence[ComposedDish] = (),
+    *,
+    by_slug: dict[str, Recipe] | None = None,
 ) -> list[Alternative]:
     """Dishes and recipes that fit the evening's time budget, best first.
 
@@ -43,8 +45,13 @@ def alternatives(
     preference. Honours the same constraints as the planner engine: 'never'
     excludes, prep-ahead halves the effective time, and the previous evening's
     protein is penalised.
+
+    Pass `by_slug` (all recipes, including components) when the dish options
+    are components rather than dinner recipes; otherwise it is built from the
+    `recipes` argument alone, which may miss component slugs.
     """
-    by_slug = {r.slug: r for r in recipes}
+    if by_slug is None:
+        by_slug = {r.slug: r for r in recipes}
     dish_rows: list[Alternative] = []
     for dish in dishes:
         if dish.slug == exclude_slug:
