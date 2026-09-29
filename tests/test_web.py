@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from groceries_assistant.models import slugify
 from groceries_assistant.store.db import Store
+from groceries_assistant.web import app as web_app
 from groceries_assistant.web.app import create_app
 
 PASTA = """\
@@ -371,9 +372,10 @@ class _FakeImageProduct:
 
 
 class _FakeProduct:
-    def __init__(self, webshop_id: int, title: str) -> None:
+    def __init__(self, webshop_id: int, title: str, image_url: str | None = None) -> None:
         self.webshop_id = webshop_id
         self.title = title
+        self.image_url = image_url
 
 
 def test_recipe_edit_page_prefills(tmp_path):
@@ -1720,6 +1722,117 @@ def test_components_have_verdicts_and_appear_in_the_dish_form(tmp_path):
         text = client.get("/dishes").text
         assert "Kipfilet" in text
         assert "15 min" in text
+
+
+# --- components: a photo of the product ----------------------------------------
+
+
+def test_a_component_photo_is_uploaded_and_served(tmp_path):
+    seed_part_recipes(tmp_path)
+    with make_client(tmp_path) as client:
+        saved = client.post(
+            "/components/save",
+            data={
+                "name": "Kipfilet",
+                "amount": 600,
+                "unit": "g",
+                "minutes": 15,
+                "original_slug": "kipfilet",
+            },
+            files={"photo": ("kip.jpg", b"kipfiletbytes", "image/jpeg")},
+            follow_redirects=False,
+        )
+        assert saved.status_code == 303
+
+        photo = tmp_path / "components" / "img" / "kipfilet.jpg"
+        assert photo.read_bytes() == b"kipfiletbytes"
+        assert client.get("/components/img/kipfilet.jpg").content == b"kipfiletbytes"
+        assert 'src="/components/img/kipfilet.jpg"' in client.get("/components/kipfilet/edit").text
+
+
+def test_a_second_photo_replaces_the_first_in_any_format(tmp_path):
+    seed_part_recipes(tmp_path)
+    with make_client(tmp_path) as client:
+        for name in ("kip.jpg", "kip.png"):
+            client.post(
+                "/components/save",
+                data={"name": "Kipfilet", "original_slug": "kipfilet"},
+                files={"photo": (name, b"x", "image/png")},
+                follow_redirects=False,
+            )
+        assert sorted(p.name for p in (tmp_path / "components" / "img").iterdir()) == [
+            "kipfilet.png"
+        ]
+
+
+def test_a_component_photo_is_deleted(tmp_path):
+    seed_part_recipes(tmp_path)
+    (tmp_path / "components" / "img").mkdir(parents=True)
+    (tmp_path / "components" / "img" / "kipfilet.jpg").write_bytes(b"x")
+    with make_client(tmp_path) as client:
+        client.post("/components/img/delete", data={"slug": "kipfilet"}, follow_redirects=False)
+        assert not (tmp_path / "components" / "img" / "kipfilet.jpg").exists()
+        assert client.get("/components/img/kipfilet.jpg").status_code == 404
+
+
+def test_another_components_photo_is_not_served(tmp_path):
+    seed_part_recipes(tmp_path)
+    (tmp_path / "components" / "img").mkdir(parents=True)
+    (tmp_path / "components" / "img" / "kipfilet.jpg").write_bytes(b"x")
+    with make_client(tmp_path) as client:
+        assert client.get("/components/img/brocolli.jpg").status_code == 404
+        assert client.get("/components/img/../kipfilet.jpg").status_code == 404
+
+
+def test_a_component_photo_can_be_picked_from_ah(tmp_path, monkeypatch):
+    """AH matches loosely, so the page offers candidates and the user clicks one."""
+    seed_part_recipes(tmp_path)
+    hit = _FakeProduct(4321, "AH Scharrel kipfilet 2-pack", "https://static.ah.nl/dam/kip.jpg")
+    monkeypatch.setattr(web_app, "_fetch_image", lambda url: (b"ahbytes", ".jpg"))
+
+    with make_client(tmp_path, search_fn=lambda query: [hit]) as client:
+        page = client.get("/components/kipfilet/edit?ah=1").text
+        assert "AH Scharrel kipfilet 2-pack" in page
+        assert 'name="webshop_id" value="4321"' in page
+
+        picked = client.post(
+            "/components/img/pick",
+            data={"slug": "kipfilet", "webshop_id": 4321},
+            follow_redirects=False,
+        )
+        assert picked.status_code == 303
+        assert (tmp_path / "components" / "img" / "kipfilet.jpg").read_bytes() == b"ahbytes"
+
+
+def test_a_photo_pick_that_does_not_come_through_is_reported(tmp_path, monkeypatch):
+    seed_part_recipes(tmp_path)
+    hit = _FakeProduct(4321, "AH Scharrel kipfilet 2-pack", "https://static.ah.nl/dam/kip.jpg")
+    monkeypatch.setattr(web_app, "_fetch_image", lambda url: None)
+
+    with make_client(tmp_path, search_fn=lambda query: [hit]) as client:
+        landed = client.post(
+            "/components/img/pick",
+            data={"slug": "kipfilet", "webshop_id": 4321},
+            follow_redirects=True,
+        )
+        assert "kon niet worden opgehaald" in landed.text
+        assert not (tmp_path / "components" / "img").exists()
+
+
+def test_a_component_photo_search_that_finds_nothing_says_so(tmp_path):
+    seed_part_recipes(tmp_path)
+    with make_client(tmp_path, search_fn=lambda query: []) as client:
+        assert "vond niets" in client.get("/components/kipfilet/edit?ah=1").text
+
+
+def test_a_component_photo_search_survives_an_unreachable_ah(tmp_path):
+    seed_part_recipes(tmp_path)
+
+    def boom(query: str):
+        raise RuntimeError("no route to host")
+
+    with make_client(tmp_path, search_fn=boom) as client:
+        assert "AH onbereikbaar" in client.get("/components/kipfilet/edit?ah=1").text
 
 
 def test_dishes_page_renders_empty(tmp_path):

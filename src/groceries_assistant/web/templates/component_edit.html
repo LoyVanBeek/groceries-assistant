@@ -3,7 +3,8 @@
 {% block content %}
 <h1>{{ title }}</h1>
 {% if error %}<p class="warnings">{{ error }}</p>{% endif %}
-<form method="post" action="{{ action }}">
+{% if note %}<p class="warnings">{{ note }}</p>{% endif %}
+<form method="post" action="{{ action }}" enctype="multipart/form-data">
   {% if original_slug %}<input type="hidden" name="original_slug" value="{{ original_slug }}">{% endif %}
   <p>
     <label>Naam<br><input type="text" name="name" value="{{ name }}" size="40"></label>
@@ -17,6 +18,55 @@
   <p>
     <label>Minuten<br><input type="number" name="minutes" value="{{ minutes }}" min="0"></label>
   </p>
-  <p><button type="submit">Opslaan</button></p>
+  <h2>Afbeelding</h2>
+  {% if image %}
+  <p><img class="recipe-img" src="/components/img/{{ image }}" alt="{{ name }}"></p>
+  <p><button type="submit" form="component-img-delete">Afbeelding verwijderen</button></p>
+  {% endif %}
+  <div class="photo-drop">
+    <p class="photo-pick">
+      <label class="btn-file">Kies foto<input type="file" name="photo" accept="image/*"></label>
+      <button type="button" class="camera-button">Maak foto</button>
+      <input type="file" class="camera-input" accept="image/*" capture="environment" hidden>
+    </p>
+    <p class="drop-hint">Sleep een foto hierheen, of tik op &lsquo;Maak foto&rsquo; om de camera te openen (jpg/png/webp).</p>
+    <ul class="file-list"></ul>
+    <p class="file-warn warnings"></p>
+  </div>
+  {% if original_slug %}
+  <p><button type="submit" form="component-img-ah">Afbeelding zoeken bij AH.nl</button></p>
+  {% endif %}
+  {% if candidates %}
+  <h2>Kies de juiste afbeelding</h2>
+  <div class="img-grid">
+    {% for cand in candidates %}
+    <div class="img-card">
+      {% if cand.image %}<img src="{{ cand.image }}" alt="">{% endif %}
+      <div class="muted">{{ cand.title }}</div>
+      <div class="img-actions">
+        <button type="submit" form="component-img-pick-{{ cand.webshop_id }}">deze</button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+  <p><button type="submit" class="primary">Opslaan</button></p>
 </form>
+{% if original_slug %}
+<form id="component-img-ah" method="get" action="/components/{{ original_slug }}/edit">
+  <input type="hidden" name="ah" value="1">
+</form>
+<form id="component-img-delete" method="post" action="/components/img/delete">
+  <input type="hidden" name="slug" value="{{ original_slug }}">
+</form>
+  {% for cand in candidates %}
+<form id="component-img-pick-{{ cand.webshop_id }}" method="post" action="/components/img/pick">
+  <input type="hidden" name="slug" value="{{ original_slug }}">
+  <input type="hidden" name="webshop_id" value="{{ cand.webshop_id }}">
+</form>
+  {% endfor %}
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script src="/static/photos.js" defer></script>
 {% endblock %}

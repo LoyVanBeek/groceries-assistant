@@ -92,6 +92,8 @@ NO_COOK_CHOICE = "__no_cook__"
 KEEP_CHOICE = ""
 
 ALLOWED_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
+AH_CANDIDATES = 8
+"""AH products offered as a component's photo: enough to recognise the right one."""
 # staged uploads get a random id as name, so they can never collide
 STAGED_UID_RE = re.compile(r"[0-9a-f]{32}\Z")
 PHOTO_STAGING = "photo-staging"
@@ -102,6 +104,45 @@ def _image_ext(filename: str | None) -> str:
     """Lowercase extension of an upload, if we serve that type."""
     ext = Path(filename or "").suffix.lower()
     return ext if ext in ALLOWED_IMAGE_EXTS else ""
+
+
+def _fetch_image(url: str) -> tuple[bytes, str] | None:
+    """Download an image; returns (bytes, extension), or None if it did not work.
+
+    Uses httpx with HTTP/2 and browser headers because many image CDNs
+    (Unilever Assets, Akamai) block HTTP/1.1 requests.
+    """
+    import httpx
+
+    try:
+        ua = "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0"
+        with httpx.Client(http2=True, timeout=15, follow_redirects=True) as c:
+            resp = c.get(
+                url,
+                headers={
+                    "User-Agent": ua,
+                    "Accept": "image/jpeg,image/png,image/webp,image/*;q=0.8,*/*;q=0.5",
+                    "Accept-Language": "nl-NL,nl;q=0.9,en;q=0.5",
+                    "Sec-Fetch-Dest": "image",
+                    "Sec-Fetch-Mode": "no-cors",
+                    "Sec-Fetch-Site": "cross-site",
+                },
+            )
+        resp.raise_for_status()
+        content = resp.content
+        content_type = resp.headers.get("content-type", "")
+    except Exception:
+        return None
+    if not content:
+        return None
+    ext = "".join(Path(urlparse(url).path).suffixes)
+    if ext not in {".jpg", ".jpeg", ".png", ".webp"}:
+        ext = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}.get(
+            content_type.split(";")[0].strip().lower(), ""
+        )
+    if not ext:
+        return None
+    return content, ext
 
 
 # --- the dish form ------------------------------------------------------------
@@ -1014,12 +1055,12 @@ def create_app(
             fmt=format_amount,
         )
 
-    def _search(query: str) -> list:
+    def _search(query: str, limit: int = 5) -> list:
         """AH product search, using the injected stub or the real client."""
         if search_fn is not None:
-            return search_fn(query)
+            return search_fn(query)[:limit]
         with AHClient() as client:
-            return client.search(query)
+            return client.search(query, limit=limit)
 
     @app.post("/order/match/pin")
     def order_match_pin(
@@ -1534,41 +1575,11 @@ def create_app(
         )
 
     def _stage_web_image(url: str) -> str | None:
-        """Download an image from a URL to the OCR staging dir; returns uid.
-
-        Uses httpx with HTTP/2 and browser headers because many image CDNs
-        (Unilever Assets, Akamai) block HTTP/1.1 requests.
-        """
-        import httpx
-
-        try:
-            ua = "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0"
-            with httpx.Client(http2=True, timeout=15, follow_redirects=True) as c:
-                resp = c.get(
-                    url,
-                    headers={
-                        "User-Agent": ua,
-                        "Accept": "image/jpeg,image/png,image/webp,image/*;q=0.8,*/*;q=0.5",
-                        "Accept-Language": "nl-NL,nl;q=0.9,en;q=0.5",
-                        "Sec-Fetch-Dest": "image",
-                        "Sec-Fetch-Mode": "no-cors",
-                        "Sec-Fetch-Site": "cross-site",
-                    },
-                )
-                resp.raise_for_status()
-                content = resp.content
-                content_type = resp.headers.get("content-type", "")
-        except Exception:
+        """Download an image from a URL to the OCR staging dir; returns uid."""
+        fetched = _fetch_image(url)
+        if fetched is None:
             return None
-        if not content:
-            return None
-        ext = "".join(Path(urlparse(url).path).suffixes)
-        if ext not in {".jpg", ".jpeg", ".png", ".webp"}:
-            ext = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}.get(
-                content_type.split(";")[0].strip().lower(), ""
-            )
-        if not ext:
-            return None
+        content, ext = fetched
         uid = uuid4().hex
         staging = ocr_staging()
         (staging / f"{uid}{ext}").write_bytes(content)
@@ -1995,9 +2006,48 @@ def create_app(
             errors=errors,
         )
 
+    def component_image_path(slug: str) -> Path | None:
+        """The one image file of a component, if it has one.
+
+        A component is a single product, so unlike a recipe it keeps one photo,
+        not a gallery: <slug>.<ext> under the components dir.
+        """
+        directory = data / "components" / "img"
+        if not directory.is_dir():
+            return None
+        for candidate in sorted(directory.glob(f"{slug}.*")):
+            if candidate.suffix.lower() in ALLOWED_IMAGE_EXTS:
+                return candidate
+        return None
+
+    def _store_component_image(slug: str, content: bytes, ext: str) -> None:
+        """Write a component's photo, replacing whatever it had before."""
+        directory = data / "components" / "img"
+        directory.mkdir(parents=True, exist_ok=True)
+        for stale in directory.glob(f"{slug}.*"):
+            stale.unlink(missing_ok=True)
+        (directory / f"{slug}{ext}").write_bytes(content)
+
+    @app.get("/components/img/{filename}")
+    def component_image(filename: str):
+        slug = Path(filename).stem
+        if not filename.startswith(f"{slug}.") or _image_ext(filename) == "":
+            raise HTTPException(404, "Geen afbeelding")
+        path = data / "components" / "img" / filename
+        if not path.is_file():
+            raise HTTPException(404, "Geen afbeelding")
+        return FileResponse(path)
+
     def _component_edit_ctx(
-        *, title: str, action: str, component: Component | None = None, error: str = ""
+        *,
+        title: str,
+        action: str,
+        component: Component | None = None,
+        error: str = "",
+        candidates: list[dict] | None = None,
+        note: str = "",
     ):
+        image = component_image_path(component.slug) if component else None
         return {
             "title": title,
             "action": action,
@@ -2007,7 +2057,24 @@ def create_app(
             "minutes": component.minutes if component else 0,
             "original_slug": component.slug if component else "",
             "error": error,
+            "image": image.name if image else "",
+            "candidates": candidates or [],
+            "note": note,
         }
+
+    def _ah_candidates(component: Component) -> list[dict]:
+        """AH products that could be this component, best match first.
+
+        The image is only a suggestion: AH matches loosely, so the user picks.
+        """
+        return [
+            {
+                "webshop_id": hit.webshop_id,
+                "title": hit.title,
+                "image": getattr(hit, "image_url", None),
+            }
+            for hit in _search(component.name, AH_CANDIDATES)
+        ]
 
     @app.get("/components/new", response_class=HTMLResponse)
     def new_component_page(request: Request):
@@ -2023,10 +2090,27 @@ def create_app(
             c = load_component(data / "components" / f"{slug}.yaml")
         except ComponentError as exc:
             raise HTTPException(404, str(exc)) from exc
+        candidates: list[dict] = []
+        note = ""
+        if request.query_params.get("fout"):
+            note = "De afbeelding kon niet worden opgehaald."
+        elif request.query_params.get("ah"):
+            try:
+                candidates = _ah_candidates(c)
+                if not candidates:
+                    note = "AH.nl vond niets voor deze naam."
+            except Exception as exc:
+                note = f"AH onbereikbaar ({exc})"
         return render(
             request,
             "component_edit.html",
-            **_component_edit_ctx(title=f"Wijzig {c.name}", action="/components/save", component=c),
+            **_component_edit_ctx(
+                title=f"Wijzig {c.name}",
+                action="/components/save",
+                component=c,
+                candidates=candidates,
+                note=note,
+            ),
         )
 
     @app.post("/components/save")
@@ -2036,13 +2120,49 @@ def create_app(
         unit: str = Form("stuk"),
         minutes: int = Form(0),
         original_slug: str = Form(""),
+        photo: Annotated[UploadFile | None, File()] = None,
     ):
         slug = original_slug if original_slug else slugify(name)
         c = Component(
             slug=slug, name=name.strip(), amount=amount, unit=unit.strip(), minutes=minutes
         )
         save_component(data / "components" / f"{slug}.yaml", c)
+        ext = _image_ext(photo.filename) if photo is not None else ""
+        if photo is not None and ext:
+            _store_component_image(slug, photo.file.read(), ext)
         return RedirectResponse("/components", status_code=303)
+
+    @app.post("/components/img/pick")
+    def component_image_pick(slug: str = Form(...), webshop_id: int = Form(...)):
+        """Store the photo of one AH candidate as the component's own.
+
+        The form carries the webshop id, not the image URL: the search is redone
+        so the server never fetches a URL a browser made up.
+        """
+        component = components_by_slug().get(slug)
+        if component is None:
+            raise HTTPException(404, "Onbekend onderdeel")
+        back = f"/components/{slug}/edit"
+        try:
+            hits = _search(component.name, AH_CANDIDATES)
+        except Exception:
+            hits = []
+        hit = next((h for h in hits if h.webshop_id == webshop_id), None)
+        fetched = _fetch_image(hit.image_url) if hit and hit.image_url else None
+        if fetched is None:
+            return RedirectResponse(f"{back}?fout=1", status_code=303)
+        _store_component_image(slug, *fetched)
+        return RedirectResponse(back, status_code=303)
+
+    @app.post("/components/img/delete")
+    def component_image_delete(slug: str = Form(...)):
+        component = components_by_slug().get(slug)
+        if component is None:
+            raise HTTPException(404, "Onbekend onderdeel")
+        image = component_image_path(slug)
+        if image is not None:
+            image.unlink()
+        return RedirectResponse(f"/components/{slug}/edit", status_code=303)
 
     @app.post("/components/{slug}/delete")
     def delete_component(slug: str):
