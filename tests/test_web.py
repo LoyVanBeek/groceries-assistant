@@ -2301,6 +2301,73 @@ def test_an_option_that_is_not_on_offer_is_ignored(tmp_path):
         assert store.plan_picks(plan_id).get(day, {}) == {}
 
 
+def test_the_part_picker_shows_the_photo_of_every_option(tmp_path):
+    """A <select> cannot show a photo, so the picker is a list of thumbnails."""
+    seed_part_recipes(tmp_path)
+    seed_dish(tmp_path, parts="Vlees: kip-doner, kipfilet")
+    (tmp_path / "components" / "img").mkdir(parents=True)
+    (tmp_path / "components" / "img" / "kipfilet.jpg").write_bytes(b"x")
+    (tmp_path / "recipes" / "img").mkdir(parents=True)
+    (tmp_path / "recipes" / "img" / "kip-doner.jpg").write_bytes(b"x")
+
+    with make_client(tmp_path) as client:
+        plan_a_dish(client, tmp_path)
+        text = client.get("/plan").text
+        assert '<img class="thumb" src="/components/img/kipfilet.jpg"' in text
+        assert '<img class="thumb" src="/recipes/img/kip-doner.jpg"' in text
+        # the part and the option it already has
+        assert 'value="kipfilet"' in text
+        assert "Kipfilet (600 g, 15 min)" in text
+
+
+def test_the_closed_part_picker_shows_the_chosen_photo(tmp_path):
+    seed_part_recipes(tmp_path)
+    seed_dish(tmp_path, parts="Vlees: kip-doner, kipfilet")
+    (tmp_path / "components" / "img").mkdir(parents=True)
+    (tmp_path / "components" / "img" / "kipfilet.jpg").write_bytes(b"x")
+
+    with make_client(tmp_path) as client:
+        day = plan_a_dish(client, tmp_path)
+        pick(client, day, vlees="kipfilet")
+
+        summary = client.get("/plan").text
+        assert '<img class="thumb" src="/components/img/kipfilet.jpg"' in summary
+
+
+def test_picking_one_part_leaves_the_others_alone(tmp_path):
+    """Each option posts its own part; a pick replaces the evening, so the rest
+    of the parts ride along in the form as the values they already have."""
+    seed_part_recipes(tmp_path)
+    seed_dish(tmp_path, parts="Groente: sperziebonen\nVlees: kip-doner, kipfilet")
+    with make_client(tmp_path) as client:
+        day = plan_a_dish(client, tmp_path)
+        pick(client, day, groente="sperziebonen", vlees="kip-doner")
+
+        # what the popup of 'vlees' posts: its own choice, plus 'groente' as it is
+        pick(client, day, groente="sperziebonen", vlees="kipfilet")
+
+        store, plan_id = _proposal(tmp_path)
+        assert store.plan_picks(plan_id)[day] == {
+            "groente": "sperziebonen",
+            "vlees": "kipfilet",
+        }
+        assert "Sperziebonen + Kipfilet" in client.get("/plan").text
+
+
+def test_the_part_picker_can_clear_a_part(tmp_path):
+    seed_part_recipes(tmp_path)
+    seed_dish(tmp_path, parts="Groente: sperziebonen\nVlees: kip-doner, kipfilet")
+    with make_client(tmp_path) as client:
+        day = plan_a_dish(client, tmp_path)
+        pick(client, day, groente="sperziebonen", vlees="kipfilet")
+
+        pick(client, day, groente="sperziebonen", vlees="")  # 'nog te kiezen'
+
+        store, plan_id = _proposal(tmp_path)
+        assert store.plan_picks(plan_id)[day] == {"groente": "sperziebonen"}
+        assert "nog te kiezen: Vlees" in client.get("/plan").text
+
+
 def test_picks_on_a_plain_recipe_evening_are_refused(tmp_path):
     seed_part_recipes(tmp_path)
     seed_dish(tmp_path)

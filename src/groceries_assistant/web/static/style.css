@@ -436,11 +436,56 @@ table.plan .dish-option.unavailable .muted { font-size: 0.8rem; width: 100%; }
 table.plan .dish-combo { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
 table.plan .dish-label { font-size: 0.82rem; color: var(--muted); }
 table.plan .parts-label { font-size: 0.98rem; }
-table.plan .parts-form { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.3rem; }
-table.plan .parts-form .part { display: flex; flex-direction: column; gap: 0.1rem; }
-table.plan .parts-form .part-label { font-size: 0.75rem; color: var(--muted); }
-table.plan .parts-form select { max-width: 11rem; }
-table.plan .parts-form button { align-self: flex-end; margin-left: auto; }
+
+/* part picker: summary = the part and what fills it, body = the options.
+   A <select> cannot show a photo, so this is a details/popup like the dish
+   picker; each option is its own form, because a pick saves on click. */
+table.plan .parts-form { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.3rem; }
+table.plan details.part-picker { position: relative; display: block; }
+table.plan details.part-picker summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.15rem 0.4rem;
+  border-radius: 7px;
+  border: 1.5px solid var(--border);
+  min-height: 2.9rem;
+}
+table.plan details.part-picker summary::-webkit-details-marker { display: none; }
+table.plan details.part-picker summary::after {
+  content: "\25BE";
+  margin-left: auto;
+  color: var(--muted);
+}
+table.plan details.part-picker[open] summary {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+table.plan .part-picker .part-label { font-size: 0.75rem; color: var(--muted); }
+table.plan .part-picker .part-choice { font-size: 0.9rem; }
+table.plan .part-picker .thumb { width: 2.2rem; height: 2.2rem; margin-right: 0; }
+table.plan .part-options {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  margin-top: 0.2rem;
+  background: var(--bg);
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  padding: 0.25rem;
+  max-height: 16rem;
+  overflow-y: auto;
+  min-width: 11rem;
+}
+/* the option this part already has, so the popup shows where you stand */
+table.plan .part-options .dish-option.chosen {
+  background: var(--accent-soft);
+  font-weight: 600;
+}
 table.plan .col-cook { width: 13rem; }
 table.plan .col-cook form { display: flex; flex-wrap: nowrap; gap: 0.3rem; align-items: center; }
 table.plan .col-cook select { width: 100%; min-width: 0; }

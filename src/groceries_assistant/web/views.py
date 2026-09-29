@@ -95,7 +95,7 @@ def plan_view(
             if dish is not None:
                 name = dish.name
                 part_options, unfilled, minutes, total_minutes = _dish_parts(
-                    dish, picks.get(row.day, {}), by_slug
+                    dish, picks.get(row.day, {}), by_slug, image_for
                 )
                 parts_label = " + ".join(
                     part["chosen_name"] for part in part_options if part["chosen_name"]
@@ -118,7 +118,7 @@ def plan_view(
             if dish is not None:
                 # cook once, eat twice: show the combination the source cooks
                 part_options, unfilled, _longest, _total = _dish_parts(
-                    dish, picks.get(row.day, {}), by_slug
+                    dish, picks.get(row.day, {}), by_slug, image_for
                 )
                 parts_label = " + ".join(
                     part["chosen_name"] for part in part_options if part["chosen_name"]
@@ -196,7 +196,7 @@ def _alternatives(
 
 
 def _dish_parts(
-    dish: ComposedDish, day_picks: dict[str, str], by_slug: dict[str, Recipe]
+    dish: ComposedDish, day_picks: dict[str, str], by_slug: dict[str, Recipe], image_for=None
 ) -> tuple[list[dict], list[str], int, int]:
     """Per part: its options, the pick, the chosen name; plus the times.
 
@@ -216,24 +216,27 @@ def _dish_parts(
             unfilled.append(part.label)
         else:
             minutes = max(minutes, recipe.time.same_day_minutes)
+        options = [
+            {
+                "slug": option.slug,
+                "name": by_dish[option.slug].name if option.slug in by_dish else option.slug,
+                # what this dish uses the option as, for the dropdown:
+                # a component shows the amount this dish asks for
+                "label": _option_label(by_dish.get(option.slug)) or option.slug,
+                "image": image_for(option.slug) if image_for else None,
+            }
+            for option in part.options
+        ]
         rows.append(
             {
                 "key": part.key,
                 "label": part.label,
                 "chosen": chosen,
                 "chosen_name": recipe.name if recipe else "",
-                "options": [
-                    {
-                        "slug": option.slug,
-                        "name": by_dish[option.slug].name
-                        if option.slug in by_dish
-                        else option.slug,
-                        # what this dish uses the option as, for the dropdown:
-                        # a component shows the amount this dish asks for
-                        "label": _option_label(by_dish.get(option.slug)) or option.slug,
-                    }
-                    for option in part.options
-                ],
+                # the pick as this dish uses it, so the closed picker shows the amount
+                "chosen_label": next((o["label"] for o in options if o["slug"] == chosen), ""),
+                "chosen_image": image_for(chosen) if image_for and chosen else None,
+                "options": options,
             }
         )
     return rows, unfilled, minutes, minutes

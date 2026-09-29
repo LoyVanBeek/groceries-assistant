@@ -49,7 +49,7 @@
       {% else %}
       <details class="dish-picker">
         <summary aria-label="Gerecht wisselen voor {{ e.label }}">
-          {% if e.image %}<img class="thumb" src="/recipes/img/{{ e.image.name }}" alt="">{% endif %}
+          {% if e.image %}<img class="thumb" src="{{ e.image }}" alt="">{% endif %}
           {% if e.is_dish %}
           <span class="dish-combo">
             <span class="dish-label">{{ e.name }}</span>
@@ -80,7 +80,7 @@
             <input type="hidden" name="day" value="{{ e.day_iso }}">
             <input type="hidden" name="choice" value="{{ alt.slug }}">
             <button class="dish-option">
-              {% if alt.image %}<img class="thumb" src="/recipes/img/{{ alt.image.name }}" alt="">{% endif %}
+              {% if alt.image %}<img class="thumb" src="{{ alt.image }}" alt="">{% endif %}
               <span class="dish-option-name">{{ alt.name }}
                 {% if alt.is_dish %}<span class="muted"> ({{ alt.part_labels|join(' + ') }})</span>{% endif %}</span>
               <span class="dish-score muted" title="score">{{ '%.1f'|format(alt.score)|replace('.', ',') }}</span>
@@ -111,22 +111,39 @@
       </details>
       {% endif %}
       {% if e.is_dish and e.editable_parts and e.part_options %}
-      <form method="post" action="/plan/picks" class="parts-form">
-        <input type="hidden" name="day" value="{{ e.day_iso }}">
+      <div class="parts-form">
         {% for part in e.part_options %}
-        <label class="part">
-          <span class="part-label">{{ part.label }}</span>
-          <select name="part_{{ part.key }}" aria-label="{{ part.label }} {{ e.label }}"
-                  onchange="this.form.requestSubmit()">
-            <option value="" {% if not part.chosen %}selected{% endif %}>nog te kiezen</option>
+        <details class="part-picker">
+          <summary aria-label="{{ part.label }} {{ e.label }} kiezen">
+            {% if part.chosen_image %}<img class="thumb" src="{{ part.chosen_image }}" alt="">{% endif %}
+            <span class="part-label">{{ part.label }}</span>
+            <span class="part-choice">{{ part.chosen_label or 'nog te kiezen' }}</span>
+          </summary>
+          <div class="part-options">
             {% for opt in part.options %}
-            <option value="{{ opt.slug }}" {% if part.chosen == opt.slug %}selected{% endif %}>{{ opt.label }}</option>
+            <form method="post" action="/plan/picks">
+              <input type="hidden" name="day" value="{{ e.day_iso }}">
+              {% for sibling in e.part_options if sibling.key != part.key %}
+              <input type="hidden" name="part_{{ sibling.key }}" value="{{ sibling.chosen }}">
+              {% endfor %}
+              <button class="dish-option{% if part.chosen == opt.slug %} chosen{% endif %}"
+                      name="part_{{ part.key }}" value="{{ opt.slug }}">
+                {% if opt.image %}<img class="thumb" src="{{ opt.image }}" alt="">{% endif %}
+                <span class="dish-option-name">{{ opt.label }}</span>
+              </button>
+            </form>
             {% endfor %}
-          </select>
-        </label>
+            <form method="post" action="/plan/picks">
+              <input type="hidden" name="day" value="{{ e.day_iso }}">
+              {% for sibling in e.part_options if sibling.key != part.key %}
+              <input type="hidden" name="part_{{ sibling.key }}" value="{{ sibling.chosen }}">
+              {% endfor %}
+              <button class="dish-option muted" name="part_{{ part.key }}" value="">nog te kiezen</button>
+            </form>
+          </div>
+        </details>
         {% endfor %}
-        <button aria-label="Bewaar onderdelen {{ e.label }}">opslaan</button>
-      </form>
+      </div>
       {% elif e.is_dish and e.unfilled and not e.part_options %}
       <div class="muted">Nog te kiezen: {{ e.unfilled|join(', ') }}</div>
       {% endif %}

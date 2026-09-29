@@ -661,7 +661,7 @@ def create_app(
             [r for r in all_recipes],
             prefs,
             store().people(),
-            image_for=image_path,
+            image_for=image_url_for,
             dishes=list(dishes_by_slug().values()),
         )
         return render(
@@ -1800,6 +1800,19 @@ def create_app(
     @app.get("/recipes/img/{filename}")
     def recipe_image(filename: str):
         return _serve_image(Path(filename).stem, filename)
+
+    def image_url_for(slug: str) -> str | None:
+        """URL of the image of a recipe or component, whichever dir holds it.
+
+        Recipes, components and dishes share one slug space, so looking in both
+        image dirs is enough to find the file and to name the route that serves
+        it. A dish has no image of its own: its parts do.
+        """
+        image = image_path(slug) or component_image_path(slug)
+        if image is None:
+            return None
+        folder = "recipes" if image.parent == data / "recipes" / "img" else "components"
+        return f"/{folder}/img/{image.name}"
 
     def _store_image(slug: str, content: bytes, ext: str, *, as_featured: bool) -> None:
         """Write one photo into the recipe's image dir.
