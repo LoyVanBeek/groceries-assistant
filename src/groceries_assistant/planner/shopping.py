@@ -45,6 +45,16 @@ def order_product(product: str) -> tuple[str, str | None]:
     return clean, ", ".join(note.strip() for note in notes if note.strip()) or None
 
 
+def _factor(recipe: Recipe, people: int) -> float:
+    """How much to multiply a recipe's amounts by for `people` eaters.
+
+    One for a component: it is the purchase itself ('a bag of potatoes'), so the
+    amount the dish says is the amount that goes in the basket, whatever the
+    household size is.
+    """
+    return people / recipe.servings if recipe.scales_with_servings else 1.0
+
+
 def demand_by_day(
     entries: Sequence[tuple[date, Recipe, int]],
 ) -> dict[date, dict[tuple[str, str], float]]:
@@ -59,7 +69,7 @@ def demand_by_day(
     """
     per_day: dict[date, dict[tuple[str, str], float]] = {}
     for day, recipe, people in entries:
-        factor = people / recipe.servings
+        factor = _factor(recipe, people)
         totals = per_day.setdefault(day, {})
         for ingredient in recipe.ingredients:
             name, _note = order_product(ingredient.product)
@@ -85,7 +95,7 @@ def aggregate_ingredients(
     totals: dict[tuple[str, str], float] = {}
     notes: dict[tuple[str, str], str] = {}
     for _day, recipe, people in entries:
-        factor = people / recipe.servings
+        factor = _factor(recipe, people)
         for ingredient in recipe.ingredients:
             name, note = order_product(ingredient.product)
             key = (name.lower(), ingredient.unit)

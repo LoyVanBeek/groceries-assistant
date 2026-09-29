@@ -546,11 +546,14 @@ def _fill_dish(
 
     used = set(planned)
     chosen: list[tuple[DishPart, Option]] = []
+    # A dish may want more of a shared component, or take longer over it than the
+    # component says; its own option values are what this evening is judged on.
+    by_dish = dish.recipes(recipes_by_slug)
     for part in dish.parts:
         options: list[Option] = []
         unknown: list[str] = []
-        for slug in part.options:
-            recipe = recipes_by_slug.get(slug)
+        for slug in part.option_slugs:
+            recipe = by_dish.get(slug)
             if recipe is None:
                 unknown.append(slug)  # deleted or renamed since the dish was written
                 continue
@@ -570,7 +573,7 @@ def _fill_dish(
             if option is not None:
                 options.append(option)
         if not options:
-            return None, _part_problem(part, recipes_by_slug, prefs, evening, unknown)
+            return None, _part_problem(part, by_dish, prefs, evening, unknown)
         best = min(options, key=lambda option: (-option.score, option.minutes, option.recipe.slug))
         used.add(best.recipe.slug)
         chosen.append((part, best))
@@ -618,22 +621,23 @@ def _fill_dish(
 
 def _part_problem(
     part: DishPart,
-    recipes_by_slug: dict[str, Recipe],
+    known: dict[str, Recipe],
     prefs: Preferences,
     evening: EveningAvailability,
     unknown: list[str],
 ) -> str:
     """Why a part could not be filled, in the words of the part.
 
-    `score_option` drops an option for several reasons at once (too long, never,
-    cooked recently, already planned), so this only names a cause when it holds
-    for every option that does exist -- a true statement, not a guess at the
-    single reason the planner used.
+    `known` is the dish's own view (its overrides applied), so an option's time is
+    the time this dish takes over it. `score_option` drops an option for several
+    reasons at once (too long, never, cooked recently, already planned), so this
+    only names a cause when it holds for every option that does exist -- a true
+    statement, not a guess at the single reason the planner used.
     """
     if unknown:
         gone = "bestaat niet meer" if len(unknown) == 1 else "bestaan niet meer"
         return f"{part.label}: {', '.join(unknown)} {gone}"
-    existing = [recipes_by_slug[slug] for slug in part.options if slug in recipes_by_slug]
+    existing = [known[slug] for slug in part.option_slugs if slug in known]
     if not existing:
         return f"{part.label}: geen opties"
     if all(recipe.time.same_day_minutes > evening.free_minutes for recipe in existing):

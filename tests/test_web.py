@@ -1582,14 +1582,23 @@ ingredients:
 def dish_form(name: str, *parts: tuple[str, list[str]], **extra) -> dict:
     """The dish form's fields: a name and a slot per part.
 
-    Parts are (label, option names/slugs) — the form takes them as one
-    comma-separated text field per slot. An empty trailing slot is added by
-    the page itself, so a test only names the parts it means.
+    Parts are (label, options), where each option is a name or slug, or a
+    (name, amount, unit, minutes) tuple for a dish that uses it differently than
+    the component does. A plain name leaves the numbers empty, which is how the
+    form says "inherit the component's own values". An empty trailing slot is
+    added by the page itself, so a test only names the parts it means.
     """
     fields: dict[str, str | list[str]] = {"name": name}
-    for index, (label, options) in enumerate(parts):
-        fields[f"part_{index}"] = label
-        fields[f"opts_{index}"] = ", ".join(options)
+    for part_index, (label, options) in enumerate(parts):
+        fields[f"part_{part_index}"] = label
+        for option_index, option in enumerate(options):
+            amount, unit, minutes = "", "", ""
+            if isinstance(option, tuple):
+                option, amount, unit, minutes = (str(piece) for piece in option)
+            fields[f"opt_{part_index}_{option_index}_name"] = str(option)
+            fields[f"opt_{part_index}_{option_index}_amount"] = amount
+            fields[f"opt_{part_index}_{option_index}_unit"] = unit
+            fields[f"opt_{part_index}_{option_index}_minutes"] = minutes
     fields.update(extra)
     return fields
 
@@ -1620,6 +1629,54 @@ def test_a_component_is_never_offered_as_an_evening_dish(tmp_path):
         # kipfilet is a component: it can fill a part, never an evening
         assert "Kipdoner" in text
         assert 'value="kipfilet"' not in text
+
+
+def test_a_dish_uses_its_own_amount_of_a_shared_component(tmp_path):
+    """A dish can use a shared component in its own amount, not the component's."""
+    seed_part_recipes(tmp_path)
+    seed_dish(tmp_path, parts="Vlees: kipfilet")
+    with make_client(tmp_path) as client:
+        # this dish wants 1 kg instead of the component's own 600 g
+        assert (
+            client.post(
+                "/dishes",
+                data=dish_form("Feest", ("Vlees", [("Kipfilet", 1000, "g", "")])),
+                follow_redirects=False,
+            ).status_code
+            == 303
+        )
+
+        # the dish says what it does differently, and the component file is untouched
+        dish = (tmp_path / "dishes" / "feest.yaml").read_text(encoding="utf-8")
+        assert "amount: 1000.0" in dish
+        assert "minutes: null" not in dish  # empty fields are left out, not stored
+        component = (tmp_path / "components" / "kipfilet.yaml").read_text(encoding="utf-8")
+        assert "amount: 600" in component
+        # and the form shows the override it stored
+        page = client.get("/dishes/feest").text
+        assert 'name="opt_0_0_amount" value="1000"' in page
+        # the list says what this dish does differently, not just the name
+        assert "Kipfilet (1000 g)" in client.get("/dishes").text
+
+
+def test_a_dish_option_takes_its_own_minutes_over_the_component(tmp_path):
+    """The component says 15 min; a dish that stews it for 40 costs the evening 40."""
+    seed_part_recipes(tmp_path)
+    seed_dish(tmp_path, parts="Vlees: kipfilet")
+    with make_client(tmp_path) as client:
+        saved = client.post(
+            "/dishes",
+            data=dish_form("Lang", ("Vlees", [("Kipfilet", "", "", 40)])),
+            follow_redirects=False,
+        )
+
+        assert saved.status_code == 303
+        assert "minutes: 40" in (tmp_path / "dishes" / "lang.yaml").read_text(encoding="utf-8")
+        # and the form shows the override it stored
+        page = client.get("/dishes/lang").text
+        assert 'name="opt_0_0_minutes" value="40"' in page
+        # the list reads cleanly, without a dangling comma for the amount it inherits
+        assert "Kipfilet (40 min)" in client.get("/dishes").text
 
 
 def test_a_component_fills_a_dish_part_and_buys_its_ingredients(tmp_path):
@@ -1729,7 +1786,7 @@ def test_two_parts_with_the_same_name_are_rejected(tmp_path):
         assert not (tmp_path / "dishes" / "fout.yaml").exists()
         # the form keeps what you typed, so the names can be fixed in place
         assert 'name="part_0" value="Groente"' in response.text
-        assert 'name="opts_0" value="sperziebonen"' in response.text
+        assert 'name="opt_0_0_name" value="sperziebonen"' in response.text
 
 
 def test_a_duplicate_dish_name_is_rejected(tmp_path):
@@ -1750,21 +1807,24 @@ def test_the_part_form_suggests_components_and_recipes_with_their_time(tmp_path)
         text = client.get("/dishes").text
 
         assert 'list="option-names"' in text
-        # kipfilet (component, 15 min) and kip-doner (recipe, 20 min) both suggested
-        assert 'value="Kipfilet">15 min' in text
+        # a component brings its own amount, unit and time; a recipe only a time
+        assert 'value="Kipfilet">600 g, 15 min' in text
         assert 'value="Kipdoner">20 min' in text
 
 
 def test_another_part_adds_a_row_and_keeps_what_was_typed(tmp_path):
     seed_part_recipes(tmp_path)
     with make_client(tmp_path) as client:
-        # posted the way a browser does: every field, options as comma text
+        # posted the way a browser does: every field, one row per option
         page = client.post(
             "/dishes",
             data={
                 "name": "Aardappel-groente-vlees",
                 "part_0": "Groente",
-                "opts_0": "sperziebonen",
+                "opt_0_0_name": "Sperziebonen",
+                "opt_0_0_amount": "",
+                "opt_0_0_unit": "",
+                "opt_0_0_minutes": "",
                 "part_1": "",
                 "part_2": "",
                 "more": "1",
@@ -1772,7 +1832,7 @@ def test_another_part_adds_a_row_and_keeps_what_was_typed(tmp_path):
         ).text
 
         assert 'name="part_0" value="Groente"' in page
-        assert 'name="opts_0" value="sperziebonen"' in page
+        assert 'name="opt_0_0_name" value="Sperziebonen"' in page
         # a fourth row appeared, empty and ready to fill
         assert 'name="part_3"' in page
         assert 'name="part_4"' not in page
@@ -1785,23 +1845,78 @@ def test_removing_a_part_takes_its_row_and_keeps_the_rest(tmp_path):
     with make_client(tmp_path) as client:
         page = client.post(
             "/dishes",
-            data={
-                "name": "Drie",
-                "part_0": "Aardappels",
-                "opts_0": "aardappels-uit-de-oven",
-                "part_1": "Groente",
-                "opts_1": "sperziebonen",
-                "part_2": "Vlees",
-                "opts_2": "kip-doner",
-                "remove": "1",
-            },
+            data=dish_form(
+                "Drie",
+                ("Aardappels", ["aardappels-uit-de-oven"]),
+                ("Groente", ["sperziebonen"]),
+                ("Vlees", ["kip-doner"]),
+                remove="1",
+            ),
         ).text
 
         # Groente is gone, the other two are still there (options echo as typed)
         assert 'value="Groente"' not in page
         assert 'name="part_0" value="Aardappels"' in page
         assert 'name="part_1" value="Vlees"' in page
-        assert 'name="opts_1" value="kip-doner"' in page
+        assert 'name="opt_1_0_name" value="kip-doner"' in page
+
+
+def test_an_option_amount_that_is_not_a_number_is_reported(tmp_path):
+    """A typo in a number is a message, not a stack trace, and writes nothing."""
+    seed_part_recipes(tmp_path)
+    with make_client(tmp_path) as client:
+        response = client.post(
+            "/dishes",
+            data=dish_form("Fout", ("Vlees", [("Runderworst", "veel", "g", "10")])),
+        )
+
+        assert "geen getal" in response.text
+        assert not (tmp_path / "dishes" / "fout.yaml").exists()
+        # and no component was created for a form that was rejected
+        assert not (tmp_path / "components" / "runderworst.yaml").exists()
+
+
+def test_an_option_amount_of_zero_is_reported(tmp_path):
+    """Zero of something is nothing to buy; the dish cannot mean that."""
+    seed_part_recipes(tmp_path)
+    with make_client(tmp_path) as client:
+        response = client.post(
+            "/dishes",
+            data=dish_form("Fout", ("Vlees", [("Runderworst", 0, "g", "")])),
+        )
+
+        assert "groter dan 0" in response.text
+        assert not (tmp_path / "dishes" / "fout.yaml").exists()
+        assert not (tmp_path / "components" / "runderworst.yaml").exists()
+
+
+def test_another_option_adds_a_row_to_that_part(tmp_path):
+    seed_part_recipes(tmp_path)
+    with make_client(tmp_path) as client:
+        page = client.post(
+            "/dishes",
+            data=dish_form("Twee", ("Groente", ["sperziebonen"]), more_opt_0="1"),
+        ).text
+
+        # a second option row appeared on part 0; the first is still filled
+        assert 'name="opt_0_0_name" value="sperziebonen"' in page
+        assert 'name="opt_0_1_name" value=""' in page
+        # and nothing was written: adding an option is not saving
+        assert not (tmp_path / "dishes" / "twee.yaml").exists()
+
+
+def test_removing_an_option_takes_that_row_and_keeps_the_rest(tmp_path):
+    seed_part_recipes(tmp_path)
+    with make_client(tmp_path) as client:
+        page = client.post(
+            "/dishes",
+            data=dish_form("Twee", ("Groente", ["sperziebonen", "kip-doner"]), rm_opt_0_0="1"),
+        ).text
+
+        # the second option moved up into the first row; no row is left over
+        assert 'name="opt_0_0_name" value="kip-doner"' in page
+        assert 'name="opt_0_1_name"' not in page
+        assert not (tmp_path / "dishes" / "twee.yaml").exists()
 
 
 def test_a_dish_needs_at_least_one_part(tmp_path):
@@ -1810,34 +1925,49 @@ def test_a_dish_needs_at_least_one_part(tmp_path):
         assert "minstens één onderdeel" in response.text
 
 
-def test_a_part_option_that_is_no_recipe_is_rejected(tmp_path):
-    """A name that resolves to nothing leaves the dish unplannable, silently."""
+def test_an_option_name_that_is_nothing_yet_becomes_a_component(tmp_path):
+    """A name nothing knows is a new component, not an unusable option."""
     seed_part_recipes(tmp_path)
     with make_client(tmp_path) as client:
-        response = client.post(
+        saved = client.post(
             "/dishes",
-            # a stale form: the browser still has the old slugs after a rename
-            data=dish_form("Aardappel-groente-vlees", ("Vlees", ["worstjes", "kipfilet"])),
+            data=dish_form(
+                "Aardappel-groente-vlees",
+                ("Vlees", [("Runderworst", 500, "g", 12)]),
+            ),
+            follow_redirects=False,
         )
 
-        assert "geen recepten of onderdelen" in response.text
-        assert "kipfilet" in response.text and "worstjes" in response.text
-        assert not (tmp_path / "dishes" / "aardappel-groente-vlees.yaml").exists()
+        assert saved.status_code == 303
+        # the component exists with what the user typed, and the dish points at it
+        component = (tmp_path / "components" / "runderworst.yaml").read_text(encoding="utf-8")
+        assert "name: Runderworst" in component
+        assert "amount: 500" in component
+        assert "unit: g" in component
+        assert "minutes: 12" in component
+        assert "runderworst" in (tmp_path / "dishes" / "aardappel-groente-vlees.yaml").read_text(
+            encoding="utf-8"
+        )
 
 
-def test_editing_a_dish_rejects_an_option_that_is_no_recipe(tmp_path):
+def test_editing_a_dish_keeps_the_unchanged_parts_it_was_not_shown(tmp_path):
+    """A name that resolves to nothing becomes a component, so nothing is lost."""
     seed_part_recipes(tmp_path)
     seed_dish(tmp_path)
     with make_client(tmp_path) as client:
-        response = client.post(
+        saved = client.post(
             "/dishes/aardappel-groente-vlees",
-            data=dish_form("Aardappel-groente-vlees", ("Groente", ["koolraap"])),
+            data=dish_form("Aardappel-groente-vlees", ("Groente", [("Koolraap", 1, "stuk", 20)])),
+            follow_redirects=False,
         )
 
-        assert "koolraap" in response.text
-        # the dish on disk is untouched
-        saved = (tmp_path / "dishes" / "aardappel-groente-vlees.yaml").read_text(encoding="utf-8")
-        assert "koolraap" not in saved
+        assert saved.status_code == 303
+        # the dish on disk now names the new component
+        dish = (tmp_path / "dishes" / "aardappel-groente-vlees.yaml").read_text(encoding="utf-8")
+        assert "koolraap" in dish
+        assert "minutes: 20" in (tmp_path / "components" / "koolraap.yaml").read_text(
+            encoding="utf-8"
+        )
 
 
 def test_editing_a_dish_keeps_its_slug(tmp_path):
@@ -1852,7 +1982,14 @@ def test_editing_a_dish_keeps_its_slug(tmp_path):
         assert page.status_code == 200
         # the form comes back with the part's name and its option (by name)
         assert 'name="part_0" value="Groente"' in page.text
-        assert 'name="opts_0" value="Sperziebonen"' in page.text
+        assert 'name="opt_0_0_name" value="Sperziebonen"' in page.text
+        # with no numbers of its own: the component's values are inherited, and
+        # are shown as placeholders rather than filled in
+        assert 'name="opt_0_0_amount" value=""' in page.text
+        assert 'name="opt_0_0_unit" value=""' in page.text
+        # Sperziebonen is a recipe here (300 g, 10 min), so it defaults to nothing
+        # but its time: a recipe brings its own amounts
+        assert 'placeholder="10"' in page.text
 
         saved = client.post(
             "/dishes/aardappel-groente-vlees",
@@ -2193,6 +2330,22 @@ def test_a_parts_options_show_what_they_cost_the_evening(tmp_path):
         assert "Sperziebonen (10 min)" in text
         assert "Kipdoner (20 min)" in text
         assert "Aardappels uit de oven (30 min)" in text
+
+
+def test_a_component_option_shows_the_amount_this_dish_uses(tmp_path):
+    """The dropdown names the size this dish buys, not the component's own."""
+    seed_part_recipes(tmp_path)
+    seed_dish(tmp_path, parts="Vlees: kipfilet")
+    with make_client(tmp_path) as client:
+        client.post(
+            "/dishes/aardappel-groente-vlees",
+            data=dish_form("Aardappel-groente-vlees", ("Vlees", [("Kipfilet", 1000, "g", "")])),
+            follow_redirects=False,
+        )
+        plan_a_dish(client, tmp_path)
+
+        # the component says 600 g; this dish asks for 1000 g and the pick says so
+        assert "Kipfilet (1000 g, 15 min)" in client.get("/plan").text
 
 
 def test_an_unfilled_dish_does_not_claim_zero_minutes(tmp_path):

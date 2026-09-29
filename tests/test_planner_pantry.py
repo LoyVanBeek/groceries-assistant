@@ -274,6 +274,53 @@ def test_the_demand_lands_on_the_day_it_is_eaten():
     }
 
 
+def test_a_component_is_not_scaled_by_the_people_count():
+    """A component is a purchase, not a portion: 1 bag stays 1 bag for any table.
+
+    A recipe for four cooked for two halves its amounts; a component says what you
+    buy, so what the dish asks for is what goes in the basket.
+    """
+    component = Recipe.model_validate(
+        {
+            "slug": "kipfilet",
+            "name": "Kipfilet",
+            "servings": 4,
+            "scales_with_servings": False,
+            "ingredients": [{"product": "Kipfilet", "amount": 600, "unit": "g"}],
+        }
+    )
+
+    assert demand_by_day([(MON, component, 2)]) == {MON: {("kipfilet", "g"): 600.0}}
+    assert demand_by_day([(MON, component, 8)]) == {MON: {("kipfilet", "g"): 600.0}}
+
+
+def test_a_dish_option_holds_its_own_amount_of_a_shared_component():
+    """The component stays 600 g; a dish may use it as 1 kg, and another as 300 g."""
+    from groceries_assistant.models import ComposedDish
+
+    dish = ComposedDish.model_validate(
+        {
+            "slug": "feest",
+            "name": "Feest",
+            "parts": [{"label": "Vlees", "options": [{"slug": "kipfilet", "amount": 1000}]}],
+        }
+    )
+    component = Recipe.model_validate(
+        {
+            "slug": "kipfilet",
+            "name": "Kipfilet",
+            "servings": 4,
+            "scales_with_servings": False,
+            "ingredients": [{"product": "Kipfilet", "amount": 600, "unit": "g"}],
+        }
+    )
+
+    as_the_dish_uses_it = dish.recipes({"kipfilet": component})["kipfilet"]
+    assert as_the_dish_uses_it.ingredients[0].amount == 1000
+    # the component itself is untouched
+    assert component.ingredients[0].amount == 600
+
+
 def test_bracketed_preparation_hints_move_to_the_note():
     """'kipfilet (in stukjes)' orders as 'kipfilet'; the hint becomes the note.
 

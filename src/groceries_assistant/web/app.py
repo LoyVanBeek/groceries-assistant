@@ -44,6 +44,7 @@ from groceries_assistant.dishes.loader import (
 from groceries_assistant.models import (
     Component,
     ComposedDish,
+    DishOption,
     DishPart,
     Ingredient,
     ProductFact,
@@ -113,16 +114,35 @@ MIN_PART_SLOTS = 3
 """Slots a fresh dish form shows: enough for 'aardappel, groente, vlees'."""
 
 
+class OptionRow(TypedDict):
+    """One option row of the dish form, as typed.
+
+    The numbers are strings because a row that says nothing is not the same as a
+    row that says zero: an empty field inherits the component's own value, which
+    is what keeps a shared component shared.
+    """
+
+    name: str
+    amount: str
+    unit: str
+    minutes: str
+
+
 class PartSlot(TypedDict):
-    """One row of the dish form: a name, and the recipes ticked for it."""
+    """One row of the dish form: a part's name and the options that can fill it."""
 
     label: str
-    options: list[str]
+    options: list[OptionRow]
 
 
 def empty_slot() -> PartSlot:
     """One blank part row: a name and nothing chosen yet."""
     return PartSlot(label="", options=[])
+
+
+def empty_option() -> OptionRow:
+    """One blank option row, with the amount and unit a component defaults to."""
+    return OptionRow(name="", amount="", unit="", minutes="")
 
 
 def _text_field(form: FormData, name: str) -> str:
@@ -134,32 +154,73 @@ def _text_field(form: FormData, name: str) -> str:
 def _part_slots(form: FormData) -> list[PartSlot]:
     """The submitted part rows, in order, as the form sent them.
 
-    Options are typed directly into the slot as a comma-separated list of
-    component/recipe names (or slugs).
+    Each part carries one row per option: a name, plus the amount, unit and
+    minutes this dish uses it with. An option with no name is a row the user
+    started and left empty, which counts as no option at all.
     """
     indices = sorted(
         {
             int(matched.group(1))
             for key in form
-            if (matched := re.fullmatch(r"(?:part|opts)_(\d+)", key)) is not None
+            if (matched := re.fullmatch(r"part_(\d+)", key)) is not None
         }
     )
     rows = []
     for index in indices:
-        raw = _text_field(form, f"opts_{index}")
-        options = [piece.strip() for piece in re.split(r"[,\n]", raw) if piece.strip()]
-        rows.append(PartSlot(label=_text_field(form, f"part_{index}"), options=options))
+        rows.append(
+            PartSlot(
+                label=_text_field(form, f"part_{index}"),
+                options=_option_rows(form, index),
+            )
+        )
+    return rows
+
+
+def _option_indices(form: FormData, part: int) -> list[int]:
+    """Which option rows part `part` submitted, in order."""
+    return sorted(
+        {
+            int(matched.group(1))
+            for key in form
+            if (matched := re.fullmatch(rf"opt_{part}_(\d+)_name", key)) is not None
+        }
+    )
+
+
+def _option_rows(form: FormData, part: int) -> list[OptionRow]:
+    """One part's option rows, blank ones dropped."""
+    rows = []
+    for index in _option_indices(form, part):
+        name = _text_field(form, f"opt_{part}_{index}_name")
+        if not name:
+            continue
+        rows.append(
+            OptionRow(
+                name=name,
+                amount=_text_field(form, f"opt_{part}_{index}_amount"),
+                unit=_text_field(form, f"opt_{part}_{index}_unit"),
+                minutes=_text_field(form, f"opt_{part}_{index}_minutes"),
+            )
+        )
     return rows
 
 
 def _is_row_change(form: FormData) -> bool:
-    """Did the click come from 'another part' or 'remove' rather than save?
+    """Did the click come from an add/remove button rather than save?
 
-    Both are buttons in the same form, so the only thing that tells them apart is
+    They are buttons in the same form, so the only thing that tells them apart is
     which button carried the name. A row change only reshapes the form: it must
     never write the file, or removing a part would save the dish without it.
     """
-    return bool(_text_field(form, "more") or _text_field(form, "remove"))
+    return bool(
+        _text_field(form, "more")
+        or _text_field(form, "remove")
+        or any(
+            key.startswith("more_opt_") or key.startswith("rm_opt_")
+            for key in form
+            if isinstance(key, str)
+        )
+    )
 
 
 def _slot_rows(form: FormData) -> list[PartSlot]:
@@ -179,6 +240,19 @@ def _slot_rows(form: FormData) -> list[PartSlot]:
             rows.pop(index)
     if form.get("more"):
         rows.append(empty_slot())
+    # '+ optie' and its per-row remove reshape one part's options; the buttons
+    # carry the part index in their name, since they sit next to their own rows.
+    for key in form:
+        matched = re.fullmatch(r"more_opt_(\d+)", key)
+        if matched and 0 <= (index := int(matched.group(1))) < len(rows):
+            rows[index]["options"].append(empty_option())
+    for key in form:
+        matched = re.fullmatch(r"rm_opt_(\d+)_(\d+)", key)
+        if matched and 0 <= (index := int(matched.group(1))) < len(rows):
+            options = rows[index]["options"]
+            drop = int(matched.group(2))
+            if 0 <= drop < len(options):
+                options.pop(drop)
     while len(rows) < MIN_PART_SLOTS:
         rows.append(empty_slot())
     return rows
@@ -189,85 +263,221 @@ def _slots_from_parts(
 ) -> list[PartSlot]:
     """A dish's parts as form rows, with one spare row to add to.
 
-    Options are shown as comma-separated display names (what the user types).
+    An option shows only what this dish says about it: a name, and the numbers it
+    overrides. The component's own values are not repeated here, because that is
+    what an empty field means -- inherit them.
     """
     rows = []
     for part in parts:
-        names = []
-        for slug in part.options:
-            obj = (by_slug or {}).get(slug)
-            names.append(getattr(obj, "name", slug) if obj else slug)
-        rows.append(PartSlot(label=part.label, options=names))
+        options: list[OptionRow] = []
+        for option in part.options:
+            obj = (by_slug or {}).get(option.slug)
+            options.append(
+                OptionRow(
+                    name=getattr(obj, "name", option.slug) if obj else option.slug,
+                    amount=_number(option.amount),
+                    unit=option.unit or "",
+                    minutes=_number(option.minutes),
+                )
+            )
+        rows.append(PartSlot(label=part.label, options=options))
     rows.append(empty_slot())
     return rows
 
 
+def _number(value: float | int | None) -> str:
+    """A number as the form shows it, without a trailing '.0'."""
+    if value is None:
+        return ""
+    return f"{value:g}"
+
+
 def _parts_from_slots(
     slots: list[PartSlot], known: Mapping[str, object] | None = None
-) -> tuple[list[DishPart], str]:
-    """Turn the form's rows into parts, or explain what is missing.
+) -> tuple[list[DishPart], list[Component], str]:
+    """Turn the form's rows into parts and the components they create, or explain
+    what is missing.
 
-    A row nobody filled in is not an error: the form always shows a spare slot or
-    two, and the user is not obliged to use them. Options are typed as names or
-    slugs; `known` maps slug -> object with a .name (components/recipes) so a
-    typed name resolves to its slug.
+    A part row nobody filled in is not an error: the form always shows a spare slot
+    or two, and the user is not obliged to use them.
+
+    An option names a component or recipe; the numbers next to it are what *this
+    dish* uses it with. Numbers left empty are not stored, so the option inherits
+    the component's own amount and minutes -- that is what lets one component be
+    shared by dishes that each want a different amount. A name that is not a
+    component or recipe yet is a new component, returned for the caller to write.
     """
-    by_name = {slug: getattr(obj, "name", slug) for slug, obj in (known or {}).items()}
-    name_to_slug = {name.lower(): slug for slug, name in by_name.items()}
+    name_to_slug = {getattr(obj, "name", slug).lower(): slug for slug, obj in (known or {}).items()}
 
     parts: list[DishPart] = []
+    created: dict[str, Component] = {}
     seen: dict[str, str] = {}
     for slot in slots:
-        label, options = slot["label"], slot["options"]
-        if not label and not options:
+        label, rows = slot["label"], slot["options"]
+        if not label and not rows:
             continue
         if not label:
-            return [], "geef elk onderdeel een naam, of typ niets bij opties"
-        if not options:
-            return [], f"typ minstens één optie voor '{label}'"
-        slugs: list[str] = []
-        for option in options:
-            slug = slugify(option)
-            if option.lower() in name_to_slug and slug not in name_to_slug:
-                slug = name_to_slug[option.lower()]  # typed by name
-            elif option.lower() in name_to_slug:
-                slug = name_to_slug[option.lower()]  # exact name wins over slug guess
-            slugs.append(slug)
+            return [], [], "geef elk onderdeel een naam, of typ niets bij de opties"
+        if not rows:
+            return [], [], f"typ minstens één optie voor '{label}'"
+        options: list[DishOption] = []
+        try:
+            for row in rows:
+                option, component = _option_from_row(row, name_to_slug)
+                options.append(option)
+                if component is not None and component.slug not in created:
+                    created[component.slug] = component
+                    # a later row naming the same new component resolves to it,
+                    # instead of creating it a second time
+                    name_to_slug[component.name.lower()] = component.slug
+        except DishFormError as exc:
+            return [], [], str(exc)
         key = slugify(label)
         if key in seen:
-            return [], f"'{label}' en '{seen[key]}' zijn hetzelfde onderdeel; geef ze andere namen"
+            return (
+                [],
+                [],
+                f"'{label}' en '{seen[key]}' zijn hetzelfde onderdeel; geef ze andere namen",
+            )
         seen[key] = label
-        parts.append(DishPart.model_validate({"key": key, "label": label, "options": slugs}))
+        parts.append(DishPart.model_validate({"key": key, "label": label, "options": options}))
     if not parts:
-        return [], "minstens één onderdeel nodig"
-    return parts, ""
+        return [], [], "minstens één onderdeel nodig"
+    return parts, list(created.values()), ""
+
+
+class DishFormError(Exception):
+    """A dish-form field that cannot be read; the message is shown to the user."""
+
+
+def _option_from_row(
+    row: OptionRow, name_to_slug: dict[str, str]
+) -> tuple[DishOption, Component | None]:
+    """One option row as a stored option, plus the component it creates (if any).
+
+    The name may be typed as the component's name or its slug, either way; a slug
+    that already belongs to a recipe is that recipe, not a new component, since the
+    two share one namespace and a clash would make them indistinguishable.
+
+    Empty numbers are not stored, so the option inherits the component's own
+    amount and minutes. A name nothing knows yet is a new component, created with
+    the numbers the user gave as its defaults.
+    """
+    typed = row["name"].strip()
+    # by name if it is one, otherwise by slug: 'kip-doner' typed literally is that
+    # recipe, not a new component that would take the same slug
+    slug = name_to_slug.get(typed.lower(), slugify(typed))
+    amount = _parse_number(row["amount"], f"het aantal van '{typed}'")
+    minutes = _parse_number(row["minutes"], f"de minuten van '{typed}'")
+    if amount is not None and amount <= 0:
+        raise DishFormError(f"het aantal van '{typed}' moet groter dan 0 zijn")
+    if minutes is not None and minutes < 0:
+        raise DishFormError(f"de minuten van '{typed}' kunnen niet negatief zijn")
+    if minutes is not None and minutes % 1:
+        raise DishFormError(f"de minuten van '{typed}' moeten een heel getal zijn")
+    unit = row["unit"].strip() or None
+    option = DishOption.model_validate(
+        {
+            "slug": slug,
+            "amount": amount,
+            "unit": unit,
+            "minutes": int(minutes) if minutes is not None else None,
+        }
+    )
+    if slug in name_to_slug.values():
+        return option, None
+    return option, Component(
+        slug=slug,
+        name=typed,
+        amount=amount or 1.0,
+        unit=unit or "stuk",
+        minutes=int(minutes or 0),
+    )
+
+
+def _parse_number(raw: str, what: str) -> float | None:
+    """A typed number, or None when the field was left empty (inherit)."""
+    text = raw.strip().replace(",", ".")
+    if not text:
+        return None
+    try:
+        return float(text)
+    except ValueError as exc:
+        raise DishFormError(f"{what} is geen getal: '{raw}'") from exc
+
+
+def _option_text(option: DishOption, name: str) -> str:
+    """A dish option as the list shows it: only the numbers this dish overrides.
+
+    A dish that agrees with its component says just the name; one that does not
+    says what it does differently, e.g. 'Kipfilet (1 kg, 40 min)'.
+    """
+    bits: list[str] = []
+    if option.amount is not None or option.unit:
+        amount = "" if option.amount is None else f"{option.amount:g}"
+        bits.append(" ".join(piece for piece in (amount, option.unit or "") if piece))
+    if option.minutes is not None:
+        bits.append(f"{option.minutes} min")
+    return f"{name} ({', '.join(bits)})" if bits else name
 
 
 class OptionChoice(TypedDict):
-    """One checkbox in a part row: a recipe and what choosing it costs."""
+    """A component or recipe the form suggests, with the values it defaults to."""
 
     slug: str
     name: str
     minutes: int
+    amount: str
+    unit: str
 
 
 def _choices(recipes: list[Recipe]) -> list[OptionChoice]:
-    """The checkboxes a part row offers, with the time each option costs.
+    """The recipes a part row may name, for the datalist.
 
     A composed dish is mostly components ('kipfilet', 'brocolli') with a few whole
-    recipes to swap in, so the two lists are shown separately -- and the time is
-    on the label, because a part's time is the component's own time.
+    recipes to swap in, so the two are suggested separately. A recipe brings its
+    own amounts, so it has none to inherit: only its time is offered as a default.
     """
     return [
-        OptionChoice(slug=recipe.slug, name=recipe.name, minutes=recipe.time.total_minutes)
+        OptionChoice(
+            slug=recipe.slug,
+            name=recipe.name,
+            minutes=recipe.time.total_minutes,
+            amount="",
+            unit="",
+        )
         for recipe in sorted(recipes, key=lambda r: r.name.lower())
     ]
 
 
+def component_recipe(component: Component) -> Recipe:
+    """A component as the engine sees it: the product, and the time to prepare it.
+
+    `servings` is a formality -- the engine wants a number -- but the recipe does
+    not scale with it: a component is one purchase, so the amount is what the
+    component says whatever the household size is.
+    """
+    return Recipe(
+        slug=component.slug,
+        name=component.name,
+        servings=4,
+        scales_with_servings=False,
+        time=TimeInfo(cook=component.minutes),
+        ingredients=[
+            Ingredient(product=component.name, amount=component.amount, unit=component.unit)
+        ],
+    )
+
+
 def _component_choices(components: list[Component]) -> list[OptionChoice]:
-    """Component checkboxes for the dish form."""
+    """The components a part row may name, with what each one is worth."""
     return sorted(
-        (OptionChoice(slug=c.slug, name=c.name, minutes=c.minutes) for c in components),
+        (
+            OptionChoice(
+                slug=c.slug, name=c.name, minutes=c.minutes, amount=f"{c.amount:g}", unit=c.unit
+            )
+            for c in components
+        ),
         key=lambda o: o["name"].lower(),
     )
 
@@ -353,16 +563,11 @@ def create_app(
         result = {r.slug: r for r in load_all()[0]}
         for c in load_components_all()[0]:
             if c.slug not in result:
-                result[c.slug] = Recipe(
-                    slug=c.slug,
-                    name=c.name,
-                    servings=4,
-                    time=TimeInfo(cook=c.minutes),
-                    ingredients=[Ingredient(product=c.name, amount=c.amount, unit=c.unit)],
-                )
+                result[c.slug] = component_recipe(c)
         return result
 
     templates.env.filters["dutch_date"] = dutch_date
+    templates.env.filters["option_text"] = _option_text
 
     def render(request: Request, template: str, **ctx) -> HTMLResponse:
         return templates.TemplateResponse(
@@ -525,7 +730,7 @@ def create_app(
         for part in dish.parts:
             chosen = str(form.get(f"part_{part.key}", "")).strip()
             # an option that is not on offer is ignored, not stored
-            if chosen and chosen in part.options:
+            if chosen and chosen in part.option_slugs:
                 picks[part.key] = chosen
         store().set_picks(plan_id, target, picks)
         return RedirectResponse("/plan", status_code=303)
@@ -611,7 +816,6 @@ def create_app(
         facts = store().product_facts()
         order = build_order(
             entries,
-            by_slug,
             store().staples(),
             servings=SERVINGS,
             facts=facts,
@@ -719,7 +923,6 @@ def create_app(
         )
         order = build_order(
             entries,
-            by_slug,
             store().staples(),
             servings=SERVINGS,
             facts=facts,
@@ -969,6 +1172,24 @@ def create_app(
         missing: list[str] = []
         for dish in loaded:
             missing += [slug for slug in sorted(dish.option_slugs) if slug not in known]
+        # What each known component says about itself, as the form's placeholders:
+        # an empty field inherits these, so they are shown rather than filled in.
+        defaults: dict[str, OptionChoice] = {}
+        for c in all_components:
+            defaults[c.name] = OptionChoice(
+                slug=c.slug,
+                name=c.name,
+                minutes=c.minutes,
+                amount=f"{c.amount:g}",
+                unit=c.unit,
+            )
+        for r in all_recipes:
+            defaults.setdefault(
+                r.name,
+                OptionChoice(
+                    slug=r.slug, name=r.name, minutes=r.time.total_minutes, amount="", unit=""
+                ),
+            )
         rows = list(slots or [])
         while len(rows) < MIN_PART_SLOTS:
             rows.append(empty_slot())
@@ -986,6 +1207,8 @@ def create_app(
             "min_part_slots": MIN_PART_SLOTS,
             "components": _component_choices(all_components),
             "dinners": _choices(all_recipes),
+            "defaults": defaults,
+            "blank": empty_option(),
             "error": error,
             "people": people,
             "verdicts": {
@@ -1047,22 +1270,24 @@ def create_app(
                 **_dish_form_ctx(name, slots, error, form_title=title, form_action=action),
             )
 
-        parts, problem = _parts_from_slots(slots, all_known())
+        parts, created, problem = _parts_from_slots(slots, all_known())
         if problem:
             return again(problem)
-        stale = _unknown_options(parts, {**recipes_by_slug(), **components_by_slug()})
-        if stale:
-            # A browser can replay a form from before a component was renamed.
-            return again(stale)
         target = slug or slugify(name)
         if not name.strip():
             return again("geef het gerecht een naam")
         if dish_file(dishes_dir(), target).exists() and slug != target:
             return again(f"'{target}' bestaat al")
-        if target in recipes_by_slug() or target in components_by_slug():
-            # A dish shares its slug space with recipes and components,
-            # so a name clash would make them indistinguishable.
+        # A dish shares its slug space with recipes and components -- including the
+        # components this very form creates -- so a name clash would make them
+        # indistinguishable.
+        taken = set(recipes_by_slug()) | set(components_by_slug()) | {c.slug for c in created}
+        if target in taken:
             return again(f"'{target}' is al een recept of onderdeel; kies een andere naam")
+        for component in created:
+            # Only now, with the dish itself known to be valid, so a rejected form
+            # does not leave new components behind that nothing refers to.
+            save_component(data / "components" / f"{component.slug}.yaml", component)
         _save_dish_file(target, name, parts)
         return RedirectResponse("/dishes", status_code=303)
 
@@ -1117,7 +1342,9 @@ def create_app(
         nothing leaves the part with no options at all, and the planner then
         drops the dish from every list without saying why.
         """
-        missing = sorted({slug for part in parts for slug in part.options if slug not in known})
+        missing = sorted(
+            {slug for part in parts for slug in part.option_slugs if slug not in known}
+        )
         if not missing:
             return ""
         return (

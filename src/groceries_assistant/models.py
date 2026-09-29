@@ -48,6 +48,12 @@ class Recipe(BaseModel):
     slug: str
     name: str
     servings: int = Field(gt=0)
+    scales_with_servings: bool = True
+    """Whether ingredient amounts scale with the people count.
+
+    False for a component: it is one purchase ('a bag of potatoes'), not a
+    quantity per portion, so 1 stuk stays 1 stuk whatever the household is.
+    """
     time: TimeInfo = Field(default_factory=TimeInfo)
     tags: list[str] = Field(default_factory=list)
     protein: str | None = None
@@ -80,18 +86,48 @@ class Recipe(BaseModel):
         return value.strip()
 
 
+class DishOption(BaseModel):
+    """One way to fill a part, as this dish uses it.
+
+    A component is shared between dishes, but this dish may want more of it, or
+    take longer over it, than the component itself says. Values left empty are
+    inherited from the component or recipe the slug points at, so a dish that
+    agrees with the component stores only the slug.
+    """
+
+    slug: str
+    amount: float | None = Field(default=None, gt=0)
+    unit: str | None = None
+    minutes: int | None = Field(default=None, ge=0)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_a_bare_slug(cls, data: Any) -> Any:
+        """A plain slug in a hand-written file means 'as the component has it'."""
+        if isinstance(data, str):
+            return {"slug": data}
+        return data
+
+    @field_validator("slug", "unit")
+    @classmethod
+    def _not_empty(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("must not be empty")
+        return value.strip() if value is not None else None
+
+
 class DishPart(BaseModel):
     """One slot of a composed dish, e.g. the vegetables of a 'groente-vlees' dish.
 
     `key` identifies the slot in a plan (it is the pick key); when it is not
     given it is derived from the label, so the definition form only has to ask
-    for a label and a list of recipe slugs.
+    for a label and a list of options.
     """
 
     key: str = ""
     label: str
-    options: list[str] = Field(min_length=1)
-    """Recipe slugs that can fill this part."""
+    options: list[DishOption] = Field(min_length=1)
+    """The components or recipes that can fill this part."""
 
     @model_validator(mode="before")
     @classmethod
@@ -109,11 +145,16 @@ class DishPart(BaseModel):
 
     @field_validator("options")
     @classmethod
-    def _options_not_empty(cls, values: list[str]) -> list[str]:
-        cleaned = [v.strip() for v in values if v.strip()]
+    def _options_not_empty(cls, values: list[DishOption]) -> list[DishOption]:
+        cleaned = [option for option in values if option.slug]
         if not cleaned:
             raise ValueError("must have at least one option")
         return cleaned
+
+    @property
+    def option_slugs(self) -> list[str]:
+        """The slugs that can fill this part, in the order they were declared."""
+        return [option.slug for option in self.options]
 
 
 class ComposedDish(BaseModel):
@@ -144,11 +185,59 @@ class ComposedDish(BaseModel):
 
     @property
     def option_slugs(self) -> set[str]:
-        """Every recipe slug that can fill any part of this dish."""
-        return {slug for part in self.parts for slug in part.options}
+        """Every recipe or component slug that can fill any part of this dish."""
+        return {slug for part in self.parts for slug in part.option_slugs}
+
+    def recipes(self, known: dict[str, Recipe]) -> dict[str, Recipe]:
+        """`known` as this dish sees it: each option's own amount and time applied.
+
+        A component is shared between dishes, but a dish may want more of it or
+        take longer over it than the component says, so an option's own values
+        win where it gives them and the component's are inherited where it does
+        not. A dish that overrides nothing gets `known` itself, unchanged.
+
+        The result is read-only, like `known` itself: callers must not mutate it.
+        """
+        overrides = {
+            option.slug: option
+            for part in self.parts
+            for option in part.options
+            if option.amount is not None or option.unit is not None or option.minutes is not None
+        }
+        if not overrides:
+            return known
+        result = dict(known)
+        for slug, option in overrides.items():
+            base = result.get(slug)
+            if base is not None:
+                result[slug] = _with_option(base, option)
+        return result
 
     def part(self, key: str) -> DishPart | None:
         return next((p for p in self.parts if p.key == key), None)
+
+
+def _with_option(base: Recipe, option: DishOption) -> Recipe:
+    """The component as this dish's option uses it: its own amount and time win.
+
+    An amount only means something for a component, which is a single product and
+    so has one ingredient; a recipe with a list of ingredients keeps the amounts
+    it wrote down itself.
+    """
+    changes: dict[str, Any] = {}
+    if option.minutes is not None:
+        changes["time"] = base.time.model_copy(update={"cook": option.minutes})
+    if (option.amount is not None or option.unit) and len(base.ingredients) == 1:
+        changes["ingredients"] = [
+            base.ingredients[0].model_copy(
+                update={
+                    field: value
+                    for field, value in (("amount", option.amount), ("unit", option.unit))
+                    if value is not None
+                }
+            )
+        ]
+    return base.model_copy(update=changes)
 
 
 class ProductFact(BaseModel):

@@ -22,9 +22,7 @@
     <td><a href="/dishes/{{ d.slug }}">{{ d.name }}</a></td>
     <td>
       {% for p in d.parts %}
-      <div>{{ p.label }}:
-        {%- for slug in p.options %} {{ recipe_names.get(slug, slug) }}{% if not loop.last %},{% endif %}{% endfor %}
-      </div>
+      <div>{{ p.label }}:{% for option in p.options %} {{ option | option_text(recipe_names.get(option.slug, option.slug)) }}{% if not loop.last %},{% endif %}{% endfor %}</div>
       {% endfor %}
     </td>
     <td>
@@ -67,33 +65,69 @@
   <p><input type="text" name="name" value="{{ name }}" placeholder="naam, bijv. Aardappel-groente-vlees" required></p>
 
   <datalist id="option-names">
-    {% for opt in components %}<option value="{{ opt.name }}">{{ opt.minutes }} min</option>{% endfor %}
+    {% for opt in components %}<option value="{{ opt.name }}">{{ opt.amount }} {{ opt.unit }}, {{ opt.minutes }} min</option>{% endfor %}
     {% for opt in dinners %}<option value="{{ opt.name }}">{{ opt.minutes }} min</option>{% endfor %}
   </datalist>
+
   {% for slot in slots %}
-  {% set slot_index = loop.index0 %}
+  {% set part_index = loop.index0 %}
   <fieldset class="part">
     <legend>Onderdeel {{ loop.index }}</legend>
     <p>
-      <input type="text" name="part_{{ slot_index }}" value="{{ slot.label }}"
+      <input type="text" name="part_{{ part_index }}" value="{{ slot.label }}"
              placeholder="naam, bijv. Groente" size="24">
       {% if slots|length > min_part_slots or not slot.label %}
-      <button class="muted" name="remove" value="{{ slot_index }}" title="Dit onderdeel weg">verwijder</button>
+      <button class="muted" formnovalidate name="remove" value="{{ part_index }}" title="Dit onderdeel weg">verwijder</button>
       {% endif %}
     </p>
-    <p>
-      <input type="text" name="opts_{{ slot_index }}" value="{{ slot.options|join(', ') }}"
-             list="option-names" size="46"
-             placeholder="opties, kommagelijkt — bijv. krieltjes, rosti">
-      <span class="muted">typ de namen van onderdelen of recepten, kommagelijkt</span>
+    <table class="option-rows">
+      <tr>
+        <th>optie</th><th>aantal</th><th>eenheid</th><th>minuten</th><th></th>
+      </tr>
+      {# A part with options yet shows one blank row: the form is for typing into,
+         and a row you have to click '+' before you can start is a row in the way. #}
+      {% if not slot.options %}
+      {% set slot_options = [blank] %}
+      {% else %}
+      {% set slot_options = slot.options %}
+      {% endif %}
+      {% for option in slot_options %}
+      {% set option_index = loop.index0 %}
+      <tr>
+        <td>
+          <input type="text" name="opt_{{ part_index }}_{{ option_index }}_name" value="{{ option.name }}"
+                 list="option-names" size="26" placeholder="bijv. krieltjes">
+        </td>
+        <td><input type="text" name="opt_{{ part_index }}_{{ option_index }}_amount" value="{{ option.amount }}"
+                   size="5" class="number"
+                   placeholder="{{ defaults[option.name].amount if option.name in defaults else '' }}"></td>
+        <td><input type="text" name="opt_{{ part_index }}_{{ option_index }}_unit" value="{{ option.unit }}"
+                   size="7"
+                   placeholder="{{ defaults[option.name].unit if option.name in defaults else '' }}"></td>
+        <td><input type="text" name="opt_{{ part_index }}_{{ option_index }}_minutes" value="{{ option.minutes }}"
+                   size="4" class="number"
+                   placeholder="{{ defaults[option.name].minutes if option.name in defaults else '' }}"></td>
+        <td>
+          <button class="muted" formnovalidate name="rm_opt_{{ part_index }}_{{ option_index }}"
+                  value="1" title="Deze optie weg">&times;</button>
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+    <p class="muted">
+      De getallen zijn wat dit gerecht gebruikt. Laat je ze leeg, dan neemt het
+      de waarden van het onderdeel zelf. Een naam die nog niet bestaat maakt een
+      nieuw onderdeel aan.
     </p>
+    <p><button formnovalidate name="more_opt_{{ part_index }}" value="1">+ optie</button></p>
   </fieldset>
   {% endfor %}
 
-  <p><button name="more" value="1">Nog een onderdeel</button></p>
+  <p><button formnovalidate name="more" value="1">Nog een onderdeel</button></p>
   {% if unknown %}<p class="warnings">Onbekende recepten in opgeslagen gerechten: {{ unknown|join(', ') }}</p>{% endif %}
   <p class="muted">
-    Staat een onderdeel er niet bij? <a href="/components/new">Maak een nieuw onderdeel</a>.
+    Staat een onderdeel er niet bij? Typ de naam in een optierij, dan wordt het
+    aangemaakt. <a href="/components">Alle onderdelen</a>.
   </p>
   <p><button type="submit" class="primary">Opslaan</button></p>
 </form>

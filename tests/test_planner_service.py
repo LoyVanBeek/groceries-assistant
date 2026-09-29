@@ -89,7 +89,7 @@ def test_build_order_scales_with_joiners():
     recipes = {"pasta": _recipe()}
     rows = [PlanEntryRow(day=D1, kind="cook", recipe_slug="pasta", people=2)]
     entries = rows_to_entries(rows, recipes)
-    order = build_order(entries, recipes, staples=[])
+    order = build_order(entries, staples=[])
     assert order.shopping[0].amount == 250.0
 
 
@@ -109,7 +109,7 @@ def test_no_cook_rows_contribute_no_groceries():
     ]
     entries = rows_to_entries(rows, recipes)
     assert [entry.date for entry in entries] == [D2]
-    order = build_order(entries, recipes, staples=[])
+    order = build_order(entries, staples=[])
     assert len(order.shopping) == 1
     assert order.shopping[0].amount == 250.0
 
@@ -149,11 +149,54 @@ def test_each_part_is_scaled_by_its_own_servings():
     picks = {D1: {"vlees": "kip", "groente": "sperzieboontjes"}}
     entries = rows_to_entries(rows, recipes, {dish.slug: dish}, picks)
 
-    order = build_order(entries, recipes, staples=[])
+    order = build_order(entries, staples=[])
 
     amounts = {item.product: item.amount for item in order.shopping}
     assert amounts == {"kip": 600.0, "sperzieboontjes": 400.0}
     assert order.warnings == []
+
+
+def test_two_dishes_share_a_component_each_in_its_own_amount():
+    """One shared component, two dishes, two amounts: each buys what it asked for.
+
+    The component is one purchase ('600 g of it'), but a dish may use more or less
+    of it; that number lives on the dish, never on the shared component.
+    """
+    component = Recipe.model_validate(
+        {
+            "slug": "kipfilet",
+            "name": "Kipfilet",
+            "servings": 4,
+            "scales_with_servings": False,
+            "time": {"cook": 15},
+            "ingredients": [{"product": "kipfilet", "amount": 600, "unit": "g"}],
+        }
+    )
+    generous = ComposedDish.model_validate(
+        {
+            "slug": "feest",
+            "name": "Feest",
+            "parts": [{"label": "Vlees", "options": [{"slug": "kipfilet", "amount": 1000}]}],
+        }
+    )
+    modest = ComposedDish.model_validate(
+        {
+            "slug": "zuinig",
+            "name": "Zuinig",
+            "parts": [{"label": "Vlees", "options": [{"slug": "kipfilet", "amount": 300}]}],
+        }
+    )
+    recipes = {"kipfilet": component}
+
+    def one_dish(dish):
+        rows = [PlanEntryRow(day=D1, kind="cook", recipe_slug=dish.slug, people=4)]
+        picks = {D1: {"vlees": "kipfilet"}}
+        return build_order(rows_to_entries(rows, recipes, {dish.slug: dish}, picks), staples=[])
+
+    assert {i.product: i.amount for i in one_dish(generous).shopping} == {"kipfilet": 1000.0}
+    assert {i.product: i.amount for i in one_dish(modest).shopping} == {"kipfilet": 300.0}
+    # the component itself still says 600 g
+    assert component.ingredients[0].amount == 600
 
 
 def test_an_unfilled_part_is_reported_and_only_filled_parts_are_bought():
@@ -169,7 +212,7 @@ def test_an_unfilled_part_is_reported_and_only_filled_parts_are_bought():
 
     assert entries[0].missing == ["Groente", "Vlees"]
 
-    order = build_order(entries, recipes, staples=[])
+    order = build_order(entries, staples=[])
     assert [item.product for item in order.shopping] == ["aardappels"]
     assert len(order.warnings) == 1
     assert "zonder Groente en Vlees" in order.warnings[0]
@@ -227,9 +270,7 @@ def test_a_leftovers_evening_of_a_dish_doubles_every_part():
     picks = {D1: {"vlees": "kip", "groente": "boerenkool"}}
     entries = rows_to_entries(rows, recipes, {dish.slug: dish}, picks)
 
-    amounts = {
-        item.product: item.amount for item in build_order(entries, recipes, staples=[]).shopping
-    }
+    amounts = {item.product: item.amount for item in build_order(entries, staples=[]).shopping}
     assert amounts == {"kip": 1200.0, "boerenkool": 600.0}
 
 
@@ -281,7 +322,7 @@ def test_a_declared_pack_puts_a_count_on_the_list():
     rows = [PlanEntryRow(day=D1, kind="cook", recipe_slug="broccoli", people=4)]
     facts = {"broccoli": _fact(pack_qty=1, pack_unit="stuk", unit_qty=350, unit_measure="g")}
 
-    order = build_order(rows_to_entries(rows, recipes), recipes, staples=[], facts=facts)
+    order = build_order(rows_to_entries(rows, recipes), staples=[], facts=facts)
 
     item = order.shopping[0]
     assert (item.product, item.pack_count, item.pack_unit) == ("broccoli", 2, "stuk")
@@ -292,7 +333,7 @@ def test_a_product_without_a_pack_reads_exactly_as_before():
     recipes = {"broccoli": _broccoli(500)}
     rows = [PlanEntryRow(day=D1, kind="cook", recipe_slug="broccoli", people=4)]
 
-    order = build_order(rows_to_entries(rows, recipes), recipes, staples=[], facts={})
+    order = build_order(rows_to_entries(rows, recipes), staples=[], facts={})
 
     assert (order.shopping[0].amount, order.shopping[0].unit) == (500, "g")
     assert order.shopping[0].pack_count is None and order.shopping[0].note is None
@@ -303,7 +344,7 @@ def test_the_order_says_what_a_meal_leaves_behind():
     rows = [PlanEntryRow(day=D1, kind="cook", recipe_slug="broccoli", people=4)]
     facts = {"broccoli": _fact(pack_qty=1, unit_qty=350, unit_measure="g")}
 
-    order = build_order(rows_to_entries(rows, recipes), recipes, staples=[], facts=facts)
+    order = build_order(rows_to_entries(rows, recipes), staples=[], facts=facts)
 
     assert [(e.qty, e.unit, e.available_from) for e in order.leftovers] == [(50, "g", D1)]
     assert order.leftovers[0].expires_on == D1 + timedelta(days=3)
@@ -317,7 +358,7 @@ def test_two_meals_of_one_need_share_a_pack():
     ]
     facts = {"broccoli": _fact(pack_qty=1, unit_qty=350, unit_measure="g")}
 
-    order = build_order(rows_to_entries(rows, recipes), recipes, staples=[], facts=facts)
+    order = build_order(rows_to_entries(rows, recipes), staples=[], facts=facts)
 
     assert order.shopping[0].pack_count == 2  # 600 g needed, 350 g per pack
     assert order.leftovers[0].qty == 100  # Tuesday's pack is what is left
@@ -332,7 +373,7 @@ def test_a_leftover_evening_does_not_buy_a_second_pack():
     ]
     facts = {"broccoli": _fact(pack_qty=1, unit_qty=350, unit_measure="g")}
 
-    order = build_order(rows_to_entries(rows, recipes), recipes, staples=[], facts=facts)
+    order = build_order(rows_to_entries(rows, recipes), staples=[], facts=facts)
 
     # 700 g for two evenings of four, so two packs, and nothing left over
     assert (order.shopping[0].pack_count, order.shopping[0].amount) == (2, 700)
@@ -344,7 +385,7 @@ def test_a_pack_the_recipes_cannot_express_warns_and_sums(tmp_path):
     rows = [PlanEntryRow(day=D1, kind="cook", recipe_slug="broccoli", people=4)]
     facts = {"broccoli": _fact(pack_qty=6, pack_unit="stuk")}  # a bundle, weight unknown
 
-    order = build_order(rows_to_entries(rows, recipes), recipes, staples=[], facts=facts)
+    order = build_order(rows_to_entries(rows, recipes), staples=[], facts=facts)
 
     assert (order.shopping[0].amount, order.shopping[0].pack_count) == (300, None)
     assert order.warnings == ["broccoli: 300 g past niet in stuk; de gewone som staat op de lijst"]
@@ -355,7 +396,7 @@ def test_a_staple_keeps_its_own_list():
     rows = [PlanEntryRow(day=D1, kind="cook", recipe_slug="broccoli", people=4)]
     facts = {"broccoli": _fact(pack_qty=1, unit_qty=350, unit_measure="g")}
 
-    order = build_order(rows_to_entries(rows, recipes), recipes, staples=["Broccoli"], facts=facts)
+    order = build_order(rows_to_entries(rows, recipes), staples=["Broccoli"], facts=facts)
 
     assert order.shopping == [] and order.staples[0].pack_count == 1
 
@@ -381,7 +422,6 @@ def test_last_weeks_remainder_is_used_before_buying(tmp_path):
 
     order = build_order(
         rows_to_entries(store.plan_entries(second), recipes),
-        recipes,
         staples=[],
         facts=facts,
         carried=carried,
@@ -406,7 +446,6 @@ def test_a_dish_evening_buys_the_parts_it_chose(tmp_path):
 
     order = build_order(
         rows_to_entries(rows, recipes, {dish.slug: dish}, picks),
-        recipes,
         staples=[],
         facts={"broccoli": _fact(pack_qty=1, unit_qty=350, unit_measure="g")},
     )

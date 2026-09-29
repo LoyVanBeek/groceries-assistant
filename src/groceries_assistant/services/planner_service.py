@@ -294,8 +294,11 @@ def _dish_entry(
     """One evening of a composed dish: the picked parts, plus what is missing."""
     parts: list[Recipe] = []
     missing: list[str] = []
+    # This dish's own amount for a component wins over the component's default,
+    # so the groceries are what the dish actually asks for.
+    by_dish = dish.recipes(recipes_by_slug)
     for part in dish.parts:
-        recipe = recipes_by_slug.get(day_picks.get(part.key, ""))
+        recipe = by_dish.get(day_picks.get(part.key, ""))
         if recipe is None:
             missing.append(part.label)
         else:
@@ -399,7 +402,6 @@ def incomplete_dish_warnings(entries: list[PlanEntry]) -> list[str]:
 
 def build_order(
     entries: list[PlanEntry],
-    recipes_by_slug: dict[str, Recipe],
     staples: list[str],
     servings: int = DEFAULT_SERVINGS,
     facts: dict[str, ProductFact] | None = None,
@@ -421,7 +423,7 @@ def build_order(
     (`carried` is what last week left over). Everything else is summed flat,
     exactly as before.
     """
-    work = cooking_work(entries, recipes_by_slug, servings)
+    work = cooking_work(entries, servings)
     items, _flat_warnings = aggregate_ingredients(work)
     # Bracketed preparation hints (aggregate's notes) follow their product into
     # the allocation, so its lines keep the hint alongside the pack arithmetic.
@@ -451,13 +453,16 @@ def build_order(
 
 def cooking_work(
     entries: list[PlanEntry],
-    recipes_by_slug: dict[str, Recipe],
     servings: int = DEFAULT_SERVINGS,
 ) -> list[tuple[date, Recipe, int]]:
     """Every recipe the week cooks, with the people count it is cooked for.
 
     A leftovers evening adds its people to the evening it eats from, so the
     portions are bought once, on the day they are cooked.
+
+    The recipes come from the entries themselves: a dish part was already resolved
+    against its dish, so re-reading it from the global list would throw away the
+    amount that dish asked for.
     """
     ordered = sorted(entries, key=lambda e: e.date)
     people: dict[date, int] = {}
@@ -482,7 +487,7 @@ def cooking_work(
             continue
         count = people.get(entry.date, servings)
         for recipe in entry.dishes:
-            work.append((entry.date, recipes_by_slug.get(recipe.slug, recipe), count))
+            work.append((entry.date, recipe, count))
     return work
 
 
@@ -511,7 +516,7 @@ def last_weeks_stock(
     )
     return carried_stock(
         store.order_items(previous_id),
-        demand_by_day(cooking_work(entries, recipes_by_slug, servings)),
+        demand_by_day(cooking_work(entries, servings)),
         facts,
     )
 

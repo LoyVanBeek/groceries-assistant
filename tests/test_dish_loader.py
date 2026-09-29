@@ -47,7 +47,7 @@ def test_load_dish_reads_parts_and_options(tmp_path):
 
     assert dish.slug == "aardappel-groente-vlees"
     assert [p.label for p in dish.parts] == ["Aardappels", "Groente"]
-    assert dish.parts[1].options == ["sperziebonen", "boerenkool"]
+    assert dish.parts[1].option_slugs == ["sperziebonen", "boerenkool"]
     assert dish.part("groente") is dish.parts[1]
     assert dish.part("kaas") is None
 

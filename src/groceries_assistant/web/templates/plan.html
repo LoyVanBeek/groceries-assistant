@@ -120,7 +120,7 @@
                   onchange="this.form.requestSubmit()">
             <option value="" {% if not part.chosen %}selected{% endif %}>nog te kiezen</option>
             {% for opt in part.options %}
-            <option value="{{ opt.slug }}" {% if part.chosen == opt.slug %}selected{% endif %}>{{ opt.name }}{% if opt.minutes is not none %} ({{ opt.minutes }} min){% endif %}</option>
+            <option value="{{ opt.slug }}" {% if part.chosen == opt.slug %}selected{% endif %}>{{ opt.label }}</option>
             {% endfor %}
           </select>
         </label>

@@ -206,9 +206,12 @@ def _dish_parts(
     rows: list[dict] = []
     unfilled: list[str] = []
     minutes = 0
+    # A dish may use more of a shared component than the component's own amount,
+    # so the option lists and the chosen time are this dish's, not the default.
+    by_dish = dish.recipes(by_slug)
     for part in dish.parts:
         chosen = day_picks.get(part.key, "")
-        recipe = by_slug.get(chosen)
+        recipe = by_dish.get(chosen)
         if recipe is None:
             unfilled.append(part.label)
         else:
@@ -221,19 +224,35 @@ def _dish_parts(
                 "chosen_name": recipe.name if recipe else "",
                 "options": [
                     {
-                        "slug": slug,
-                        "name": by_slug[slug].name if slug in by_slug else slug,
-                        # the time is on the option, not on the part: swapping
-                        # kipfilet for wokjes changes what the evening costs
-                        "minutes": (
-                            by_slug[slug].time.same_day_minutes if slug in by_slug else None
-                        ),
+                        "slug": option.slug,
+                        "name": by_dish[option.slug].name
+                        if option.slug in by_dish
+                        else option.slug,
+                        # what this dish uses the option as, for the dropdown:
+                        # a component shows the amount this dish asks for
+                        "label": _option_label(by_dish.get(option.slug)) or option.slug,
                     }
-                    for slug in part.options
+                    for option in part.options
                 ],
             }
         )
     return rows, unfilled, minutes, minutes
+
+
+def _option_label(recipe: Recipe | None) -> str:
+    """One option in the week's dropdown, with what this dish uses it as.
+
+    A plain recipe brings its own amounts and is eaten as written, so it shows
+    only its time; a component is a purchase whose size this dish chooses, so it
+    shows that size too: 'Kipfilet (1 kg, 40 min)'.
+    """
+    if recipe is None:
+        return ""
+    minutes = recipe.time.same_day_minutes
+    if not recipe.scales_with_servings and len(recipe.ingredients) == 1:
+        ingredient = recipe.ingredients[0]
+        return f"{recipe.name} ({format_amount(ingredient.amount, ingredient.unit)}, {minutes} min)"
+    return f"{recipe.name} ({minutes} min)"
 
 
 def format_amount(amount: float, unit: str) -> str:

@@ -460,7 +460,7 @@ table.plan .col-save { width: 6.5rem; text-align: center; }
   table.plan .col-attend .cell-name { display: inline; padding-right: 0.3rem; }
 }
 
-/* the dish form: one fieldset per part, each a scrollable list of checkboxes */
+/* the dish form: one fieldset per part, each with a row per option to fill in */
 fieldset.part {
   border: 1px solid var(--rule);
   border-radius: 8px;
@@ -470,4 +470,17 @@ fieldset.part {
 fieldset.part legend { font-weight: 600; padding: 0 0.3rem; }
 fieldset.part p { margin: 0.3rem 0; }
 fieldset.part .muted { margin: 0; font-size: 0.85rem; }
+
+table.option-rows { border-collapse: collapse; margin: 0.2rem 0; }
+table.option-rows th {
+  text-align: left;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 0 0.3rem 0.15rem 0;
+}
+table.option-rows td { padding: 0.1rem 0.3rem 0.1rem 0; border: none; }
+table.option-rows input { width: 100%; }
+table.option-rows input.number { text-align: right; }
+table.option-rows button { padding: 0.1rem 0.4rem; }
 
