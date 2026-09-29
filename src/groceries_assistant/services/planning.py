@@ -77,14 +77,24 @@ def alternatives(
         minutes = (
             recipe.time.same_day_minutes if recipe.time.prep_ahead else recipe.time.total_minutes
         )
-        if minutes > evening.free_minutes:
-            continue
+        # Over budget is a problem to show, not a filter: the picker lists
+        # everything, blocked rows greyed out with the reason at the bottom.
+        problem = (
+            f"{recipe.name} is {minutes} min, deze avond heeft {evening.free_minutes}"
+            if minutes > evening.free_minutes
+            else ""
+        )
         scored.append(
-            Alternative(slug=recipe.slug, name=recipe.name, score=prefs.recipe_score(recipe.slug))
+            Alternative(
+                slug=recipe.slug,
+                name=recipe.name,
+                score=prefs.recipe_score(recipe.slug),
+                problem=problem,
+            )
         )
     scored.sort(key=lambda row: (-row.score, row.slug))
     # Dishes lead, because they are the meals the household put together on
-    # purpose. A dish that cannot be planned tonight goes to the very bottom,
+    # purpose. Rows that cannot be planned tonight go to the very bottom,
     # greyed out with the reason: visible, but never in the way of a real choice.
     # No cap by default: the picker is a dropdown list and a recipe without
     # verdicts (a new one) must stay reachable, not be hidden by a limit.
@@ -92,6 +102,7 @@ def alternatives(
     cap = max((limit if limit is not None else len(scored)) - n_dishes, 0)
     return (
         [row for row in dish_rows if not row.problem]
-        + scored[:cap]
+        + [row for row in scored if not row.problem][:cap]
         + [row for row in dish_rows if row.problem]
+        + [row for row in scored if row.problem]
     )

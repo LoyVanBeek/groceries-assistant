@@ -132,22 +132,24 @@ def _text_field(form: FormData, name: str) -> str:
 
 
 def _part_slots(form: FormData) -> list[PartSlot]:
-    """The submitted part rows, in order, as the form sent them."""
+    """The submitted part rows, in order, as the form sent them.
+
+    Options are typed directly into the slot as a comma-separated list of
+    component/recipe names (or slugs).
+    """
     indices = sorted(
         {
             int(matched.group(1))
             for key in form
-            if (matched := re.fullmatch(r"(?:part|opt)_(\d+)", key)) is not None
+            if (matched := re.fullmatch(r"(?:part|opts)_(\d+)", key)) is not None
         }
     )
-    return [
-        PartSlot(
-            label=_text_field(form, f"part_{index}"),
-            # a checkbox only ever submits its value as a string
-            options=[value for value in form.getlist(f"opt_{index}") if isinstance(value, str)],
-        )
-        for index in indices
-    ]
+    rows = []
+    for index in indices:
+        raw = _text_field(form, f"opts_{index}")
+        options = [piece.strip() for piece in re.split(r"[,\n]", raw) if piece.strip()]
+        rows.append(PartSlot(label=_text_field(form, f"part_{index}"), options=options))
+    return rows
 
 
 def _is_row_change(form: FormData) -> bool:
@@ -182,19 +184,37 @@ def _slot_rows(form: FormData) -> list[PartSlot]:
     return rows
 
 
-def _slots_from_parts(parts: list[DishPart]) -> list[PartSlot]:
-    """A dish's parts as form rows, with one spare row to add to."""
-    return [PartSlot(label=part.label, options=list(part.options)) for part in parts] + [
-        empty_slot()
-    ]
+def _slots_from_parts(
+    parts: list[DishPart], by_slug: Mapping[str, object] | None = None
+) -> list[PartSlot]:
+    """A dish's parts as form rows, with one spare row to add to.
+
+    Options are shown as comma-separated display names (what the user types).
+    """
+    rows = []
+    for part in parts:
+        names = []
+        for slug in part.options:
+            obj = (by_slug or {}).get(slug)
+            names.append(getattr(obj, "name", slug) if obj else slug)
+        rows.append(PartSlot(label=part.label, options=names))
+    rows.append(empty_slot())
+    return rows
 
 
-def _parts_from_slots(slots: list[PartSlot]) -> tuple[list[DishPart], str]:
+def _parts_from_slots(
+    slots: list[PartSlot], known: Mapping[str, object] | None = None
+) -> tuple[list[DishPart], str]:
     """Turn the form's rows into parts, or explain what is missing.
 
     A row nobody filled in is not an error: the form always shows a spare slot or
-    two, and the user is not obliged to use them.
+    two, and the user is not obliged to use them. Options are typed as names or
+    slugs; `known` maps slug -> object with a .name (components/recipes) so a
+    typed name resolves to its slug.
     """
+    by_name = {slug: getattr(obj, "name", slug) for slug, obj in (known or {}).items()}
+    name_to_slug = {name.lower(): slug for slug, name in by_name.items()}
+
     parts: list[DishPart] = []
     seen: dict[str, str] = {}
     for slot in slots:
@@ -202,14 +222,22 @@ def _parts_from_slots(slots: list[PartSlot]) -> tuple[list[DishPart], str]:
         if not label and not options:
             continue
         if not label:
-            return [], "geef elk onderdeel een naam, of vink niets aan"
+            return [], "geef elk onderdeel een naam, of typ niets bij opties"
         if not options:
-            return [], f"kies minstens één optie voor '{label}'"
+            return [], f"typ minstens één optie voor '{label}'"
+        slugs: list[str] = []
+        for option in options:
+            slug = slugify(option)
+            if option.lower() in name_to_slug and slug not in name_to_slug:
+                slug = name_to_slug[option.lower()]  # typed by name
+            elif option.lower() in name_to_slug:
+                slug = name_to_slug[option.lower()]  # exact name wins over slug guess
+            slugs.append(slug)
         key = slugify(label)
         if key in seen:
             return [], f"'{label}' en '{seen[key]}' zijn hetzelfde onderdeel; geef ze andere namen"
         seen[key] = label
-        parts.append(DishPart.model_validate({"key": key, "label": label, "options": options}))
+        parts.append(DishPart.model_validate({"key": key, "label": label, "options": slugs}))
     if not parts:
         return [], "minstens één onderdeel nodig"
     return parts, ""
@@ -1019,7 +1047,7 @@ def create_app(
                 **_dish_form_ctx(name, slots, error, form_title=title, form_action=action),
             )
 
-        parts, problem = _parts_from_slots(slots)
+        parts, problem = _parts_from_slots(slots, all_known())
         if problem:
             return again(problem)
         stale = _unknown_options(parts, {**recipes_by_slug(), **components_by_slug()})
@@ -1055,7 +1083,7 @@ def create_app(
             "dishes.html",
             **_dish_form_ctx(
                 dish.name,
-                _slots_from_parts(dish.parts),
+                _slots_from_parts(dish.parts, all_known()),
                 form_title=f"{dish.name} wijzigen",
                 form_action=f"/dishes/{slug}",
             ),

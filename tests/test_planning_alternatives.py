@@ -30,10 +30,12 @@ def _prefs(verdicts=None):
 
 
 def test_filters_over_budget_and_never():
+    """'never' is gone; over budget is shown, greyed out, at the bottom."""
     recipes = [_recipe("pasta", 20), _recipe("stoofpot", 120), _recipe("spruitjes", 20)]
     prefs = _prefs({"spruitjes": {"kid1": "never"}})
     scored = alternatives(recipes, prefs, _evening(45))
-    assert [r.slug for r in scored] == ["pasta"]
+    assert [r.slug for r in scored] == ["pasta", "stoofpot"]
+    assert "120" in scored[-1].problem and "45" in scored[-1].problem
 
 
 def test_excludes_current_slug():
@@ -99,8 +101,10 @@ def test_a_dish_that_does_not_fit_the_evening_is_offered_with_the_reason():
     scored = alternatives(recipes, _prefs(), _evening(45), dishes=[dish])
 
     assert scored[0].slug == "boerenkool"  # what you can plan leads
-    row = scored[-1]
-    assert row.slug == dish.slug and row.is_dish
+    # the dish problem rows come first, then the over-budget recipes
+    dish_row = next(row for row in scored if row.slug == dish.slug)
+    row = dish_row
+    assert row.is_dish
     assert "kip" in row.problem and "90 min" in row.problem and "45" in row.problem
     assert row.part_labels == ("Groente", "Vlees")  # still named, so it reads as a dish
 

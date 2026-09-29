@@ -70,8 +70,9 @@
           {% for alt in e.alternatives %}
           {% if alt.problem %}
           <div class="dish-option unavailable" aria-disabled="true">
-            {{ alt.name }}
-            {% if alt.is_dish %}<span class="muted"> ({{ alt.part_labels|join(' + ') }})</span>{% endif %}
+            <span class="dish-option-name">{{ alt.name }}
+              {% if alt.is_dish %}<span class="muted"> ({{ alt.part_labels|join(' + ') }})</span>{% endif %}</span>
+            <span class="dish-score muted">{{ '%.1f'|format(alt.score)|replace('.', ',') }}</span>
             <div class="muted">{{ alt.problem }}</div>
           </div>
           {% else %}
@@ -80,8 +81,9 @@
             <input type="hidden" name="choice" value="{{ alt.slug }}">
             <button class="dish-option">
               {% if alt.image %}<img class="thumb" src="/recipes/img/{{ alt.image.name }}" alt="">{% endif %}
-              {{ alt.name }}
-              {% if alt.is_dish %}<span class="muted"> ({{ alt.part_labels|join(' + ') }})</span>{% endif %}
+              <span class="dish-option-name">{{ alt.name }}
+                {% if alt.is_dish %}<span class="muted"> ({{ alt.part_labels|join(' + ') }})</span>{% endif %}</span>
+              <span class="dish-score muted" title="score">{{ '%.1f'|format(alt.score)|replace('.', ',') }}</span>
             </button>
           </form>
           {% endif %}

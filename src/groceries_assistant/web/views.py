@@ -186,6 +186,7 @@ def _alternatives(
             "is_dish": row.is_dish,
             "part_labels": row.part_labels,
             "problem": row.problem,
+            "score": row.score,
             "image": image_for(row.slug) if image_for and not row.is_dish else None,
         }
         for row in alternatives(

@@ -421,15 +421,16 @@ table.plan .dish-option {
 }
 table.plan .dish-option:hover { background: var(--accent-soft); }
 table.plan .dish-option .thumb { width: 2.6rem; height: 2.6rem; margin-right: 0; }
+/* the score sits on the right edge of every row */
+table.plan .dish-option .dish-option-name { flex: 1 1 auto; min-width: 0; }
+table.plan .dish-option .dish-score { font-variant-numeric: tabular-nums; flex: 0 0 auto; }
 table.plan .dish-option.unavailable {
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.1rem;
-  opacity: 0.65;
+  flex-direction: row;
+  flex-wrap: wrap;
   cursor: default;
   font-size: 0.85rem;
 }
-table.plan .dish-option.unavailable .muted { font-size: 0.8rem; }
+table.plan .dish-option.unavailable .muted { font-size: 0.8rem; width: 100%; }
 
 /* composed dish: the dish's own name small above, the parts you cook below */
 table.plan .dish-combo { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
@@ -469,18 +470,4 @@ fieldset.part {
 fieldset.part legend { font-weight: 600; padding: 0 0.3rem; }
 fieldset.part p { margin: 0.3rem 0; }
 fieldset.part .muted { margin: 0; font-size: 0.85rem; }
-.option-list {
-  max-height: 11rem;
-  overflow-y: auto;
-  border: 1px solid var(--rule);
-  border-radius: 6px;
-  padding: 0.3rem 0.5rem;
-}
-.option-list label {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.1rem 0;
-  font-weight: 400;
-}
-.option-list .muted { font-size: 0.8rem; }
+

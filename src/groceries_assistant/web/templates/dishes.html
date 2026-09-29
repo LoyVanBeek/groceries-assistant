@@ -66,6 +66,10 @@
 <form method="post" action="{{ form_action }}">
   <p><input type="text" name="name" value="{{ name }}" placeholder="naam, bijv. Aardappel-groente-vlees" required></p>
 
+  <datalist id="option-names">
+    {% for opt in components %}<option value="{{ opt.name }}">{{ opt.minutes }} min</option>{% endfor %}
+    {% for opt in dinners %}<option value="{{ opt.name }}">{{ opt.minutes }} min</option>{% endfor %}
+  </datalist>
   {% for slot in slots %}
   {% set slot_index = loop.index0 %}
   <fieldset class="part">
@@ -77,24 +81,12 @@
       <button class="muted" name="remove" value="{{ slot_index }}" title="Dit onderdeel weg">verwijder</button>
       {% endif %}
     </p>
-    {% if components %}
-    <p class="muted">Onderdelen</p>
-    <div class="option-list">
-      {% for opt in components %}
-      <label><input type="checkbox" name="opt_{{ slot_index }}" value="{{ opt.slug }}"{% if opt.slug in slot.options %} checked{% endif %}>
-        {{ opt.name }} <span class="muted">{{ opt.minutes }} min</span></label>
-      {% endfor %}
-    </div>
-    {% endif %}
-    {% if dinners %}
-    <p class="muted">Recepten</p>
-    <div class="option-list">
-      {% for opt in dinners %}
-      <label><input type="checkbox" name="opt_{{ slot_index }}" value="{{ opt.slug }}"{% if opt.slug in slot.options %} checked{% endif %}>
-        {{ opt.name }} <span class="muted">{{ opt.minutes }} min</span></label>
-      {% endfor %}
-    </div>
-    {% endif %}
+    <p>
+      <input type="text" name="opts_{{ slot_index }}" value="{{ slot.options|join(', ') }}"
+             list="option-names" size="46"
+             placeholder="opties, kommagelijkt — bijv. krieltjes, rosti">
+      <span class="muted">typ de namen van onderdelen of recepten, kommagelijkt</span>
+    </p>
   </fieldset>
   {% endfor %}
 
