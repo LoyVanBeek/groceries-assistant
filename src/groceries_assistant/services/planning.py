@@ -34,7 +34,7 @@ def alternatives(
     prefs: Preferences,
     evening: EveningAvailability,
     exclude_slug: str | None = None,
-    limit: int = 8,
+    limit: int | None = None,
     dishes: Sequence[ComposedDish] = (),
     *,
     by_slug: dict[str, Recipe] | None = None,
@@ -86,8 +86,12 @@ def alternatives(
     # Dishes lead, because they are the meals the household put together on
     # purpose. A dish that cannot be planned tonight goes to the very bottom,
     # greyed out with the reason: visible, but never in the way of a real choice.
+    # No cap by default: the picker is a dropdown list and a recipe without
+    # verdicts (a new one) must stay reachable, not be hidden by a limit.
+    n_dishes = len([row for row in dish_rows if not row.problem])
+    cap = max((limit if limit is not None else len(scored)) - n_dishes, 0)
     return (
         [row for row in dish_rows if not row.problem]
-        + scored[:limit]
+        + scored[:cap]
         + [row for row in dish_rows if row.problem]
     )
