@@ -22,4 +22,6 @@ VOLUME ["/app/data"]
 
 # xvfb (virtual display) runs alongside the app; the app talks to it via DISPLAY.
 # The sh & trick dies with the parent: keep Xvfb alive with a supervising loop.
-CMD ["/bin/sh", "-c", "Xvfb :99 -screen 0 1280x800x24 & xvfb_pid=$!; trap 'kill $xvfb_pid' EXIT; uv run --no-dev groceries-assistant serve --host 0.0.0.0 --port 8901"]
+# A restart reuses the container's /tmp, where the old Xvfb left its lock, and a
+# fresh Xvfb refuses to start on a locked display; drop the stale lock first.
+CMD ["/bin/sh", "-c", "rm -f /tmp/.X99-lock; Xvfb :99 -screen 0 1280x800x24 & xvfb_pid=$!; trap 'kill $xvfb_pid' EXIT; uv run --no-dev groceries-assistant serve --host 0.0.0.0 --port 8901"]
