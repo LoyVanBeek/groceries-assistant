@@ -95,15 +95,55 @@ def test_extend_proposal_appends_days_and_picks(store):
     assert store.plan_picks(plan_id) == {next_week_start: {"groente": "brocolli"}}
 
 
-def test_approval_and_order_extents_round_trip(store):
+def test_approval_flags_and_ordered_extent_round_trip(store):
     start = date(2026, 10, 6)
     rows = [PlanEntryRow(day=start + timedelta(days=i)) for i in range(7)]
     plan_id = store.save_proposal(start, rows)
-    assert store.approved_through(plan_id) is None
-    store.set_approved_through(plan_id, start + timedelta(days=3))
-    assert store.approved_through(plan_id) == start + timedelta(days=3)
-    store.set_ordered_through(plan_id, start + timedelta(days=3))
-    assert store.ordered_through(plan_id) == start + timedelta(days=3)
+    assert store.plan_approvals(plan_id) == set()
+    assert store.plan_ordered(plan_id) == set()
+    store.set_day_approved(plan_id, start + timedelta(days=3), True)
+    assert store.plan_approvals(plan_id) == {start + timedelta(days=3)}
+    store.set_day_approved(plan_id, start + timedelta(days=5), True)
+    assert store.plan_approvals(plan_id) == {
+        start + timedelta(days=3),
+        start + timedelta(days=5),
+    }
+    store.set_day_approved(plan_id, start + timedelta(days=3), False)
+    assert store.plan_approvals(plan_id) == {start + timedelta(days=5)}
+    store.set_day_ordered(plan_id, start + timedelta(days=5), True)
+    assert store.plan_ordered(plan_id) == {start + timedelta(days=5)}
+
+
+def test_old_through_columns_migrate_to_per_day_flags(store):
+    start = date(2026, 10, 6)
+    plan_id = store.save_proposal(
+        start, [PlanEntryRow(day=start + timedelta(days=i)) for i in range(7)]
+    )
+    # simulate a database left over from the single-boundary era
+    store.conn.execute(
+        "UPDATE plans SET approved_through = ?, ordered_through = ? WHERE id = ?",
+        (
+            (start + timedelta(days=2)).isoformat(),
+            (start + timedelta(days=2)).isoformat(),
+            plan_id,
+        ),
+    )
+    store.conn.commit()
+    reopened = Store(store.path)
+    try:
+        expected = {start, start + timedelta(days=1), start + timedelta(days=2)}
+        assert reopened.plan_approvals(plan_id) == expected
+        assert reopened.plan_ordered(plan_id) == expected
+        assert tuple(
+            reopened.conn.execute(
+                "SELECT approved_through, ordered_through FROM plans WHERE id = ?",
+                (plan_id,),
+            ).fetchone()
+        ) == (None, None)
+    finally:
+        reopened.close()
+
+    assert store.plan_approvals(plan_id) == expected
 
 
 def test_shift_proposal_moves_entries_and_picks_together(store):

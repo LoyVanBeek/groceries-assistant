@@ -39,7 +39,13 @@
       {% if e.over_budget %}<div class="warnings">over!</div>{% endif %}
     </td>
     <td class="col-dish">
-      {% if e.kind == 'leftovers' %}
+      {% if e.is_ordered %}
+      {% if e.is_dish %}
+      <span class="dish-label">{{ e.name }}</span>
+      <span class="parts-label">{{ e.parts_label or 'nog te kiezen' }}</span>
+      {% else %}<strong>{{ e.name }}</strong>{% endif %}
+      <span class="besteld-tag">&#10003; besteld</span>
+      {% elif e.kind == 'leftovers' %}
       {% if e.is_dish %}
       <span class="dish-label">{{ e.name }}</span>
       <span class="parts-label">{{ e.parts_label or 'nog te kiezen' }}</span>
@@ -113,7 +119,7 @@
         </div>
       </details>
       {% endif %}
-      {% if e.is_dish and e.editable_parts and e.part_options %}
+      {% if not e.is_ordered and e.is_dish and e.editable_parts and e.part_options %}
       <div class="parts-form">
         {% for part in e.part_options %}
         <details class="part-picker">
@@ -147,12 +153,18 @@
         </details>
         {% endfor %}
       </div>
-      {% elif e.is_dish and e.unfilled and not e.part_options %}
+      {% elif not e.is_ordered and e.is_dish and e.unfilled and not e.part_options %}
       <div class="muted">Nog te kiezen: {{ e.unfilled|join(', ') }}</div>
       {% endif %}
     </td>
     <td class="col-cook">
-      {% if e.kind == 'no_cook' %}
+      {% if e.is_ordered %}
+      {% if e.kind != 'no_cook' and e.cooking.effective_cook %}
+      <span class="muted">{{ e.cooking.effective_cook }}</span>
+      {% else %}
+      <span class="muted" aria-label="Geen kok">&mdash;</span>
+      {% endif %}
+      {% elif e.kind == 'no_cook' %}
       <span class="muted" aria-label="Geen kok nodig">&mdash;</span>
       {% else %}
       <form method="post" action="/plan/evening" id="evening-{{ row }}">
@@ -180,7 +192,9 @@
     </td>
     {% for p in e.members %}
     <td class="col-attend">
-      {% if e.kind == 'no_cook' %}
+      {% if e.is_ordered %}
+      <span class="cell-name muted{% if p.absent %} absent{% endif %}">{{ p.name }}</span>
+      {% elif e.kind == 'no_cook' %}
       <span class="muted" aria-label="Niet van toepassing">&mdash;</span>
       {% else %}
       <span class="cell-name">{{ p.name }}</span>
@@ -191,22 +205,27 @@
     </td>
     {% endfor %}
     <td class="col-save">
-      {% if e.kind != 'no_cook' %}
+      {% if e.kind != 'no_cook' and not e.is_ordered %}
       <button form="evening-{{ row }}" aria-label="Bewaar avond {{ e.label }}">opslaan</button>
       {% endif %}
     </td>
     <td class="col-approve">
       {% if e.is_past %}
       <span class="muted" aria-label="Al geweest">&mdash;</span>
-      {% else %}
-      {% if e.is_approved %}
-      <span class="approved-badge" aria-label="Goedgekeurd tot en met {{ e.label }}">&#10003;</span>
+      {% elif e.is_ordered %}
+      <span class="approved-badge" aria-label="Besteld">&#10003;</span>
+      <span class="muted">besteld</span>
+      {% elif e.is_approved %}
+      <span class="approved-badge" aria-label="Goedgekeurd">&#10003;</span>
+      <form method="post" action="/plan/unapprove" class="inline">
+        <input type="hidden" name="day" value="{{ e.day_iso }}">
+        <button class="link" aria-label="Goedkeuring intrekken voor {{ e.label }}">intrekken</button>
+      </form>
       {% else %}
       <form method="post" action="/plan/approve" class="inline">
         <input type="hidden" name="day" value="{{ e.day_iso }}">
-        <button aria-label="Keur goed tot en met {{ e.label }}">goedkeuren</button>
+        <button aria-label="Goedkeuren {{ e.label }}">goedkeuren</button>
       </form>
-      {% endif %}
       {% endif %}
     </td>
   </tr>
@@ -219,8 +238,10 @@
     <button type="submit" class="primary">
       Bestel de goedgekeurde dagen ({{ order_from | dutch_date }} &ndash; {{ order_to | dutch_date }})
     </button>
-    {% else %}
+    {% elif approved_any %}
     <button type="submit" class="primary" disabled>Alles al besteld</button>
+    {% else %}
+    <button type="submit" class="primary" disabled>Nog niets goedgekeurd</button>
     {% endif %}
   </p>
 </form>

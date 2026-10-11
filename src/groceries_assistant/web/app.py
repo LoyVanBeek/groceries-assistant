@@ -667,7 +667,8 @@ def create_app(
             store().shift_proposal(plan_id, delta)
             start = start + timedelta(days=delta)
         prefs = preferences_from_store(store())
-        approved_through = store().approved_through(plan_id)
+        approved_days = store().plan_approvals(plan_id)
+        ordered_days = store().plan_ordered(plan_id)
         evenings = plan_view(
             store(),
             plan_id,
@@ -677,22 +678,22 @@ def create_app(
             store().people(),
             image_for=image_url_for,
             dishes=list(dishes_by_slug().values()),
-            approved_through=approved_through,
+            approved_days=approved_days,
+            ordered_days=ordered_days,
         )
         last_day = max(e["day_iso"] for e in evenings) if evenings else None
         next_start = date.fromisoformat(last_day) + timedelta(days=1) if last_day else start
-        last_ordered = store().ordered_through(plan_id)
-        pending_from = last_ordered + timedelta(days=1) if last_ordered else start
+        pending = sorted(approved_days - ordered_days)
         return render(
             request,
             "plan.html",
             plan_id=plan_id,
             start=start,
             next_start=next_start,
-            approved_through=approved_through,
-            order_open=pending_from <= (approved_through or date.min),
-            order_from=pending_from,
-            order_to=approved_through,
+            order_open=bool(pending),
+            order_from=pending[0] if pending else None,
+            order_to=pending[-1] if pending else None,
+            approved_any=bool(approved_days),
             evenings=evenings,
             errors=errors,
         )
@@ -899,59 +900,67 @@ def create_app(
 
     @app.post("/plan/approve")
     def plan_approve(day: str = Form("")):
-        """Approve the plan through `day`.
+        """Approve one day (per-row goedkeuren), or the whole week.
 
-        Two uses:
-        * a per-row goedkeuren button posts a `day` and only records the
-          decision (`approved_through`); ordering stays a separate step, the
-          'Bestel de goedgekeurde dagen' button.
-        * with no `day` (the long-standing whole-week flow) it approves
-          through the last planned day *and* builds the order, redirecting to
-          /order.
+        A per-row button posts a `day` and approves exactly that day;
+        ordering stays separate. With no `day` (the long-standing whole-week
+        flow) it approves every planned day, builds the order and redirects
+        to /order.
         """
         proposal = store().load_proposal()
         if proposal is None:
             raise HTTPException(404, "Geen voorstel")
         plan_id = proposal[0]
         all_rows = store().plan_entries(plan_id)
+        if not all_rows:
+            raise HTTPException(400, "Voorstel is leeg")
+        store().update_proposal_rows(plan_id, apply_absences(store(), all_rows))
         if day:
             target = date.fromisoformat(day)
             if target not in [r.day for r in all_rows]:
                 raise HTTPException(400, "Onbekende dag")
-        else:
-            target = max(r.day for r in all_rows)
-        store().update_proposal_rows(plan_id, apply_absences(store(), all_rows))
-        store().set_approved_through(plan_id, target)
-        if not day:
-            _build_and_save_order(plan_id, all_rows)
-            store().set_ordered_through(plan_id, target)
-            return RedirectResponse("/order", status_code=303)
+            store().set_day_approved(plan_id, target, True)
+            return RedirectResponse("/plan", status_code=303)
+        for row in all_rows:
+            store().set_day_approved(plan_id, row.day, True)
+        _build_and_save_order(plan_id, all_rows)
+        for row in all_rows:
+            store().set_day_ordered(plan_id, row.day, True)
+        return RedirectResponse("/order", status_code=303)
+
+    @app.post("/plan/unapprove")
+    def plan_unapprove(day: str = Form(...)):
+        """Revoke the goedkeuring of one day (as long as it is not ordered)."""
+        proposal = store().load_proposal()
+        if proposal is None:
+            raise HTTPException(404, "Geen voorstel")
+        plan_id = proposal[0]
+        target = date.fromisoformat(day)
+        if target in store().plan_ordered(plan_id):
+            raise HTTPException(400, "Die dag is al besteld")
+        store().set_day_approved(plan_id, target, False)
         return RedirectResponse("/plan", status_code=303)
 
     @app.post("/plan/order")
     def plan_order():
         """Order the approved-but-not-yet-ordered groceries in one click.
 
-        Builds the list for the pending range (days after the last ordered day
-        up to `approved_through`, skipping past days and non-cook evenings),
-        replaces the order with it, and advances `ordered_through`.
+        Builds the list for the approved days that have not been ordered yet
+        (skipping non-cook evenings), replaces the order with it, and marks
+        those days ordered.
         """
         proposal = store().load_proposal()
         if proposal is None:
             raise HTTPException(404, "Geen voorstel")
         plan_id = proposal[0]
-        approved_through = store().approved_through(plan_id)
-        last_ordered = store().ordered_through(plan_id)
-        if approved_through is None:
+        approved_days = store().plan_approvals(plan_id)
+        pending = sorted(approved_days - store().plan_ordered(plan_id))
+        if not pending:
             raise HTTPException(400, "Nog niets goedgekeurd")
-        start = (
-            last_ordered + timedelta(days=1)
-            if last_ordered
-            else min(r.day for r in store().plan_entries(plan_id))
-        )
-        rows = [r for r in store().plan_entries(plan_id) if start <= r.day <= approved_through]
+        rows = [r for r in store().plan_entries(plan_id) if r.day in pending]
         _build_and_save_order(plan_id, rows)
-        store().set_ordered_through(plan_id, approved_through)
+        for day in pending:
+            store().set_day_ordered(plan_id, day, True)
         return RedirectResponse("/order", status_code=303)
 
     @app.post("/plan/advance")

@@ -212,6 +212,16 @@ tbody tr.today:hover { background: var(--accent-soft); }
   font-weight: 700;
   font-size: 1.1rem;
 }
+.besteld-tag {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
 
 .chip {
   display: inline-flex;

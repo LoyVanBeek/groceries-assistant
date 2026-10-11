@@ -118,23 +118,29 @@ def test_plan_advance_appends_another_week(tmp_path):
     assert days[-1] - days[6] == timedelta(days=7)
 
 
-def test_per_row_approve_records_only_the_decision(tmp_path):
-    """A goedkeuren button just advances approved_through; ordering is separate."""
+def test_per_row_approve_flags_only_that_day(tmp_path):
+    """A goedkeuren button approves exactly one day; ordering is separate."""
     seed_recipe(tmp_path)
     with make_client(tmp_path) as client:
         client.get("/plan")
     store = Store(tmp_path / "state.db")
     plan_id, _start, _ = store.load_proposal()
-    third = sorted(r.day for r in store.plan_entries(plan_id))[2]
+    days = sorted(r.day for r in store.plan_entries(plan_id))
+    third = days[2]
+    fourth = days[3]
 
     with make_client(tmp_path) as client:
         resp = client.post("/plan/approve", data={"day": third.isoformat()}, follow_redirects=False)
         assert resp.status_code == 303
         assert resp.headers["location"] == "/plan"
+        assert store.plan_approvals(plan_id) == {third}
+        # approving day 3 / then day 4 does NOT approve the days between: per-day
+        store = Store(tmp_path / "state.db")
+        client.post("/plan/approve", data={"day": fourth.isoformat()}, follow_redirects=False)
+        assert store.plan_approvals(plan_id) == {third, fourth}
         # approving alone builds no order yet
         assert store.order_items(plan_id) == []
-        assert store.approved_through(plan_id) == third
-        assert store.ordered_through(plan_id) is None
+        assert store.plan_ordered(plan_id) == set()
 
 
 def test_approve_without_day_keeps_the_whole_week_flow(tmp_path):
@@ -147,11 +153,12 @@ def test_approve_without_day_keeps_the_whole_week_flow(tmp_path):
         assert resp.headers["location"] == "/order"
     store = Store(tmp_path / "state.db")
     plan_id, _, rows = store.load_proposal()
-    assert store.approved_through(plan_id) == max(r.day for r in rows)
+    assert store.plan_approvals(plan_id) == {r.day for r in rows}
+    assert store.plan_ordered(plan_id) == {r.day for r in rows}
     assert store.order_items(plan_id) != []
 
 
-def test_order_button_builds_the_approved_range(tmp_path):
+def test_order_button_builds_the_approved_days(tmp_path):
     """Approve two rows, then order: the list covers exactly the approved days."""
     seed_recipe(tmp_path)
     with make_client(tmp_path) as client:
@@ -160,17 +167,76 @@ def test_order_button_builds_the_approved_range(tmp_path):
     plan_id, _start, _ = store.load_proposal()
     days = sorted(r.day for r in store.plan_entries(plan_id))
     third = days[2]
+    fifth = days[4]
 
     with make_client(tmp_path) as client:
         client.post("/plan/approve", data={"day": third.isoformat()}, follow_redirects=False)
+        client.post("/plan/approve", data={"day": fifth.isoformat()}, follow_redirects=False)
         resp = client.post("/plan/order", follow_redirects=False)
         assert resp.status_code == 303
         assert resp.headers["location"] == "/order"
     store = Store(tmp_path / "state.db")
-    assert store.ordered_through(plan_id) == third
+    assert store.plan_ordered(plan_id) == {third, fifth}
     assert store.order_items(plan_id) != []
-    # ordering the same approved range again is a no-op (nothing pending)
-    assert store.approved_through(plan_id) == third
+    # ordering the same approved days again is a no-op (nothing pending)
+    assert store.plan_approvals(plan_id) == {third, fifth}
+
+
+def test_revoke_a_single_day_keeps_later_approvals(tmp_path):
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        client.get("/plan")
+    store = Store(tmp_path / "state.db")
+    plan_id, _start, _ = store.load_proposal()
+    days = sorted(r.day for r in store.plan_entries(plan_id))
+    third, fourth = days[2], days[3]
+    with make_client(tmp_path) as client:
+        client.post("/plan/approve", data={"day": third.isoformat()}, follow_redirects=False)
+        client.post("/plan/approve", data={"day": fourth.isoformat()}, follow_redirects=False)
+        resp = client.post(
+            "/plan/unapprove", data={"day": third.isoformat()}, follow_redirects=False
+        )
+        assert resp.status_code == 303
+    store = Store(tmp_path / "state.db")
+    assert store.plan_approvals(plan_id) == {fourth}
+
+
+def test_cannot_revoke_an_ordered_day(tmp_path):
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        client.get("/plan")
+    store = Store(tmp_path / "state.db")
+    plan_id, _start, _ = store.load_proposal()
+    third = sorted(r.day for r in store.plan_entries(plan_id))[2]
+    with make_client(tmp_path) as client:
+        client.post("/plan/approve", data={"day": third.isoformat()}, follow_redirects=False)
+        client.post("/plan/order", follow_redirects=False)
+        resp = client.post(
+            "/plan/unapprove", data={"day": third.isoformat()}, follow_redirects=False
+        )
+        assert resp.status_code == 400
+    store = Store(tmp_path / "state.db")
+    assert store.plan_approvals(plan_id) == {third}
+
+
+def test_ordered_rows_are_locked_on_the_plan_page(tmp_path):
+    """Once ordered, a row is read-only: no goedkeuren/intrekken/swap, just 'besteld'."""
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        client.get("/plan")
+    store = Store(tmp_path / "state.db")
+    plan_id, _start, _ = store.load_proposal()
+    n = len(store.plan_entries(plan_id))
+    third = sorted(r.day for r in store.plan_entries(plan_id))[2]
+    with make_client(tmp_path) as client:
+        client.post("/plan/approve", data={"day": third.isoformat()}, follow_redirects=False)
+        client.post("/plan/order", follow_redirects=False)
+        page = client.get("/plan").text
+    # exactly the one ordered day is marked besteld and locked
+    assert page.count('class="besteld-tag"') == 1
+    assert "intrekken" not in page
+    # all other (unapproved) days still offer goedkeuren
+    assert page.count(">goedkeuren<") == n - 1
 
 
 def test_changing_week_start_shifts_an_open_proposal_in_place(tmp_path):

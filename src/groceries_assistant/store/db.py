@@ -60,8 +60,8 @@ CREATE TABLE IF NOT EXISTS plans (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     start_date TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'approved',
-    approved_through TEXT,                 -- last day approved (per-row goedkeuren)
-    ordered_through TEXT,                  -- last day whose groceries were ordered
+    approved_through TEXT,                 -- legacy, migrated to plan_approvals
+    ordered_through TEXT,                  -- legacy, migrated to plan_ordered
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -88,6 +88,23 @@ CREATE TABLE IF NOT EXISTS plan_picks (
 );
 
 CREATE INDEX IF NOT EXISTS idx_plan_picks_slug ON plan_picks(recipe_slug);
+
+-- Per-day 'goedkeuren': a day present here is approved (and may be ordered).
+-- A single boundary (plans.approved_through) used to track this; the column
+-- is kept for the one-time migration below.
+CREATE TABLE IF NOT EXISTS plan_approvals (
+    plan_id INTEGER NOT NULL REFERENCES plans(id) ON DELETE CASCADE,
+    day TEXT NOT NULL,
+    PRIMARY KEY (plan_id, day)
+);
+
+-- Days whose groceries have actually been ordered (exact per-day set, so a
+-- day never looks 'besteld' unless it really was bought).
+CREATE TABLE IF NOT EXISTS plan_ordered (
+    plan_id INTEGER NOT NULL REFERENCES plans(id) ON DELETE CASCADE,
+    day TEXT NOT NULL,
+    PRIMARY KEY (plan_id, day)
+);
 
 -- What one purchase of a product looks like, and how long the rest keeps.
 -- Opt-in: a product without a row is bought as the summed need, as before.
@@ -158,6 +175,7 @@ class Store:
         self.conn.execute("PRAGMA foreign_keys=ON")
         self.conn.executescript(SCHEMA)
         self._add_missing_columns()
+        self._migrate_legacy_through_columns()
         self._ensure_default_template()
 
     def _add_missing_columns(self) -> None:
@@ -174,6 +192,51 @@ class Store:
                 self.set_evening(
                     weekday, cook=cook, free_minutes=minutes, allow_leftovers=leftovers
                 )
+
+    def _migrate_legacy_through_columns(self) -> None:
+        """Fold the old approved_through/ordered_through boundaries into per-day
+        plan_approvals/plan_ordered, then clear them.
+
+        Runs once against DBs that still carry the legacy columns, so a plan
+        that was already approved+ordered keeps its state.
+        """
+        have = {row["name"] for row in self.conn.execute("PRAGMA table_info(plans)")}
+        if "approved_through" not in have:
+            return
+        cur = self.conn.cursor()
+        for plan_id, through in cur.execute(
+            "SELECT id, approved_through FROM plans WHERE approved_through IS NOT NULL"
+        ):
+            days = [
+                row[0]
+                for row in cur.execute(
+                    "SELECT day FROM plan_entries WHERE plan_id = ? AND day <= ?",
+                    (plan_id, through),
+                ).fetchall()
+            ]
+            for day in days:
+                cur.execute(
+                    "INSERT OR IGNORE INTO plan_approvals(plan_id, day) VALUES (?,?)",
+                    (plan_id, day),
+                )
+            cur.execute("UPDATE plans SET approved_through = NULL WHERE id = ?", (plan_id,))
+        for plan_id, through in cur.execute(
+            "SELECT id, ordered_through FROM plans WHERE ordered_through IS NOT NULL"
+        ):
+            days = [
+                row[0]
+                for row in cur.execute(
+                    "SELECT day FROM plan_approvals WHERE plan_id = ? AND day <= ?",
+                    (plan_id, through),
+                ).fetchall()
+            ]
+            for day in days:
+                cur.execute(
+                    "INSERT OR IGNORE INTO plan_ordered(plan_id, day) VALUES (?,?)",
+                    (plan_id, day),
+                )
+            cur.execute("UPDATE plans SET ordered_through = NULL WHERE id = ?", (plan_id,))
+        self.conn.commit()
 
     def close(self) -> None:
         self.conn.close()
@@ -413,13 +476,13 @@ class Store:
         self.conn.commit()
 
     def shift_proposal(self, plan_id: int, days: int) -> None:
-        """Move a proposal's start, entries and picks all forward by `days`.
+        """Move a proposal's start, entries, picks and approvals forward by `days`.
 
-        Entries and part picks are keyed to the same absolute dates, so the
-        three tables have to move together or the plan would otherwise fall
+        Entries, part picks and approvals are keyed to the same absolute dates,
+        so the tables have to move together or the plan would otherwise fall
         apart. Meals keep their weekday only when `days` is a multiple of 7;
         otherwise the weekly template (cook, minutes, leftovers) rotates with
-        the calendar. Picks and swaps are kept as-is.
+        the calendar. Picks, swaps and approvals are kept as-is.
         """
         delta = timedelta(days=days)
         cur = self.conn.cursor()
@@ -431,8 +494,8 @@ class Store:
             ((date.fromisoformat(start_row["start_date"]) + delta).isoformat(), plan_id),
         )
         # Update latest days first so a shifted row never collides with a not
-        # yet moved one (plan_entries and plan_picks are keyed by (plan, day)).
-        for table in ("plan_entries", "plan_picks"):
+        # yet moved one (all keyed by (plan, day)).
+        for table in ("plan_entries", "plan_picks", "plan_approvals", "plan_ordered"):
             rows = cur.execute(
                 f"SELECT day FROM {table} WHERE plan_id = ? ORDER BY day DESC",
                 (plan_id,),
@@ -481,37 +544,45 @@ class Store:
                 )
         self.conn.commit()
 
-    def set_approved_through(self, plan_id: int, day: date) -> None:
-        """The last day approved by per-row goedkeuren (None = nothing yet)."""
-        self.conn.execute(
-            "UPDATE plans SET approved_through = ? WHERE id = ?",
-            (day.isoformat(), plan_id),
-        )
+    def set_day_approved(self, plan_id: int, day: date, approved: bool) -> None:
+        """Approve (or revoke approval of) a single day."""
+        if approved:
+            self.conn.execute(
+                "INSERT OR IGNORE INTO plan_approvals(plan_id, day) VALUES (?,?)",
+                (plan_id, day.isoformat()),
+            )
+        else:
+            self.conn.execute(
+                "DELETE FROM plan_approvals WHERE plan_id = ? AND day = ?",
+                (plan_id, day.isoformat()),
+            )
         self.conn.commit()
 
-    def approved_through(self, plan_id: int) -> date | None:
-        row = self.conn.execute(
-            "SELECT approved_through FROM plans WHERE id = ?", (plan_id,)
-        ).fetchone()
-        if row is None or row["approved_through"] is None:
-            return None
-        return date.fromisoformat(row["approved_through"])
+    def plan_approvals(self, plan_id: int) -> set[date]:
+        rows = self.conn.execute(
+            "SELECT day FROM plan_approvals WHERE plan_id = ?", (plan_id,)
+        ).fetchall()
+        return {date.fromisoformat(row["day"]) for row in rows}
 
-    def set_ordered_through(self, plan_id: int, day: date) -> None:
-        """The last day whose groceries were already ordered."""
-        self.conn.execute(
-            "UPDATE plans SET ordered_through = ? WHERE id = ?",
-            (day.isoformat(), plan_id),
-        )
+    def set_day_ordered(self, plan_id: int, day: date, ordered: bool) -> None:
+        """Mark a single day's groceries as ordered (or undo the mark)."""
+        if ordered:
+            self.conn.execute(
+                "INSERT OR IGNORE INTO plan_ordered(plan_id, day) VALUES (?,?)",
+                (plan_id, day.isoformat()),
+            )
+        else:
+            self.conn.execute(
+                "DELETE FROM plan_ordered WHERE plan_id = ? AND day = ?",
+                (plan_id, day.isoformat()),
+            )
         self.conn.commit()
 
-    def ordered_through(self, plan_id: int) -> date | None:
-        row = self.conn.execute(
-            "SELECT ordered_through FROM plans WHERE id = ?", (plan_id,)
-        ).fetchone()
-        if row is None or row["ordered_through"] is None:
-            return None
-        return date.fromisoformat(row["ordered_through"])
+    def plan_ordered(self, plan_id: int) -> set[date]:
+        rows = self.conn.execute(
+            "SELECT day FROM plan_ordered WHERE plan_id = ?", (plan_id,)
+        ).fetchall()
+        return {date.fromisoformat(row["day"]) for row in rows}
 
     def approve_plan(self, start: date, entries: list[PlanEntryRow]) -> int:
         cur = self.conn.cursor()
