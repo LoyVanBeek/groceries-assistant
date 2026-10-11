@@ -65,6 +65,7 @@ def plan_view(
     image_for=None,
     dishes: Sequence[ComposedDish] = (),
     today: date | None = None,
+    approved_through: date | None = None,
 ) -> list[dict]:
     """Per-evening view model: label, dish, cook, joiners, swap options.
 
@@ -161,6 +162,7 @@ def plan_view(
                 "over_budget": row.kind == "cook" and minutes > budget,
                 "is_today": row.day == today,
                 "is_past": row.day < today,
+                "is_approved": approved_through is not None and row.day <= approved_through,
             }
         )
         if row.kind == "cook":

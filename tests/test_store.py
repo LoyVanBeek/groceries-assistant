@@ -78,6 +78,34 @@ def test_week_start_weekday_defaults_to_tuesday_and_round_trips(store):
         store.set_week_start_weekday(7)
 
 
+def test_extend_proposal_appends_days_and_picks(store):
+    start = date(2026, 10, 6)
+    plan_id = store.save_proposal(
+        start, [PlanEntryRow(day=start + timedelta(days=i)) for i in range(7)]
+    )
+    next_week_start = start + timedelta(days=7)
+    store.extend_proposal(
+        plan_id,
+        [PlanEntryRow(day=next_week_start + timedelta(days=i)) for i in range(7)],
+        picks={next_week_start: {"groente": "brocolli"}},
+    )
+    days = [e.day for e in store.plan_entries(plan_id)]
+    assert len(days) == 14
+    assert days[7] == next_week_start
+    assert store.plan_picks(plan_id) == {next_week_start: {"groente": "brocolli"}}
+
+
+def test_approval_and_order_extents_round_trip(store):
+    start = date(2026, 10, 6)
+    rows = [PlanEntryRow(day=start + timedelta(days=i)) for i in range(7)]
+    plan_id = store.save_proposal(start, rows)
+    assert store.approved_through(plan_id) is None
+    store.set_approved_through(plan_id, start + timedelta(days=3))
+    assert store.approved_through(plan_id) == start + timedelta(days=3)
+    store.set_ordered_through(plan_id, start + timedelta(days=3))
+    assert store.ordered_through(plan_id) == start + timedelta(days=3)
+
+
 def test_shift_proposal_moves_entries_and_picks_together(store):
     start = date(2026, 10, 5)  # Monday
     plan_id = store.save_proposal(

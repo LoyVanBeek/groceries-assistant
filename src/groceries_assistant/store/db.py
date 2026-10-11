@@ -60,6 +60,8 @@ CREATE TABLE IF NOT EXISTS plans (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     start_date TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'approved',
+    approved_through TEXT,                 -- last day approved (per-row goedkeuren)
+    ordered_through TEXT,                  -- last day whose groceries were ordered
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -141,6 +143,7 @@ class ApprovedPlan:
 # SQLite can make to a table that already holds rows.
 ADDED_COLUMNS: dict[str, tuple[tuple[str, str], ...]] = {
     "order_items": (("pack_count", "REAL"), ("pack_unit", "TEXT"), ("note", "TEXT")),
+    "plans": (("approved_through", "TEXT"), ("ordered_through", "TEXT")),
 }
 
 
@@ -440,6 +443,75 @@ class Store:
                     ((date.fromisoformat(old_day) + delta).isoformat(), plan_id, old_day),
                 )
         self.conn.commit()
+
+    def extend_proposal(
+        self,
+        plan_id: int,
+        entries: list[PlanEntryRow],
+        picks: dict[date, dict[str, str]] | None = None,
+    ) -> None:
+        """Append days (and their part picks) to an existing proposal.
+
+        The proposal is a continuous run of days; a new week lands right after
+        the last one. `plan_entries` and `plan_picks` are keyed by (plan, day),
+        so appending cannot collide as long as the caller starts past the last
+        day (the /plan/advance flow always does).
+        """
+        cur = self.conn.cursor()
+        for entry in entries:
+            cur.execute(
+                "INSERT INTO plan_entries(plan_id, day, kind, recipe_slug, source_slug, people)"
+                " VALUES (?,?,?,?,?,?)",
+                (
+                    plan_id,
+                    entry.day.isoformat(),
+                    entry.kind,
+                    entry.recipe_slug,
+                    entry.source_slug,
+                    entry.people,
+                ),
+            )
+        for day, day_picks in (picks or {}).items():
+            for part_key, recipe_slug in day_picks.items():
+                if not recipe_slug:
+                    continue
+                cur.execute(
+                    "INSERT INTO plan_picks(plan_id, day, part_key, recipe_slug) VALUES (?,?,?,?)",
+                    (plan_id, day.isoformat(), part_key, recipe_slug),
+                )
+        self.conn.commit()
+
+    def set_approved_through(self, plan_id: int, day: date) -> None:
+        """The last day approved by per-row goedkeuren (None = nothing yet)."""
+        self.conn.execute(
+            "UPDATE plans SET approved_through = ? WHERE id = ?",
+            (day.isoformat(), plan_id),
+        )
+        self.conn.commit()
+
+    def approved_through(self, plan_id: int) -> date | None:
+        row = self.conn.execute(
+            "SELECT approved_through FROM plans WHERE id = ?", (plan_id,)
+        ).fetchone()
+        if row is None or row["approved_through"] is None:
+            return None
+        return date.fromisoformat(row["approved_through"])
+
+    def set_ordered_through(self, plan_id: int, day: date) -> None:
+        """The last day whose groceries were already ordered."""
+        self.conn.execute(
+            "UPDATE plans SET ordered_through = ? WHERE id = ?",
+            (day.isoformat(), plan_id),
+        )
+        self.conn.commit()
+
+    def ordered_through(self, plan_id: int) -> date | None:
+        row = self.conn.execute(
+            "SELECT ordered_through FROM plans WHERE id = ?", (plan_id,)
+        ).fetchone()
+        if row is None or row["ordered_through"] is None:
+            return None
+        return date.fromisoformat(row["ordered_through"])
 
     def approve_plan(self, start: date, entries: list[PlanEntryRow]) -> int:
         cur = self.conn.cursor()

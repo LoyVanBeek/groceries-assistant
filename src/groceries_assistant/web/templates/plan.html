@@ -19,6 +19,7 @@
       <th>Kok</th>
       {% for m in evenings[0].members %}<th>{{ m.name }}</th>{% endfor %}
       <th></th>
+      <th>Goedkeuren</th>
     </tr>
   </thead>
   <tbody>
@@ -194,12 +195,34 @@
       <button form="evening-{{ row }}" aria-label="Bewaar avond {{ e.label }}">opslaan</button>
       {% endif %}
     </td>
+    <td class="col-approve">
+      {% if e.is_past %}
+      <span class="muted" aria-label="Al geweest">&mdash;</span>
+      {% else %}
+      {% if e.is_approved %}
+      <span class="approved-badge" aria-label="Goedgekeurd tot en met {{ e.label }}">&#10003;</span>
+      {% else %}
+      <form method="post" action="/plan/approve" class="inline">
+        <input type="hidden" name="day" value="{{ e.day_iso }}">
+        <button aria-label="Keur goed tot en met {{ e.label }}">goedkeuren</button>
+      </form>
+      {% endif %}
+      {% endif %}
+    </td>
   </tr>
   {% endfor %}
   </tbody>
 </table>
-<form method="post" action="/plan/approve">
-  <p><button type="submit" class="primary">Week goedkeuren &rarr; boodschappenlijst</button></p>
+<form method="post" action="/plan/order">
+  <p>
+    {% if order_open %}
+    <button type="submit" class="primary">
+      Bestel de goedgekeurde dagen ({{ order_from | dutch_date }} &ndash; {{ order_to | dutch_date }})
+    </button>
+    {% else %}
+    <button type="submit" class="primary" disabled>Alles al besteld</button>
+    {% endif %}
+  </p>
 </form>
 <form method="post" action="/plan/advance">
   <p><button type="submit">Plan de volgende week ({{ next_start | dutch_date }})</button></p>

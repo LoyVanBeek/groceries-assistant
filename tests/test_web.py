@@ -89,13 +89,16 @@ def test_past_rows_are_struck_through(tmp_path):
         assert any("today" in r for r in rows), rows
 
 
-def test_plan_advance_moves_the_proposal_forward_a_week(tmp_path):
+def test_plan_advance_appends_another_week(tmp_path):
+    """'Plan de volgende week' grows the table: it re-proposes a fresh week
+    right after the current one, on the same proposal, so the run stays one."""
     seed_recipe(tmp_path)
     with make_client(tmp_path) as client:
         assert client.get("/plan").status_code == 200
     store = Store(tmp_path / "state.db")
     plan_id, start, _ = store.load_proposal()
-    before = {e.day: e.recipe_slug for e in store.plan_entries(plan_id)}
+    first_days = sorted(r.day for r in store.plan_entries(plan_id))
+    assert len(first_days) == 7
 
     with make_client(tmp_path) as client:
         resp = client.post("/plan/advance", follow_redirects=False)
@@ -106,10 +109,68 @@ def test_plan_advance_moves_the_proposal_forward_a_week(tmp_path):
 
     store = Store(tmp_path / "state.db")
     plan_id2, start2, _ = store.load_proposal()
-    assert plan_id2 == plan_id
-    assert start2 == start + timedelta(days=7)
-    after = {e.day: e.recipe_slug for e in store.plan_entries(plan_id2)}
-    assert after == {day + timedelta(days=7): slug for day, slug in before.items()}
+    assert plan_id2 == plan_id  # same running proposal
+    assert start2 == start  # unchanged: the week is not shifted
+    days = sorted(r.day for r in store.plan_entries(plan_id2))
+    assert len(days) == 14
+    assert days[:7] == first_days
+    assert days[7] == first_days[-1] + timedelta(days=1)
+    assert days[-1] - days[6] == timedelta(days=7)
+
+
+def test_per_row_approve_records_only_the_decision(tmp_path):
+    """A goedkeuren button just advances approved_through; ordering is separate."""
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        client.get("/plan")
+    store = Store(tmp_path / "state.db")
+    plan_id, _start, _ = store.load_proposal()
+    third = sorted(r.day for r in store.plan_entries(plan_id))[2]
+
+    with make_client(tmp_path) as client:
+        resp = client.post("/plan/approve", data={"day": third.isoformat()}, follow_redirects=False)
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/plan"
+        # approving alone builds no order yet
+        assert store.order_items(plan_id) == []
+        assert store.approved_through(plan_id) == third
+        assert store.ordered_through(plan_id) is None
+
+
+def test_approve_without_day_keeps_the_whole_week_flow(tmp_path):
+    """The long-standing approve action (no day) still approves and orders."""
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        client.get("/plan")
+        resp = client.post("/plan/approve", follow_redirects=False)
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/order"
+    store = Store(tmp_path / "state.db")
+    plan_id, _, rows = store.load_proposal()
+    assert store.approved_through(plan_id) == max(r.day for r in rows)
+    assert store.order_items(plan_id) != []
+
+
+def test_order_button_builds_the_approved_range(tmp_path):
+    """Approve two rows, then order: the list covers exactly the approved days."""
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        client.get("/plan")
+    store = Store(tmp_path / "state.db")
+    plan_id, _start, _ = store.load_proposal()
+    days = sorted(r.day for r in store.plan_entries(plan_id))
+    third = days[2]
+
+    with make_client(tmp_path) as client:
+        client.post("/plan/approve", data={"day": third.isoformat()}, follow_redirects=False)
+        resp = client.post("/plan/order", follow_redirects=False)
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/order"
+    store = Store(tmp_path / "state.db")
+    assert store.ordered_through(plan_id) == third
+    assert store.order_items(plan_id) != []
+    # ordering the same approved range again is a no-op (nothing pending)
+    assert store.approved_through(plan_id) == third
 
 
 def test_changing_week_start_shifts_an_open_proposal_in_place(tmp_path):

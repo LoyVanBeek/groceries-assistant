@@ -667,6 +667,7 @@ def create_app(
             store().shift_proposal(plan_id, delta)
             start = start + timedelta(days=delta)
         prefs = preferences_from_store(store())
+        approved_through = store().approved_through(plan_id)
         evenings = plan_view(
             store(),
             plan_id,
@@ -676,13 +677,22 @@ def create_app(
             store().people(),
             image_for=image_url_for,
             dishes=list(dishes_by_slug().values()),
+            approved_through=approved_through,
         )
+        last_day = max(e["day_iso"] for e in evenings) if evenings else None
+        next_start = date.fromisoformat(last_day) + timedelta(days=1) if last_day else start
+        last_ordered = store().ordered_through(plan_id)
+        pending_from = last_ordered + timedelta(days=1) if last_ordered else start
         return render(
             request,
             "plan.html",
             plan_id=plan_id,
             start=start,
-            next_start=start + timedelta(days=7),
+            next_start=next_start,
+            approved_through=approved_through,
+            order_open=pending_from <= (approved_through or date.min),
+            order_from=pending_from,
+            order_to=approved_through,
             evenings=evenings,
             errors=errors,
         )
@@ -855,14 +865,8 @@ def create_app(
         override = s.week_override(day)
         return override[2] if override else template[2]
 
-    @app.post("/plan/approve")
-    def plan_approve():
-        proposal = store().load_proposal()
-        if proposal is None:
-            raise HTTPException(404, "Geen voorstel")
-        plan_id = proposal[0]
-        rows = apply_absences(store(), store().plan_entries(plan_id))
-        store().update_proposal_rows(plan_id, rows)
+    def _build_and_save_order(plan_id: int, rows: list[PlanEntryRow]) -> None:
+        """Build the grocery order for `rows` and store it for the plan."""
         by_slug = all_known()
         dishes = dishes_by_slug()
         entries = rows_to_entries(rows, by_slug, dishes, store().plan_picks(plan_id))
@@ -892,21 +896,90 @@ def create_app(
                 for item in order.shopping
             ],
         )
-        store().approve_proposal(plan_id)
+
+    @app.post("/plan/approve")
+    def plan_approve(day: str = Form("")):
+        """Approve the plan through `day`.
+
+        Two uses:
+        * a per-row goedkeuren button posts a `day` and only records the
+          decision (`approved_through`); ordering stays a separate step, the
+          'Bestel de goedgekeurde dagen' button.
+        * with no `day` (the long-standing whole-week flow) it approves
+          through the last planned day *and* builds the order, redirecting to
+          /order.
+        """
+        proposal = store().load_proposal()
+        if proposal is None:
+            raise HTTPException(404, "Geen voorstel")
+        plan_id = proposal[0]
+        all_rows = store().plan_entries(plan_id)
+        if day:
+            target = date.fromisoformat(day)
+            if target not in [r.day for r in all_rows]:
+                raise HTTPException(400, "Onbekende dag")
+        else:
+            target = max(r.day for r in all_rows)
+        store().update_proposal_rows(plan_id, apply_absences(store(), all_rows))
+        store().set_approved_through(plan_id, target)
+        if not day:
+            _build_and_save_order(plan_id, all_rows)
+            store().set_ordered_through(plan_id, target)
+            return RedirectResponse("/order", status_code=303)
+        return RedirectResponse("/plan", status_code=303)
+
+    @app.post("/plan/order")
+    def plan_order():
+        """Order the approved-but-not-yet-ordered groceries in one click.
+
+        Builds the list for the pending range (days after the last ordered day
+        up to `approved_through`, skipping past days and non-cook evenings),
+        replaces the order with it, and advances `ordered_through`.
+        """
+        proposal = store().load_proposal()
+        if proposal is None:
+            raise HTTPException(404, "Geen voorstel")
+        plan_id = proposal[0]
+        approved_through = store().approved_through(plan_id)
+        last_ordered = store().ordered_through(plan_id)
+        if approved_through is None:
+            raise HTTPException(400, "Nog niets goedgekeurd")
+        start = (
+            last_ordered + timedelta(days=1)
+            if last_ordered
+            else min(r.day for r in store().plan_entries(plan_id))
+        )
+        rows = [r for r in store().plan_entries(plan_id) if start <= r.day <= approved_through]
+        _build_and_save_order(plan_id, rows)
+        store().set_ordered_through(plan_id, approved_through)
         return RedirectResponse("/order", status_code=303)
 
     @app.post("/plan/advance")
     def plan_advance():
-        """Plan the next week: shift the proposal forward 7 days.
+        """Plan the next week: append a fresh week after the proposal's last day.
 
-        A full week keeps every meal on the same weekday, so cook, minutes and
-        leftovers stay as planned; swaps and part picks ride along.
+        Unlike the old +7 shift, this re-proposes the next week, so the no-repeat
+        window and preferences pick *different* dishes for it. The current week
+        stays visible; the table simply gains another week below.
         """
         proposal = store().load_proposal()
         if proposal is None:
-            raise HTTPException(404, "Geen voorstel om door te schuiven")
-        plan_id, _, _ = proposal
-        store().shift_proposal(plan_id, 7)
+            raise HTTPException(404, "Geen voorstel om uit te breiden")
+        plan_id, _, rows = proposal
+        if not rows:
+            raise HTTPException(400, "Voorstel is leeg")
+        start = max(r.day for r in rows) + timedelta(days=1)
+        all_recipes, _errors = load_all()
+        dishes = dishes_by_slug()
+        components = list(all_known().values())
+        plan = propose(
+            all_recipes,
+            store(),
+            start,
+            dishes=list(dishes.values()),
+            components=components,
+        )
+        store().extend_proposal(plan_id, plan_to_rows(plan), plan_to_picks(plan, dishes))
         return RedirectResponse("/plan", status_code=303)
 
     def _match(product_names: list[str]) -> dict[str, tuple[int, str]]:
