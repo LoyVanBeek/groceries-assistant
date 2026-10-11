@@ -34,7 +34,7 @@ def test_next_weekday_counts_today():
 
 def test_parse_start_uses_the_configured_weekday():
     fri = date(2026, 10, 9)
-    assert parse_start(None, today=fri) == date(2026, 10, 12)  # default Monday
+    assert parse_start(None, today=fri) == date(2026, 10, 13)  # default Tuesday
     assert parse_start(None, today=fri, start_weekday=2) == date(2026, 10, 14)
     assert parse_start(None, today=fri, start_weekday=4) == fri
     assert parse_start("2026-10-20") == date(2026, 10, 20)

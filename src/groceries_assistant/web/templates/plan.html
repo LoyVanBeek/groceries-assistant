@@ -24,7 +24,7 @@
   <tbody>
   {% for e in evenings %}
   {% set row = loop.index %}
-  <tr class="evening {% if e.over_budget %}over{% endif %} {% if e.is_today %}today{% endif %}">
+  <tr class="evening {% if e.over_budget %}over{% endif %} {% if e.is_past %}passed{% endif %} {% if e.is_today %}today{% endif %}">
     <td class="col-day">
       <strong>{{ e.label }}</strong>
       {% if e.is_today %}<span class="today-badge">vandaag</span>{% endif %}

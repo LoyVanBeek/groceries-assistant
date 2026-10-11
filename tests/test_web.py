@@ -9,7 +9,7 @@ import yaml
 from fastapi.testclient import TestClient
 
 from groceries_assistant.models import slugify
-from groceries_assistant.store.db import Store
+from groceries_assistant.store.db import DEFAULT_TEMPLATE, PlanEntryRow, Store
 from groceries_assistant.web import app as web_app
 from groceries_assistant.web.app import create_app
 
@@ -69,6 +69,26 @@ def test_today_row_is_highlighted(tmp_path):
         assert "vandaag" in page.text
 
 
+def test_past_rows_are_struck_through(tmp_path):
+    """Days before today render with the passed/struck-through style."""
+    seed_recipe(tmp_path)
+    start = date.today() - timedelta(days=2)
+    with make_client(tmp_path) as client:
+        # anchor the week to the seeded start so /plan does not re-shift it
+        pin_week_start(client, start.weekday())
+        store = Store(tmp_path / "state.db")
+        store.save_proposal(
+            start,
+            [PlanEntryRow(day=start + timedelta(days=i), recipe_slug="pasta") for i in range(7)],
+        )
+        store.close()
+        page = client.get("/plan")
+        assert page.status_code == 200
+        rows = re.findall(r'<tr class="evening([^"]*)"', page.text)
+        assert any("passed" in r for r in rows), rows
+        assert any("today" in r for r in rows), rows
+
+
 def test_plan_advance_moves_the_proposal_forward_a_week(tmp_path):
     seed_recipe(tmp_path)
     with make_client(tmp_path) as client:
@@ -95,7 +115,8 @@ def test_plan_advance_moves_the_proposal_forward_a_week(tmp_path):
 def test_changing_week_start_shifts_an_open_proposal_in_place(tmp_path):
     seed_recipe(tmp_path)
     with make_client(tmp_path) as client:
-        assert client.get("/plan").status_code == 200  # Monday by default
+        pin_week_start(client, 0)  # Monday
+        assert client.get("/plan").status_code == 200
     store = Store(tmp_path / "state.db")
     plan_id, start, _ = store.load_proposal()
     assert start.weekday() == 0
@@ -488,7 +509,9 @@ def test_rename_recipe_updates_files_and_state(tmp_path):
         store = Store(tmp_path / "state.db")
         assert store.verdicts() == {"pasta-alla-norma": {"kid1": "love"}}
         rows = store.plan_entries(store.load_proposal()[0])
-        assert all(row.recipe_slug == "pasta-alla-norma" for row in rows)
+        # the week is Tue-start, so the last (Monday) evening may be leftovers
+        assert all(r.recipe_slug in (None, "pasta-alla-norma") for r in rows)
+        assert any(r.recipe_slug == "pasta-alla-norma" for r in rows)
         store.close()
 
 
@@ -1334,6 +1357,9 @@ def test_no_cook_evening(tmp_path):
             "/settings/people",
             data={"person_id": "mama", "name": "Mama", "role": "adult", "weight": "1"},
         )
+        # pin the week to start Monday: the test asserts on Monday's 25-minute
+        # budget and counts seven cook evenings, independent of the app default
+        pin_week_start(client, 0)
         client.get("/plan")  # create proposal
         from groceries_assistant.store.db import Store
 
@@ -2265,6 +2291,20 @@ def _proposal(tmp_path: Path):
     return store, store.load_proposal()[0]
 
 
+def pin_week_start(client, weekday: int) -> None:
+    """Anchor the week on `weekday` without clobbering the evening template.
+
+    POSTing /settings/template with only `week_start` resets every evening to
+    the form's defaults (45 minutes), so re-send the default template too.
+    """
+    data = {"week_start": str(weekday)}
+    for wd, (cook, minutes, leftovers) in DEFAULT_TEMPLATE.items():
+        data[f"cook_{wd}"] = cook
+        data[f"minutes_{wd}"] = str(minutes)
+        data[f"leftovers_{wd}"] = "on" if leftovers else ""
+    client.post("/settings/template", data=data)
+
+
 def _open_week(client, tmp_path: Path):
     """The proposal is created on the first /plan visit."""
     client.get("/plan")
@@ -2438,6 +2478,8 @@ def test_picks_on_a_plain_recipe_evening_are_refused(tmp_path):
     seed_part_recipes(tmp_path)
     seed_dish(tmp_path)
     with make_client(tmp_path) as client:
+        # Monday-start: the first (25 min) evening gets a plain recipe, not a dish
+        pin_week_start(client, 0)
         store, plan_id = _open_week(client, tmp_path)
         day = store.plan_entries(plan_id)[0].day
 
@@ -2671,6 +2713,7 @@ def test_a_declared_pack_reads_as_a_count_with_the_weight(tmp_path):
     """'2 stuk (700 g)': a 500 g need is two 350 g packs of 700 g."""
     seed_recipe(tmp_path)
     with make_client(tmp_path) as client:
+        pin_week_start(client, 0)  # Monday: 7 cook nights
         add_fact(client, "spaghetti")
         client.get("/plan")
         client.post("/plan/approve", follow_redirects=False)
@@ -2690,6 +2733,7 @@ def test_the_order_says_what_is_left_over(tmp_path):
     """A one-day shelf life: every pack leaves 50 g, good until the next day."""
     seed_broccoli(tmp_path)
     with make_client(tmp_path) as client:
+        pin_week_start(client, 0)  # Monday: last night is Sunday
         add_fact(client, shelf_life_days=1)
         client.get("/plan")
         client.post("/plan/approve", follow_redirects=False)

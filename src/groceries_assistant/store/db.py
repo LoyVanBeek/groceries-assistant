@@ -311,7 +311,7 @@ class Store:
 
     def week_start_weekday(self) -> int:
         """The weekday a new week starts on; 0 = Monday. The plan anchors here."""
-        return int(self.setting("week_start_weekday", "0"))
+        return int(self.setting("week_start_weekday", "1"))
 
     def set_week_start_weekday(self, weekday: int) -> None:
         if weekday not in range(7):

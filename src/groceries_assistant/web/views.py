@@ -160,6 +160,7 @@ def plan_view(
                 "can_leftovers": (row.kind in ("cook", "no_cook") and last_cook_slug is not None),
                 "over_budget": row.kind == "cook" and minutes > budget,
                 "is_today": row.day == today,
+                "is_past": row.day < today,
             }
         )
         if row.kind == "cook":

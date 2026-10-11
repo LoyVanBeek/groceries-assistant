@@ -70,8 +70,8 @@ def test_approve_plan_and_history(store):
     assert latest is not None and latest[0] == plan_id
 
 
-def test_week_start_weekday_defaults_to_monday_and_round_trips(store):
-    assert store.week_start_weekday() == 0
+def test_week_start_weekday_defaults_to_tuesday_and_round_trips(store):
+    assert store.week_start_weekday() == 1
     store.set_week_start_weekday(3)
     assert store.week_start_weekday() == 3
     with pytest.raises(ValueError):

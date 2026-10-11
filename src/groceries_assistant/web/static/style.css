@@ -193,6 +193,8 @@ tbody tr.over:hover { background: var(--over-bg); }
   box-shadow: inset 3px 0 0 var(--accent);
 }
 tbody tr.today:hover { background: var(--accent-soft); }
+.passed { opacity: 0.55; }
+.passed .col-day strong { text-decoration: line-through; }
 .today-badge {
   display: inline-block;
   margin-left: 0.4rem;

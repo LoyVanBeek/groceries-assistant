@@ -33,7 +33,7 @@ def next_weekday(weekday: int, today: date | None = None) -> date:
     return today + timedelta(days=(weekday - today.weekday()) % 7)
 
 
-def parse_start(value: str | None, today: date | None = None, start_weekday: int = 0) -> date:
+def parse_start(value: str | None, today: date | None = None, start_weekday: int = 1) -> date:
     if not value:
         return next_weekday(start_weekday, today)
     try:
