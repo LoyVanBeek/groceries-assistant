@@ -27,14 +27,15 @@ class PlanningError(Exception):
     """Invalid planning input."""
 
 
-def next_monday(today: date | None = None) -> date:
+def next_weekday(weekday: int, today: date | None = None) -> date:
+    """The next `weekday` (0 = Monday) on or after `today`, today included."""
     today = today or date.today()
-    return today + timedelta(days=(7 - today.weekday()) % 7)
+    return today + timedelta(days=(weekday - today.weekday()) % 7)
 
 
-def parse_start(value: str | None, today: date | None = None) -> date:
+def parse_start(value: str | None, today: date | None = None, start_weekday: int = 0) -> date:
     if not value:
-        return next_monday(today)
+        return next_weekday(start_weekday, today)
     try:
         return date.fromisoformat(value)
     except ValueError as exc:

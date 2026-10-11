@@ -12,6 +12,8 @@ from groceries_assistant.services.planner_service import (
     build_order,
     last_weeks_stock,
     match_products,
+    next_weekday,
+    parse_start,
     plan_to_picks,
     plan_to_rows,
     plan_week,
@@ -21,6 +23,21 @@ from groceries_assistant.store.db import PlanEntryRow, Store
 
 D1 = date(2026, 9, 28)
 D2 = date(2026, 9, 29)
+
+
+def test_next_weekday_counts_today():
+    wed = date(2026, 10, 7)  # Wednesday
+    assert next_weekday(2, wed) == wed  # (mis)configured start lands on today
+    assert next_weekday(0, wed) == date(2026, 10, 12)  # next Monday
+    assert next_weekday(4, wed) == date(2026, 10, 9)  # Friday later this week
+
+
+def test_parse_start_uses_the_configured_weekday():
+    fri = date(2026, 10, 9)
+    assert parse_start(None, today=fri) == date(2026, 10, 12)  # default Monday
+    assert parse_start(None, today=fri, start_weekday=2) == date(2026, 10, 14)
+    assert parse_start(None, today=fri, start_weekday=4) == fri
+    assert parse_start("2026-10-20") == date(2026, 10, 20)
 
 
 def _recipe(slug="pasta", minutes=30):

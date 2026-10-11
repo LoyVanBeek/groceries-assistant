@@ -46,6 +46,37 @@ def test_pages_render(tmp_path):
         assert client.get("/recipes/import").status_code == 200
 
 
+def test_configured_week_start_anchors_a_new_proposal(tmp_path):
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        client.post("/settings/template", data={"week_start": "2"})  # woensdag
+        assert client.get("/plan").status_code == 200
+    store = Store(tmp_path / "state.db")
+    start = store.load_proposal()[1]
+    assert start.weekday() == 2
+    assert start >= date.today()
+
+
+def test_changing_week_start_shifts_an_open_proposal_in_place(tmp_path):
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        assert client.get("/plan").status_code == 200  # Monday by default
+    store = Store(tmp_path / "state.db")
+    plan_id, start, _ = store.load_proposal()
+    assert start.weekday() == 0
+    before = {e.day: e.recipe_slug for e in store.plan_entries(plan_id)}
+
+    with make_client(tmp_path) as client:
+        client.post("/settings/template", data={"week_start": "2"})
+        assert client.get("/plan").status_code == 200  # re-anchors, not regenerates
+    store = Store(tmp_path / "state.db")
+    plan_id2, start2, _ = store.load_proposal()
+    assert plan_id2 == plan_id
+    delta = (start2 - start).days
+    after = {e.day: e.recipe_slug for e in store.plan_entries(plan_id2)}
+    assert all(after[day + timedelta(days=delta)] == slug for day, slug in before.items())
+
+
 def test_empty_recipe_dir_shows_import_hint(tmp_path):
     (tmp_path / "recipes").mkdir(parents=True, exist_ok=True)
     with make_client(tmp_path) as client:

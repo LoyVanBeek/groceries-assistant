@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 import sqlite3
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 
 from groceries_assistant.models import ProductFact
 
@@ -25,6 +25,11 @@ CREATE TABLE IF NOT EXISTS verdicts (
     person_id TEXT NOT NULL,
     verdict TEXT NOT NULL CHECK (verdict IN ('love','ok','dislike','never')),
     PRIMARY KEY (recipe_slug, person_id)
+);
+
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS week_template (
@@ -290,6 +295,29 @@ class Store:
         )
         self.conn.commit()
 
+    # --- app settings -----------------------------------------------------------
+
+    def setting(self, key: str, default: str = "") -> str:
+        row = self.conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+        return row["value"] if row is not None else default
+
+    def set_setting(self, key: str, value: str) -> None:
+        self.conn.execute(
+            "INSERT INTO settings(key, value) VALUES (?,?)"
+            " ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (key, value),
+        )
+        self.conn.commit()
+
+    def week_start_weekday(self) -> int:
+        """The weekday a new week starts on; 0 = Monday. The plan anchors here."""
+        return int(self.setting("week_start_weekday", "0"))
+
+    def set_week_start_weekday(self, weekday: int) -> None:
+        if weekday not in range(7):
+            raise ValueError(f"weekday must be 0-6: {weekday}")
+        self.set_setting("week_start_weekday", str(weekday))
+
     # --- staples -----------------------------------------------------------------
 
     def staples(self) -> list[str]:
@@ -379,6 +407,38 @@ class Store:
                     entry.people,
                 ),
             )
+        self.conn.commit()
+
+    def shift_proposal(self, plan_id: int, days: int) -> None:
+        """Move a proposal's start, entries and picks all forward by `days`.
+
+        Entries and part picks are keyed to the same absolute dates, so the
+        three tables have to move together or the plan would otherwise fall
+        apart. Meals keep their weekday only when `days` is a multiple of 7;
+        otherwise the weekly template (cook, minutes, leftovers) rotates with
+        the calendar. Picks and swaps are kept as-is.
+        """
+        delta = timedelta(days=days)
+        cur = self.conn.cursor()
+        start_row = cur.execute("SELECT start_date FROM plans WHERE id = ?", (plan_id,)).fetchone()
+        if start_row is None:
+            raise KeyError(f"no plan {plan_id}")
+        cur.execute(
+            "UPDATE plans SET start_date = ? WHERE id = ?",
+            ((date.fromisoformat(start_row["start_date"]) + delta).isoformat(), plan_id),
+        )
+        # Update latest days first so a shifted row never collides with a not
+        # yet moved one (plan_entries and plan_picks are keyed by (plan, day)).
+        for table in ("plan_entries", "plan_picks"):
+            rows = cur.execute(
+                f"SELECT day FROM {table} WHERE plan_id = ? ORDER BY day DESC",
+                (plan_id,),
+            ).fetchall()
+            for (old_day,) in rows:
+                cur.execute(
+                    f"UPDATE {table} SET day = ? WHERE plan_id = ? AND day = ?",
+                    ((date.fromisoformat(old_day) + delta).isoformat(), plan_id, old_day),
+                )
         self.conn.commit()
 
     def approve_plan(self, start: date, entries: list[PlanEntryRow]) -> int:

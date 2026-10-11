@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 
@@ -68,6 +68,55 @@ def test_approve_plan_and_history(store):
     assert store.history() == {"stoofpot": day}
     latest = store.latest_approved()
     assert latest is not None and latest[0] == plan_id
+
+
+def test_week_start_weekday_defaults_to_monday_and_round_trips(store):
+    assert store.week_start_weekday() == 0
+    store.set_week_start_weekday(3)
+    assert store.week_start_weekday() == 3
+    with pytest.raises(ValueError):
+        store.set_week_start_weekday(7)
+
+
+def test_shift_proposal_moves_entries_and_picks_together(store):
+    start = date(2026, 10, 5)  # Monday
+    plan_id = store.save_proposal(
+        start,
+        [
+            PlanEntryRow(day=start, recipe_slug="pasta"),
+            PlanEntryRow(day=start + timedelta(days=1), recipe_slug="dhaal"),
+        ],
+        picks={start: {"groente": "brocolli"}},
+    )
+    store.shift_proposal(plan_id, 2)
+    assert store.load_proposal()[1] == date(2026, 10, 7)
+    assert [e.day for e in store.plan_entries(plan_id)] == [
+        date(2026, 10, 7),
+        date(2026, 10, 8),
+    ]
+    assert store.plan_picks(plan_id) == {date(2026, 10, 7): {"groente": "brocolli"}}
+
+
+def test_shift_proposal_by_a_week_keeps_weekdays(store):
+    start = date(2026, 10, 5)
+    plan_id = store.save_proposal(
+        start, [PlanEntryRow(day=start + timedelta(days=i)) for i in range(7)]
+    )
+    store.shift_proposal(plan_id, 7)
+    assert [e.day.weekday() for e in store.plan_entries(plan_id)] == [0, 1, 2, 3, 4, 5, 6]
+
+
+def test_shift_proposal_forward_only_and_idempotent_after_re_anchor(store):
+    """The /plan re-anchor formula (0..6 forward) can never move the plan back."""
+    start = date(2026, 10, 5)  # Monday
+    plan_id = store.save_proposal(start, [PlanEntryRow(day=start, recipe_slug="pasta")])
+    for _ in range(2):
+        shift = (3 - store.load_proposal()[1].weekday()) % 7  # anchor = Wednesday
+        if shift:
+            store.shift_proposal(plan_id, shift)
+    assert store.load_proposal()[1].weekday() == 3
+    assert store.plan_entries(plan_id)[0].day.weekday() == 3
+    assert store.plan_entries(plan_id)[0].day == date(2026, 10, 8)
 
 
 def test_the_parts_of_a_planned_dish_count_as_history_too(store):

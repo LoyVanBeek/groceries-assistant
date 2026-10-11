@@ -3,6 +3,15 @@
 {% block content %}
 <h1>Weekschema</h1>
 <form method="post" action="/settings/template">
+  <p class="muted">
+    <label for="week_start">De week begint op
+      <select name="week_start" id="week_start">
+        {% for wd in range(7) %}
+        <option value="{{ wd }}" {% if wd == week_start %}selected{% endif %}>{{ WEEKDAYS[wd] }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </p>
   <table>
     <tr><th>Avond</th><th>Kok</th><th>Minuten</th><th>Restjes ok?</th></tr>
     {% for e in evenings %}

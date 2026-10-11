@@ -6,7 +6,7 @@ import os
 import re
 import tempfile
 from collections.abc import Mapping
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Annotated, TypedDict
 from urllib.parse import quote, urlparse
@@ -643,7 +643,7 @@ def create_app(
             return render(request, "plan.html", no_recipes=True, errors=errors)
         proposal = store().load_proposal()
         if proposal is None:
-            start = parse_start(None)
+            start = parse_start(None, start_weekday=store().week_start_weekday())
             dishes = dishes_by_slug()
             components = list(all_known().values())
             dinners_only = all_recipes
@@ -653,6 +653,13 @@ def create_app(
             plan_id = store().save_proposal(start, plan_to_rows(plan), plan_to_picks(plan, dishes))
             proposal = (plan_id, start)
         plan_id, start = proposal[0], proposal[1]
+        # Re-anchor an existing proposal to the configured start weekday: shift
+        # the days (and with them every swap and part pick) so the change lands
+        # immediately without regenerating the plan.
+        delta = (store().week_start_weekday() - start.weekday()) % 7
+        if delta:
+            store().shift_proposal(plan_id, delta)
+            start = start + timedelta(days=delta)
         prefs = preferences_from_store(store())
         evenings = plan_view(
             store(),
@@ -2211,6 +2218,8 @@ def create_app(
             request,
             "settings.html",
             evenings=evenings,
+            WEEKDAYS=WEEKDAYS,
+            week_start=store().week_start_weekday(),
             people=store().people(),
             adults=[p for p in store().people() if p["role"] == "adult"],
             staples=store().staples(),
@@ -2227,6 +2236,13 @@ def create_app(
                 free_minutes=int(str(form.get(f"minutes_{wd}", "45"))),
                 allow_leftovers=form.get(f"leftovers_{wd}") == "on",
             )
+        try:
+            week_start = int(str(form.get("week_start", "")))
+            if week_start not in range(7):
+                raise ValueError
+        except ValueError:
+            week_start = 0
+        store().set_week_start_weekday(week_start)
         return RedirectResponse("/settings", status_code=303)
 
     @app.post("/settings/people")
