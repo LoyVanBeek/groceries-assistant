@@ -206,6 +206,12 @@ tbody tr.today:hover { background: var(--accent-soft); }
   font-weight: 600;
   vertical-align: middle;
 }
+.col-approve { text-align: center; }
+.approved-badge {
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 1.1rem;
+}
 
 .chip {
   display: inline-flex;
