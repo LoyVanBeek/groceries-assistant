@@ -69,6 +69,29 @@ def test_today_row_is_highlighted(tmp_path):
         assert "vandaag" in page.text
 
 
+def test_plan_advance_moves_the_proposal_forward_a_week(tmp_path):
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        assert client.get("/plan").status_code == 200
+    store = Store(tmp_path / "state.db")
+    plan_id, start, _ = store.load_proposal()
+    before = {e.day: e.recipe_slug for e in store.plan_entries(plan_id)}
+
+    with make_client(tmp_path) as client:
+        resp = client.post("/plan/advance", follow_redirects=False)
+        assert resp.status_code == 303
+        page = client.get("/plan")
+        assert page.status_code == 200
+        assert "Plan de volgende week" in page.text
+
+    store = Store(tmp_path / "state.db")
+    plan_id2, start2, _ = store.load_proposal()
+    assert plan_id2 == plan_id
+    assert start2 == start + timedelta(days=7)
+    after = {e.day: e.recipe_slug for e in store.plan_entries(plan_id2)}
+    assert after == {day + timedelta(days=7): slug for day, slug in before.items()}
+
+
 def test_changing_week_start_shifts_an_open_proposal_in_place(tmp_path):
     seed_recipe(tmp_path)
     with make_client(tmp_path) as client:

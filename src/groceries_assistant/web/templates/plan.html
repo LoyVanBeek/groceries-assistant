@@ -201,5 +201,8 @@
 <form method="post" action="/plan/approve">
   <p><button type="submit" class="primary">Week goedkeuren &rarr; boodschappenlijst</button></p>
 </form>
+<form method="post" action="/plan/advance">
+  <p><button type="submit">Plan de volgende week ({{ next_start | dutch_date }})</button></p>
+</form>
 {% endif %}
 {% endblock %}

@@ -682,6 +682,7 @@ def create_app(
             "plan.html",
             plan_id=plan_id,
             start=start,
+            next_start=start + timedelta(days=7),
             evenings=evenings,
             errors=errors,
         )
@@ -893,6 +894,20 @@ def create_app(
         )
         store().approve_proposal(plan_id)
         return RedirectResponse("/order", status_code=303)
+
+    @app.post("/plan/advance")
+    def plan_advance():
+        """Plan the next week: shift the proposal forward 7 days.
+
+        A full week keeps every meal on the same weekday, so cook, minutes and
+        leftovers stay as planned; swaps and part picks ride along.
+        """
+        proposal = store().load_proposal()
+        if proposal is None:
+            raise HTTPException(404, "Geen voorstel om door te schuiven")
+        plan_id, _, _ = proposal
+        store().shift_proposal(plan_id, 7)
+        return RedirectResponse("/plan", status_code=303)
 
     def _match(product_names: list[str]) -> dict[str, tuple[int, str]]:
         if search_fn is not None:
