@@ -4,7 +4,7 @@
 {% if request.query_params.error == 'kok' %}
 <p class="warnings">Kok moet een volwassene zijn die mee-eet.</p>
 {% endif %}
-<h1>Week van {{ start }}</h1>
+<h1>Week van {{ start | dutch_date }}</h1>
 {% if errors %}
 <p class="warnings">Ongeldige receptbestanden: {{ errors|join('; ') }}</p>
 {% endif %}
@@ -24,9 +24,11 @@
   <tbody>
   {% for e in evenings %}
   {% set row = loop.index %}
-  <tr class="evening {% if e.over_budget %}over{% endif %}">
+  <tr class="evening {% if e.over_budget %}over{% endif %} {% if e.is_today %}today{% endif %}">
     <td class="col-day">
-      <strong>{{ e.label }}</strong><br>
+      <strong>{{ e.label }}</strong>
+      {% if e.is_today %}<span class="today-badge">vandaag</span>{% endif %}
+      <br>
       <span class="budget">
         {% if e.kind == 'leftovers' %}restjes
         {% elif e.kind == 'no_cook' %}niet koken

@@ -640,7 +640,13 @@ def create_app(
     def plan_page(request: Request):
         all_recipes, errors = load_all()
         if not all_recipes:
-            return render(request, "plan.html", no_recipes=True, errors=errors)
+            return render(
+                request,
+                "plan.html",
+                no_recipes=True,
+                errors=errors,
+                start=date.today(),
+            )
         proposal = store().load_proposal()
         if proposal is None:
             start = parse_start(None, start_weekday=store().week_start_weekday())
@@ -675,7 +681,7 @@ def create_app(
             request,
             "plan.html",
             plan_id=plan_id,
-            start=start.isoformat(),
+            start=start,
             evenings=evenings,
             errors=errors,
         )

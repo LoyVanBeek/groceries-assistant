@@ -188,6 +188,22 @@ form.inline { display: inline; }
 tbody tr:hover { background: var(--surface); }
 .over { background: var(--over-bg); }
 tbody tr.over:hover { background: var(--over-bg); }
+.today {
+  background: var(--accent-soft);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+tbody tr.today:hover { background: var(--accent-soft); }
+.today-badge {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0 0.45rem;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 0.72rem;
+  font-weight: 600;
+  vertical-align: middle;
+}
 
 .chip {
   display: inline-flex;

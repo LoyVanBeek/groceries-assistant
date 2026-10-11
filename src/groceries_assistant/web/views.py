@@ -64,12 +64,14 @@ def plan_view(
     people: list[dict],
     image_for=None,
     dishes: Sequence[ComposedDish] = (),
+    today: date | None = None,
 ) -> list[dict]:
     """Per-evening view model: label, dish, cook, joiners, swap options.
 
     `by_slug` includes all recipes and component-as-recipe objects for
     resolving dish part picks; `meals` is the subset shown in the picker.
     """
+    today = today or date.today()
     dishes_by_slug = {d.slug: d for d in dishes}
     picks = store.plan_picks(plan_id)
     view: list[dict] = []
@@ -157,6 +159,7 @@ def plan_view(
                 "alternatives": alts,
                 "can_leftovers": (row.kind in ("cook", "no_cook") and last_cook_slug is not None),
                 "over_budget": row.kind == "cook" and minutes > budget,
+                "is_today": row.day == today,
             }
         )
         if row.kind == "cook":

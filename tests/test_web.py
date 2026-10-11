@@ -57,6 +57,18 @@ def test_configured_week_start_anchors_a_new_proposal(tmp_path):
     assert start >= date.today()
 
 
+def test_today_row_is_highlighted(tmp_path):
+    seed_recipe(tmp_path)
+    anchor = str(date.today().weekday())
+    with make_client(tmp_path) as client:
+        client.post("/settings/template", data={"week_start": anchor})
+        page = client.get("/plan")
+        assert page.status_code == 200
+        first_row = re.search(r'<tr class="evening(.*?)"', page.text)
+        assert first_row is not None and "today" in first_row.group(1)
+        assert "vandaag" in page.text
+
+
 def test_changing_week_start_shifts_an_open_proposal_in_place(tmp_path):
     seed_recipe(tmp_path)
     with make_client(tmp_path) as client:
