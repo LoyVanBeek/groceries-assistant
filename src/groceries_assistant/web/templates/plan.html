@@ -76,10 +76,11 @@
     </td>
     <td class="col-dish">
       {% if e.is_ordered %}
+      {% if e.image %}<img class="thumb" src="{{ e.image }}" alt="">{% endif %}
       {% if e.is_dish %}
-      <span class="dish-label">{{ e.name }}</span>
+      <span class="dish-label">{% if e.slug %}<a href="/recipes/{{ e.slug }}">{{ e.name }}</a>{% else %}{{ e.name }}{% endif %}</span>
       <span class="parts-label">{{ e.parts_label or 'nog te kiezen' }}</span>
-      {% else %}<strong>{{ e.name }}</strong>{% endif %}
+      {% else %}<strong>{% if e.slug %}<a href="/recipes/{{ e.slug }}">{{ e.name }}</a>{% else %}{{ e.name }}{% endif %}</strong>{% endif %}
       <details class="locked-actions">
         <summary class="besteld-tag" aria-label="Toon of verberg de acties voor deze bestelde dag">&#10003; besteld</summary>
         <div class="locked-actions-body">
