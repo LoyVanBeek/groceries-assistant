@@ -80,22 +80,26 @@
       <span class="dish-label">{{ e.name }}</span>
       <span class="parts-label">{{ e.parts_label or 'nog te kiezen' }}</span>
       {% else %}<strong>{{ e.name }}</strong>{% endif %}
-      <span class="besteld-tag">&#10003; besteld</span>
-      <form method="post" action="/plan/swap-days" class="inline ruil-form">
-        <select name="swap_to" aria-label="Ruil dit gerecht naar een andere dag">
-          {% for o in e.swap_targets %}<option value="{{ o.day_iso }}">{{ o.label }}</option>{% endfor %}
-        </select>
-        <button class="link" aria-label="Ruil de gerechten van deze en de gekozen dag">ruil dag</button>
-      </form>
-      <details class="dish-picker">
-        <summary aria-label="Gerecht wisselen voor {{ e.label }}">gerecht wisselen <span class="muted">(boodschappen al besteld)</span></summary>
-        <div class="dish-options">
-          {{ picker_options(e, true) }}
-          <form method="post" action="/plan/swap">
-            <input type="hidden" name="day" value="{{ e.day_iso }}">
-            <input type="hidden" name="choice" value="__keep__">
-            <button class="dish-option muted">laten staan</button>
+      <details class="locked-actions">
+        <summary class="besteld-tag" aria-label="Toon of verberg de acties voor deze bestelde dag">&#10003; besteld</summary>
+        <div class="locked-actions-body">
+          <form method="post" action="/plan/swap-days" class="inline ruil-form">
+            <select name="swap_to" aria-label="Ruil dit gerecht naar een andere dag">
+              {% for o in e.swap_targets %}<option value="{{ o.day_iso }}">{{ o.label }}</option>{% endfor %}
+            </select>
+            <button class="link" aria-label="Ruil de gerechten van deze en de gekozen dag">ruil dag</button>
           </form>
+          <details class="dish-picker">
+            <summary aria-label="Gerecht wisselen voor {{ e.label }}">gerecht wisselen <span class="muted">(boodschappen al besteld)</span></summary>
+            <div class="dish-options">
+              {{ picker_options(e, true) }}
+              <form method="post" action="/plan/swap">
+                <input type="hidden" name="day" value="{{ e.day_iso }}">
+                <input type="hidden" name="choice" value="__keep__">
+                <button class="dish-option muted">laten staan</button>
+              </form>
+            </div>
+          </details>
         </div>
       </details>
       {% elif e.kind == 'leftovers' %}

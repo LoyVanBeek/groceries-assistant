@@ -232,6 +232,15 @@ tbody tr.today:hover { background: var(--accent-soft); }
 .confirm-force input { vertical-align: middle; margin-right: 0.3rem; }
 .ruil-form { display: block; margin-top: 0.35rem; }
 .ruil-form select { margin-right: 0.35rem; max-width: 10rem; }
+.locked-actions { display: inline-block; vertical-align: middle; }
+.locked-actions > summary.besteld-tag { list-style: none; cursor: pointer; }
+.locked-actions > summary.besteld-tag::-webkit-details-marker { display: none; }
+.locked-actions > summary.besteld-tag::after {
+  content: " \25B8";
+  font-size: 0.7rem;
+}
+.locked-actions[open] > summary.besteld-tag::after { content: " \25BC"; }
+.locked-actions-body { display: block; margin-top: 0.5rem; }
 
 .chip {
   display: inline-flex;
