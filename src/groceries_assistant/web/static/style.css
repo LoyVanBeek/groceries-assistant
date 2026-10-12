@@ -527,7 +527,6 @@ table.plan .col-cook input[type="number"] { width: 4rem; padding: 0.3rem 0.35rem
 table.plan .col-attend { text-align: center; width: 4.5rem; }
 table.plan .col-attend input[type="checkbox"] { width: 1.3rem; height: 1.3rem; accent-color: var(--accent); }
 table.plan .col-attend .cell-name { display: none; }
-table.plan .col-save { width: 6.5rem; text-align: center; }
 
 @media (max-width: 700px) {
   table.plan thead { display: none; }

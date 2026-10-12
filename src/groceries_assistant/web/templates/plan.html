@@ -18,7 +18,6 @@
       <th>Gerecht</th>
       <th>Kok</th>
       {% for m in evenings[0].members %}<th>{{ m.name }}</th>{% endfor %}
-      <th></th>
       <th>Goedkeuren</th>
     </tr>
   </thead>
@@ -204,11 +203,6 @@
       {% endif %}
     </td>
     {% endfor %}
-    <td class="col-save">
-      {% if e.kind != 'no_cook' and not e.is_ordered %}
-      <button form="evening-{{ row }}" aria-label="Bewaar avond {{ e.label }}">opslaan</button>
-      {% endif %}
-    </td>
     <td class="col-approve">
       {% if e.is_past %}
       <span class="muted" aria-label="Al geweest">&mdash;</span>

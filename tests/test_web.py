@@ -1023,10 +1023,11 @@ def test_grid_checkboxes_bound_to_their_own_row(tmp_path):
                 data={"person_id": person_id, "name": person_id, "role": role, "weight": "1"},
             )
         page = client.get("/plan").text
-        # each evening id: exactly 3 checkbox refs + 1 opslaan button (3 people)
+        # each evening id: exactly 3 checkbox refs (3 people); fields that
+        # live inside the form itself don't need the form= attribute
         for n in range(1, 8):
             refs = page.count(f'form="evening-{n}"')
-            assert refs == 4, f"evening-{n} referenced {refs}x, expected 4"
+            assert refs == 3, f"evening-{n} referenced {refs}x, expected 3"
         # the checkboxes in evening-5's own segment reference evening-5 (not another row)
         segment = page.split('id="evening-5"')[1].split('id="evening-6"')[0]
         first_checkbox = next(
