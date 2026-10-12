@@ -176,10 +176,20 @@ def test_order_button_builds_the_approved_days(tmp_path):
         assert resp.status_code == 303
         assert resp.headers["location"] == "/order"
     store = Store(tmp_path / "state.db")
-    assert store.plan_ordered(plan_id) == {third, fifth}
+    # building the list does not lock the days yet; confirming does
+    assert store.plan_ordered(plan_id) == set()
     assert store.order_items(plan_id) != []
-    # ordering the same approved days again is a no-op (nothing pending)
+    with make_client(tmp_path) as client:
+        resp = client.post("/order/confirm", follow_redirects=False)
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/plan"
+    store = Store(tmp_path / "state.db")
+    assert store.plan_ordered(plan_id) == {third, fifth}
     assert store.plan_approvals(plan_id) == {third, fifth}
+    # nothing pending any more: both actions refuse
+    with make_client(tmp_path) as client:
+        assert client.post("/plan/order", follow_redirects=False).status_code == 400
+        assert client.post("/order/confirm", follow_redirects=False).status_code == 400
 
 
 def test_revoke_a_single_day_keeps_later_approvals(tmp_path):
@@ -211,6 +221,7 @@ def test_cannot_revoke_an_ordered_day(tmp_path):
     with make_client(tmp_path) as client:
         client.post("/plan/approve", data={"day": third.isoformat()}, follow_redirects=False)
         client.post("/plan/order", follow_redirects=False)
+        client.post("/order/confirm", follow_redirects=False)
         resp = client.post(
             "/plan/unapprove", data={"day": third.isoformat()}, follow_redirects=False
         )
@@ -220,7 +231,8 @@ def test_cannot_revoke_an_ordered_day(tmp_path):
 
 
 def test_ordered_rows_are_locked_on_the_plan_page(tmp_path):
-    """Once ordered, a row is read-only: no goedkeuren/intrekken/swap, just 'besteld'."""
+    """Once confirmed, a row no longer offers goedkeuren/intrekken: only 'besteld',
+    moving to another day, or changing with an extra confirmation."""
     seed_recipe(tmp_path)
     with make_client(tmp_path) as client:
         client.get("/plan")
@@ -231,12 +243,110 @@ def test_ordered_rows_are_locked_on_the_plan_page(tmp_path):
     with make_client(tmp_path) as client:
         client.post("/plan/approve", data={"day": third.isoformat()}, follow_redirects=False)
         client.post("/plan/order", follow_redirects=False)
+        client.post("/order/confirm", follow_redirects=False)
         page = client.get("/plan").text
     # exactly the one ordered day is marked besteld and locked
     assert page.count('class="besteld-tag"') == 1
     assert "intrekken" not in page
+    # the confirmed row may move to another day or change with confirmation only
+    assert 'action="/plan/swap-days"' in page
+    assert "ruil dag" in page
+    assert 'name="force"' in page
     # all other (unapproved) days still offer goedkeuren
     assert page.count(">goedkeuren<") == n - 1
+
+
+def test_confirm_places_the_order_and_locks_days(tmp_path):
+    """'Bevestig bestelling' on /order locks the approved days, not /plan/order."""
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        client.get("/plan")
+    store = Store(tmp_path / "state.db")
+    plan_id, _start, _ = store.load_proposal()
+    third = sorted(r.day for r in store.plan_entries(plan_id))[2]
+    with make_client(tmp_path) as client:
+        client.post("/plan/approve", data={"day": third.isoformat()}, follow_redirects=False)
+        # the button only shows while something is approved but not confirmed
+        assert client.get("/order").text.count("Bevestig bestelling") == 1
+        resp = client.post("/order/confirm", follow_redirects=False)
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/plan"
+    store = Store(tmp_path / "state.db")
+    assert store.plan_ordered(plan_id) == {third}
+    assert store.order_items(plan_id) != []
+
+
+def test_forced_change_of_a_confirmed_day_frees_its_items(tmp_path):
+    """A confirmed day only changes with the extra confirmation: the day then
+    unlocks and the recipe's bought products are marked 'in huis'."""
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        client.get("/plan")
+    store = Store(tmp_path / "state.db")
+    plan_id, _start, _ = store.load_proposal()
+    third = sorted(r.day for r in store.plan_entries(plan_id))[2]
+    with make_client(tmp_path) as client:
+        client.post("/plan/approve", data={"day": third.isoformat()}, follow_redirects=False)
+        client.post("/plan/order", follow_redirects=False)
+        client.post("/order/confirm", follow_redirects=False)
+        # without the forced confirmation the change is refused
+        resp = client.post(
+            "/plan/swap",
+            data={"day": third.isoformat(), "choice": "__no_cook__"},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 400
+        # nothing changed
+        store = Store(tmp_path / "state.db")
+        assert store.plan_ordered(plan_id) == {third}
+        assert all(i["have"] == 0 for i in store.order_items(plan_id))
+        # with the confirmation the dish changes, the day unlocks, items freed
+        resp = client.post(
+            "/plan/swap",
+            data={"day": third.isoformat(), "choice": "__no_cook__", "force": "1"},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/plan"
+    store = Store(tmp_path / "state.db")
+    assert store.plan_ordered(plan_id) == set()
+    items = {i["product"]: i for i in store.order_items(plan_id)}
+    assert items["spaghetti"]["have"] == 1
+    # the unlocked day is back on the plan page as approved-but-not-ordered
+    with make_client(tmp_path) as client:
+        page = client.get("/plan").text
+        assert "intrekken" in page
+        assert page.count('class="besteld-tag"') == 0
+
+
+def test_swap_days_moves_a_confirmed_recipe(tmp_path):
+    """Ruil dag: the confirmed recipe moves to the other date, 'besteld' and all."""
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        client.get("/plan")
+    store = Store(tmp_path / "state.db")
+    plan_id, _start, _ = store.load_proposal()
+    days = sorted(r.day for r in store.plan_entries(plan_id))
+    third, fourth = days[2], days[3]
+    before = {r.day: (r.kind, r.recipe_slug) for r in store.plan_entries(plan_id)}
+    with make_client(tmp_path) as client:
+        client.post("/plan/approve", data={"day": third.isoformat()}, follow_redirects=False)
+        client.post("/plan/order", follow_redirects=False)
+        client.post("/order/confirm", follow_redirects=False)
+        resp = client.post(
+            "/plan/swap-days",
+            data={"day": third.isoformat(), "swap_to": fourth.isoformat()},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/plan"
+    store = Store(tmp_path / "state.db")
+    by_day = {r.day: (r.kind, r.recipe_slug) for r in store.plan_entries(plan_id)}
+    assert by_day[fourth] == before[third]
+    assert by_day[third] == before[fourth]
+    # the confirmed marker travels with the recipe to its new date
+    assert store.plan_ordered(plan_id) == {fourth}
+    assert store.plan_approvals(plan_id) == {fourth}
 
 
 def test_changing_week_start_shifts_an_open_proposal_in_place(tmp_path):

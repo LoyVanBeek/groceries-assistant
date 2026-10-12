@@ -699,8 +699,18 @@ def create_app(
         )
 
     @app.post("/plan/swap")
-    async def plan_swap(request: Request, day: str = Form(...), choice: str = Form("")):
+    async def plan_swap(
+        request: Request,
+        day: str = Form(...),
+        choice: str = Form(""),
+        force: str = Form(""),
+    ):
         """Swap one evening's dish; empty/'__keep__' keeps the current pick.
+
+        Changing a day whose groceries have been confirmed ('besteld') is
+        allowed, but only with the extra `force` confirmation: the day
+        unlocks and the previously bought products are marked 'in huis' so
+        they are not bought twice.
 
         Note: the default must be Form('') — FastAPI treats an empty form
         value as missing, and the browser posts an empty value when the
@@ -714,6 +724,17 @@ def create_app(
         target = date.fromisoformat(day)
         if choice in (KEEP_CHOICE, "__keep__"):
             return RedirectResponse("/plan", status_code=303)
+        confirmed = store().plan_ordered(plan_id)
+        was_confirmed = target in confirmed
+        if was_confirmed and not force:
+            raise HTTPException(
+                400,
+                "De boodschappen voor deze dag zijn al besteld: vink de bevestiging"
+                " aan om het gerecht te wisselen",
+            )
+        freed = {}
+        if was_confirmed:
+            freed = _day_ordered_products(plan_id, target)
         new_rows: list[PlanEntryRow] = []
         for row in rows:
             if row.day != target:
@@ -735,6 +756,31 @@ def create_app(
                 new_rows.append(PlanEntryRow(day=target, kind="cook", recipe_slug=choice, people=4))
         store().update_proposal_rows(plan_id, new_rows)
         _reconcile_picks(plan_id, new_rows, target, _row_dish_slug(rows, target))
+        if was_confirmed:
+            store().set_day_ordered(plan_id, target, False)
+            for product, unit in freed:
+                store().set_order_item_have(plan_id, product, unit, True)
+        return RedirectResponse("/plan", status_code=303)
+
+    @app.post("/plan/swap-days")
+    def plan_swap_days(day: str = Form(...), swap_to: str = Form(...)):
+        """Ruil twee avonden: de gerechten ruilen van dag.
+
+        The bought groceries travel with their recipe, so a confirmed dish
+        can move to another date without losing its 'besteld' status.
+        """
+        proposal = store().load_proposal()
+        if proposal is None:
+            raise HTTPException(404, "Geen voorstel")
+        plan_id = proposal[0]
+        target = date.fromisoformat(day)
+        other = date.fromisoformat(swap_to)
+        if target == other:
+            raise HTTPException(400, "Kies een andere dag om mee te ruilen")
+        try:
+            store().swap_days(plan_id, target, other)
+        except KeyError:
+            raise HTTPException(400, "Onbekende dag") from None
         return RedirectResponse("/plan", status_code=303)
 
     def _row_dish_slug(rows: list[PlanEntryRow], day: date) -> str:
@@ -898,6 +944,33 @@ def create_app(
             ],
         )
 
+    def _day_ordered_products(plan_id: int, day: date) -> set[tuple[str, str]]:
+        """The (product, unit) pairs the saved list has for one evening.
+
+        Used when a confirmed dish is changed anyway: rebuilds just that
+        evening so its bought products can be marked 'in huis' instead of
+        being bought twice. The saved list is an aggregate over many days,
+        so the day's own products are re-derived rather than guessed from
+        shared product names.
+        """
+        row = next((r for r in store().plan_entries(plan_id) if r.day == day), None)
+        if row is None or row.kind != "cook" or not row.recipe_slug:
+            return set()
+        by_slug = all_known()
+        dishes = dishes_by_slug()
+        entries = rows_to_entries([row], by_slug, dishes, store().plan_picks(plan_id))
+        if not any(e.kind == "cook" for e in entries):
+            return set()
+        facts = store().product_facts()
+        order = build_order(
+            entries,
+            store().staples(),
+            servings=SERVINGS,
+            facts=facts,
+            carried=last_weeks_stock(store(), plan_id, by_slug, dishes, facts, servings=SERVINGS),
+        )
+        return {(item.product, item.unit) for item in order.shopping}
+
     @app.post("/plan/approve")
     def plan_approve(day: str = Form("")):
         """Approve one day (per-row goedkeuren), or the whole week.
@@ -943,11 +1016,11 @@ def create_app(
 
     @app.post("/plan/order")
     def plan_order():
-        """Order the approved-but-not-yet-ordered groceries in one click.
+        """Build the grocery list for the approved-but-not-yet-confirmed days.
 
-        Builds the list for the approved days that have not been ordered yet
-        (skipping non-cook evenings), replaces the order with it, and marks
-        those days ordered.
+        The list is only ever a preview: days become 'besteld' (locked in,
+        hold for ordering) when the shopper confirms the AH order on /order,
+        not when the list is built here.
         """
         proposal = store().load_proposal()
         if proposal is None:
@@ -959,8 +1032,6 @@ def create_app(
             raise HTTPException(400, "Nog niets goedgekeurd")
         rows = [r for r in store().plan_entries(plan_id) if r.day in pending]
         _build_and_save_order(plan_id, rows)
-        for day in pending:
-            store().set_day_ordered(plan_id, day, True)
         return RedirectResponse("/order", status_code=303)
 
     @app.post("/plan/advance")
@@ -1049,12 +1120,14 @@ def create_app(
             mapping = mappings().get(item["product"])
             item["image"] = mapping.ah_image_url if mapping else None
             item["recipes"] = sources.get(item["product"].lower(), [])
+        pending = sorted(store().plan_approvals(plan_id) - store().plan_ordered(plan_id))
         return render(
             request,
             "order.html",
             items=items,
             warnings=_plan_warnings(plan_id),
             leftovers=_plan_leftovers(plan_id),
+            can_confirm=bool(pending),
             fmt=format_amount,
         )
 
@@ -1102,6 +1175,29 @@ def create_app(
             raise HTTPException(404, "Geen actieve week")
         store().set_order_item_have(latest[0], product, unit, bool(have))
         return RedirectResponse("/order", status_code=303)
+
+    @app.post("/order/confirm")
+    def order_confirm():
+        """Confirm the AH order went through: lock the days on the list.
+
+        Marks every approved-but-not-yet-confirmed day as 'besteld' (its
+        recipe can then only be moved to another date, or changed with an
+        extra confirmation). Rebuilds the list first so it always covers the
+        days being locked, and so 'in huis' ticks survive.
+        """
+        latest = store().latest_plan()
+        if latest is None:
+            raise HTTPException(404, "Geen actieve week")
+        plan_id = latest[0]
+        approved_days = store().plan_approvals(plan_id)
+        pending = sorted(approved_days - store().plan_ordered(plan_id))
+        if not pending:
+            raise HTTPException(400, "Niets om te bevestigen")
+        rows = [r for r in store().plan_entries(plan_id) if r.day in pending]
+        _build_and_save_order(plan_id, rows)
+        for day in pending:
+            store().set_day_ordered(plan_id, day, True)
+        return RedirectResponse("/plan", status_code=303)
 
     @app.get("/order/match", response_class=HTMLResponse)
     def order_match_page(request: Request):

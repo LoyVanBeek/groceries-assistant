@@ -222,6 +222,16 @@ tbody tr.today:hover { background: var(--accent-soft); }
   font-size: 0.72rem;
   white-space: nowrap;
 }
+.confirm-force {
+  display: block;
+  padding: 0.35rem 0.5rem 0.15rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+.confirm-force input { vertical-align: middle; margin-right: 0.3rem; }
+.ruil-form { display: block; margin-top: 0.35rem; }
+.ruil-form select { margin-right: 0.35rem; max-width: 10rem; }
 
 .chip {
   display: inline-flex;

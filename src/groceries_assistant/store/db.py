@@ -584,6 +584,60 @@ class Store:
         ).fetchall()
         return {date.fromisoformat(row["day"]) for row in rows}
 
+    def swap_days(self, plan_id: int, day_a: date, day_b: date) -> None:
+        """Exchange the full content of two evenings.
+
+        The dishes, part picks, approval and order-confirmation all travel
+        with the day they belong to, so a confirmed recipe keeps its bought
+        groceries no matter which date it ends up on. Raises KeyError when a
+        day is not part of the plan.
+        """
+        if day_a == day_b:
+            return
+        cur = self.conn.cursor()
+        entries = {
+            date.fromisoformat(r["day"]): r
+            for r in cur.execute(
+                "SELECT day, kind, recipe_slug, source_slug, people"
+                " FROM plan_entries WHERE plan_id = ?",
+                (plan_id,),
+            )
+        }
+        if day_a not in entries or day_b not in entries:
+            missing = day_a if day_a not in entries else day_b
+            raise KeyError(f"plan {plan_id} has no day {missing.isoformat()}")
+        a, b = entries[day_a], entries[day_b]
+        for day, other in ((day_a, b), (day_b, a)):
+            cur.execute(
+                "UPDATE plan_entries SET kind=?, recipe_slug=?, source_slug=?, people=?"
+                " WHERE plan_id=? AND day=?",
+                (
+                    other["kind"],
+                    other["recipe_slug"],
+                    other["source_slug"],
+                    other["people"],
+                    plan_id,
+                    day.isoformat(),
+                ),
+            )
+        # Picks/approvals/ordered are keyed to (plan, day): move one day's
+        # rows aside first so the exchange never collides on a shared key.
+        tmp = "__swap_tmp__"
+        for table in ("plan_picks", "plan_approvals", "plan_ordered"):
+            cur.execute(
+                f"UPDATE {table} SET day=? WHERE plan_id=? AND day=?",
+                (tmp, plan_id, day_a.isoformat()),
+            )
+            cur.execute(
+                f"UPDATE {table} SET day=? WHERE plan_id=? AND day=?",
+                (day_a.isoformat(), plan_id, day_b.isoformat()),
+            )
+            cur.execute(
+                f"UPDATE {table} SET day=? WHERE plan_id=? AND day=?",
+                (day_b.isoformat(), plan_id, tmp),
+            )
+        self.conn.commit()
+
     def approve_plan(self, start: date, entries: list[PlanEntryRow]) -> int:
         cur = self.conn.cursor()
         cur.execute("INSERT INTO plans(start_date) VALUES (?)", (start.isoformat(),))
@@ -790,15 +844,35 @@ class Store:
         Each item is (product, unit, amount, webshop_id, pack_count, pack_unit,
         note): the demand-unit quantity, plus how many packs that is and what
         they add up to, for a product bought in whole packs.
+
+        The 'in huis' tick (`have`) is carried over for products that stay on
+        the list: rebuilding the list (after a dish change or a re-order) must
+        never silently put back items the user already has.
         """
         cur = self.conn.cursor()
+        have_now = {
+            (row["product"], row["unit"]): row["have"]
+            for row in cur.execute(
+                "SELECT product, unit, have FROM order_items WHERE plan_id = ?", (plan_id,)
+            )
+        }
         cur.execute("DELETE FROM order_items WHERE plan_id = ?", (plan_id,))
         for product, unit, amount, webshop_id, pack_count, pack_unit, note in items:
             cur.execute(
                 "INSERT INTO order_items"
                 " (plan_id, product, unit, amount, webshop_id, have, pack_count, pack_unit, note)"
-                " VALUES (?,?,?,?,?,0,?,?,?)",
-                (plan_id, product, unit, amount, webshop_id, pack_count, pack_unit, note),
+                " VALUES (?,?,?,?,?,?,?,?,?)",
+                (
+                    plan_id,
+                    product,
+                    unit,
+                    amount,
+                    webshop_id,
+                    have_now.get((product, unit), 0),
+                    pack_count,
+                    pack_unit,
+                    note,
+                ),
             )
         self.conn.commit()
 

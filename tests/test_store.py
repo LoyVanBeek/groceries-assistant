@@ -114,6 +114,89 @@ def test_approval_flags_and_ordered_extent_round_trip(store):
     assert store.plan_ordered(plan_id) == {start + timedelta(days=5)}
 
 
+def test_swap_days_exchanges_entries_picks_approval_and_confirmation(store):
+    """Ruil van dag: dishes, part picks and per-day flags move as one block,
+    so a confirmed recipe keeps its 'besteld' status on the other date."""
+    start = date(2026, 10, 6)
+    a = start + timedelta(days=1)
+    b = start + timedelta(days=3)
+    plan_id = store.save_proposal(
+        start,
+        [
+            PlanEntryRow(day=start),
+            PlanEntryRow(day=a, kind="cook", recipe_slug="pasta", people=4),
+            PlanEntryRow(day=start + timedelta(days=2)),
+            PlanEntryRow(day=b, kind="no_cook", people=0),
+            PlanEntryRow(day=start + timedelta(days=4)),
+            PlanEntryRow(day=start + timedelta(days=5)),
+            PlanEntryRow(day=start + timedelta(days=6)),
+        ],
+        picks={a: {"groente": "brocolli"}},
+    )
+    store.set_day_approved(plan_id, a, True)
+    store.set_day_ordered(plan_id, a, True)
+    store.swap_days(plan_id, a, b)
+    by_day = {e.day: e for e in store.plan_entries(plan_id)}
+    assert by_day[a].kind == "no_cook"
+    assert by_day[a].people == 0
+    assert by_day[b].kind == "cook"
+    assert by_day[b].recipe_slug == "pasta"
+    # the picks and the confirmed/approved flags rode along with the recipe
+    assert store.plan_picks(plan_id) == {b: {"groente": "brocolli"}}
+    assert store.plan_approvals(plan_id) == {b}
+    assert store.plan_ordered(plan_id) == {b}
+    # swapping back restores the original arrangement
+    store.swap_days(plan_id, b, a)
+    assert store.plan_picks(plan_id) == {a: {"groente": "brocolli"}}
+    assert store.plan_approvals(plan_id) == {a}
+    assert store.plan_ordered(plan_id) == {a}
+
+
+def test_swap_days_rejects_unknown_days(store):
+    start = date(2026, 10, 6)
+    plan_id = store.save_proposal(
+        start, [PlanEntryRow(day=start + timedelta(days=i)) for i in range(7)]
+    )
+    stranger = start + timedelta(days=50)
+    try:
+        store.swap_days(plan_id, start, stranger)
+    except KeyError:
+        pass
+    else:
+        raise AssertionError("swap_days should reject a day outside the plan")
+    # a same-day swap is a harmless no-op
+    store.swap_days(plan_id, start, start)
+    assert len(store.plan_entries(plan_id)) == 7
+
+
+def test_save_order_items_keeps_in_huis_ticks_for_staying_products(store):
+    start = date(2026, 10, 6)
+    plan_id = store.save_proposal(
+        start, [PlanEntryRow(day=start + timedelta(days=i)) for i in range(7)]
+    )
+    store.save_order_items(
+        plan_id,
+        [
+            ("spaghetti", "g", 500, None, 1, "500 g", ""),
+            ("ui", "stuk", 2, None, 1, "", ""),
+        ],
+    )
+    store.set_order_item_have(plan_id, "spaghetti", "g", True)
+    # rebuilding the list replaces the products but keeps the 'in huis' tick
+    store.save_order_items(
+        plan_id,
+        [
+            ("spaghetti", "g", 750, None, 1, "500 g", ""),
+            ("tomaat", "stuk", 4, None, 1, "", ""),
+        ],
+    )
+    items = {i["product"]: i for i in store.order_items(plan_id)}
+    assert items["spaghetti"]["have"] == 1
+    assert items["spaghetti"]["amount"] == 750
+    assert items["tomaat"]["have"] == 0
+    assert "ui" not in items
+
+
 def test_old_through_columns_migrate_to_per_day_flags(store):
     start = date(2026, 10, 6)
     plan_id = store.save_proposal(

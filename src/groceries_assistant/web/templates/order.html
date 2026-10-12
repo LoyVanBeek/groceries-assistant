@@ -3,6 +3,14 @@
 {% block content %}
 <h1>Controle &mdash; week van {{ start }}</h1>
 <p>Vink wat je al in huis hebt; dit komt niet op de lijst.</p>
+{% if can_confirm %}
+<form method="post" action="/order/confirm">
+  <p>
+    <button type="submit" class="primary">Bevestig bestelling &mdash; de boodschappen zijn geplaatst</button>
+    <span class="muted">Daarna staan de goedgekeurde dagen vast: een gerecht kan alleen nog geruild worden naar een andere dag, of met extra bevestiging gewijzigd worden.</span>
+  </p>
+</form>
+{% endif %}
 {% if warnings %}
 <ul class="plain warnings">
   {% for w in warnings %}<li>{{ w }}</li>{% endfor %}

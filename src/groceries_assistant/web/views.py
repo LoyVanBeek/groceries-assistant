@@ -79,8 +79,17 @@ def plan_view(
     dishes_by_slug = {d.slug: d for d in dishes}
     picks = store.plan_picks(plan_id)
     view: list[dict] = []
+    all_rows = store.plan_entries(plan_id)
+    day_targets = []
+    for row in all_rows:
+        day_targets.append(
+            (
+                row.day.isoformat(),
+                f"{WEEKDAYS[row.day.weekday()].capitalize()} {row.day.strftime('%d-%m')}",
+            )
+        )
     last_cook_slug: str | None = None
-    for row in store.plan_entries(plan_id):
+    for row in all_rows:
         evening = planner.evenings_for(store, row.day, days=1)[0]
         budget = evening.free_minutes
         name = ""
@@ -167,6 +176,11 @@ def plan_view(
                 "is_past": row.day < today,
                 "is_approved": row.day in approved_days,
                 "is_ordered": row.day in ordered_days,
+                "swap_targets": [
+                    {"day_iso": iso, "label": label}
+                    for iso, label in day_targets
+                    if iso != row.day.isoformat()
+                ],
             }
         )
         if row.kind == "cook":
