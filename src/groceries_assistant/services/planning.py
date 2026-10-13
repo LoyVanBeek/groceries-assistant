@@ -21,6 +21,8 @@ class Alternative:
     is_dish: bool = False
     part_labels: tuple[str, ...] = ()
     """The part labels of a dish ('Groente', 'Vlees'); empty for a recipe."""
+    minutes: int | None = None
+    """How long the option takes this evening; None when it cannot be planned."""
     problem: str = ""
     """Why this cannot be planned tonight; empty when it can.
 
@@ -63,6 +65,7 @@ def alternatives(
                 slug=dish.slug,
                 name=dish.name,
                 score=choice.score if choice is not None else 0.0,
+                minutes=choice.minutes if choice is not None else None,
                 is_dish=True,
                 part_labels=tuple(part.label for part in dish.parts),
                 problem=problem,
@@ -89,6 +92,7 @@ def alternatives(
                 slug=recipe.slug,
                 name=recipe.name,
                 score=prefs.recipe_score(recipe.slug),
+                minutes=minutes,
                 problem=problem,
             )
         )
