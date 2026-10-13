@@ -35,14 +35,22 @@
     <th>Laatst gepland</th>
     <th>Tijd</th>
     <th>Score</th>
-    <th></th>
   </tr>
   {% for o in options %}
   <tr class="select-row{% if o.problem %} unavailable{% endif %}">
     <td class="col-name">
       {% if o.image %}<img class="thumb" src="{{ o.image }}" alt="">{% endif %}
       <span class="option-name">{{ o.name }}{% if o.is_dish %} <span class="muted">({{ o.part_labels|join(' + ') }})</span>{% endif %}</span>
-      {% if o.problem %}<span class="muted row-problem">{{ o.problem }}</span>{% endif %}
+      {% if o.problem %}
+      <span class="muted row-problem">{{ o.problem }}</span>
+      {% else %}
+      <form method="post" action="/plan/swap">
+        <input type="hidden" name="day" value="{{ day }}">
+        <input type="hidden" name="choice" value="{{ o.slug }}">
+        <button class="btn-small" type="submit">kies</button>
+        {% if confirmed %}<label class="confirm-force"><input type="checkbox" name="force" required> boodschappen al besteld &mdash; ik maak de items vrij</label>{% endif %}
+      </form>
+      {% endif %}
     </td>
     <td>
       {% if o.favourite %}<span class="fave" title="Favoriet &mdash; mag best vaker terugkomen">&#9829;</span>{% endif %}
@@ -56,21 +64,9 @@
     </td>
     <td class="muted">{% if o.minutes is not none %}{{ o.minutes }} min{% else %}&mdash;{% endif %}</td>
     <td class="muted score">{{ '%.1f'|format(o.score)|replace('.', ',') }}</td>
-    <td class="actions">
-      {% if o.problem %}
-      <span class="muted">&mdash;</span>
-      {% else %}
-      <form method="post" action="/plan/swap">
-        <input type="hidden" name="day" value="{{ day }}">
-        <input type="hidden" name="choice" value="{{ o.slug }}">
-        <button class="btn-small" type="submit">kies</button>
-        {% if confirmed %}<label class="confirm-force"><input type="checkbox" name="force" required> boodschappen al besteld &mdash; ik maak de items vrij</label>{% endif %}
-      </form>
-      {% endif %}
-    </td>
   </tr>
   {% else %}
-  <tr><td colspan="6" class="muted">Geen recepten gevonden{% if q %} voor &lsquo;{{ q }}&rsquo;{% endif %}.</td></tr>
+  <tr><td colspan="5" class="muted">Geen recepten gevonden{% if q %} voor &lsquo;{{ q }}&rsquo;{% endif %}.</td></tr>
   {% endfor %}
 </table>
 {% if can_leftovers or not is_no_cook %}

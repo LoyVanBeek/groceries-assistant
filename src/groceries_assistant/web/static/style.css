@@ -508,7 +508,7 @@ table.select-table td {
   vertical-align: middle;
 }
 table.select-table tr:last-child td { border-bottom: none; }
-table.select-table .col-name { width: 42%; }
+table.select-table .col-name { width: 45%; }
 table.select-table .col-name .thumb {
   width: 3rem;
   height: 3rem;
@@ -516,8 +516,7 @@ table.select-table .col-name .thumb {
   margin-right: 0.5rem;
   vertical-align: middle;
 }
-table.select-table td.actions { text-align: right; white-space: nowrap; }
-table.select-table td.actions .confirm-force { white-space: normal; }
+table.select-table .col-name form { margin: 0.35rem 0 0; }
 table.select-table .score { font-variant-numeric: tabular-nums; }
 .select-row.unavailable { background: var(--surface); }
 .option-name { font-weight: 600; }
@@ -630,7 +629,6 @@ table.plan .col-attend .cell-name { display: none; }
   }
   table.select-table tr { border-bottom: 1px solid var(--rule); padding-bottom: 0.5rem; margin-bottom: 0.5rem; }
   table.select-table td { border: none; padding: 0.2rem 0; }
-  table.select-table td.actions { text-align: left; }
 }
 
 /* the dish form: one fieldset per part, each with a row per option to fill in */
