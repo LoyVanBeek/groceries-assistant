@@ -245,13 +245,16 @@ def test_ordered_rows_are_locked_on_the_plan_page(tmp_path):
         client.post("/plan/order", follow_redirects=False)
         client.post("/order/confirm", follow_redirects=False)
         page = client.get("/plan").text
+        select = client.get(f"/plan/select?day={third.isoformat()}").text
     # exactly the one ordered day is marked besteld and locked
     assert page.count('class="besteld-tag"') == 1
     assert "intrekken" not in page
     # the confirmed row may move to another day or change with confirmation only
     assert 'action="/plan/swap-days"' in page
     assert "ruil dag" in page
-    assert 'name="force"' in page
+    # the change link points at the select page, where the force gate lives
+    assert f'href="/plan/select?day={third.isoformat()}"' in page
+    assert 'name="force"' in select
     # all other (unapproved) days still offer goedkeuren
     assert page.count(">goedkeuren<") == n - 1
 
@@ -1207,7 +1210,7 @@ def test_toch_koken_converts_leftovers_to_best_fit(tmp_path):
         assert rows[tuesday.isoformat()].kind == "cook"
         assert rows[tuesday.isoformat()].recipe_slug == "pasta"
         page = client.get("/plan")
-        assert "wissel" in page.text
+        assert "gerecht kiezen" in page.text
 
 
 def test_grid_checkboxes_bound_to_their_own_row(tmp_path):
@@ -1603,9 +1606,9 @@ def test_order_match_pin_unpin(tmp_path):
         assert not (tmp_path / "ah_mappings.yaml").read_text().count("spaghetti")
 
 
-def test_dish_picker_shows_images_and_combines_current_dish(tmp_path):
-    """The dish cell is one control: summary = current dish (thumb + name),
-    body = alternatives with thumbs (regression for the two picker TODOs)."""
+def test_recipe_selection_is_a_page_and_lists_alternatives(tmp_path):
+    """The dish cell shows the current dish and links to /plan/select, where
+    every alternative row is a /plan/swap form with its thumbnail."""
     with make_client(tmp_path) as client:
         client.post(
             "/settings/people",
@@ -1625,20 +1628,29 @@ def test_dish_picker_shows_images_and_combines_current_dish(tmp_path):
         (tmp_path / "recipes" / "img" / "pasta.png").write_bytes(_png_bytes())
 
         page = client.get("/plan").text
-        assert '<details class="dish-picker">' in page
-        # Monday (25 min) picks pasta; the summary IS the selected dish
-        summary = page.split("<summary")[1].split("</summary>")[0]
-        assert "Pasta" in summary
-        assert 'src="/recipes/img/pasta.png"' in summary
-        # Tuesday (45 min) is a curry evening: its picker lists pasta (with
-        # thumb) as an alternative option row
-        tuesday_options = page.split("dish-options")[2].split("</details>")[0]
-        assert "Pasta" in tuesday_options
-        assert 'src="/recipes/img/pasta.png"' in tuesday_options
-        assert 'name="choice"' in tuesday_options
-        assert "laten staan" in tuesday_options
-        # wissel select is gone; only the 7 cook selects remain
+        # the dropdown is gone; each row shows its dish and a link to the page
+        assert '<details class="dish-picker">' not in page
+        assert 'href="/plan/select?day=' in page
+        assert "gerecht kiezen" in page
+        # no more picker-only forms on the plan page either
+        assert 'value="__no_cook__"' not in page
+        assert 'value="__leftovers__"' not in page
+        # only the 7 cook selects remain (no picker selects)
         assert page.count("<select") == 7
+
+        from groceries_assistant.store.db import Store
+
+        store = Store(tmp_path / "state.db")
+        days = sorted(r.day for r in store.plan_entries(store.load_proposal()[0]))
+        # a row's own dish is excluded, so the other one must appear on offer:
+        # check both days so the test does not depend on which dish got which
+        select = "".join(
+            client.get(f"/plan/select?day={d.isoformat()}").text for d in (days[0], days[1])
+        )
+        assert "Pasta" in select
+        assert 'src="/recipes/img/pasta.png"' in select
+        assert 'name="choice"' in select
+        assert "laten staan" in select
 
 
 def test_order_match_custom_entry(tmp_path):
@@ -1696,9 +1708,9 @@ def test_no_cook_evening(tmp_path):
         plan_id, start, _rows = store.load_proposal()
         monday = start
 
-        # every evening offers the option
-        page = client.get("/plan").text
-        assert page.count('value="__no_cook__"') == 7
+        # a cook evening's select page offers the no-cook option
+        select = client.get(f"/plan/select?day={monday.isoformat()}").text
+        assert 'value="__no_cook__"' in select
 
         swapped = client.post(
             "/plan/swap",
@@ -1716,13 +1728,13 @@ def test_no_cook_evening(tmp_path):
         assert "Niet koken (we eten elders)" in page
         assert "Geen kok nodig" in page  # kok cell replaced
         assert "Niet van toepassing" in page  # attendance cells replaced
-        # its picker offers fitting dishes to switch back to cooking
+        # its select page offers fitting dishes to switch back to cooking
         # (Monday only has 25 minutes, so the 10-minute soup fits, pasta does not)
-        options = page.split('class="dish-options"')[1].split("</details>")[0]
-        assert 'value="soep"' in options
-        assert 'value="pasta"' not in options
+        select = client.get(f"/plan/select?day={monday.isoformat()}").text
+        assert 'value="soep"' in select
+        assert 'value="pasta"' not in select
         # ... and no 'niet koken' option on that row itself
-        assert "__no_cook__" not in options
+        assert "__no_cook__" not in select
 
         # switching back to cooking works and the dish returns
         client.post(
@@ -2048,10 +2060,15 @@ def seed_part_recipes(tmp_path: Path) -> None:
 def test_a_component_is_never_offered_as_an_evening_dish(tmp_path):
     seed_part_recipes(tmp_path)
     with make_client(tmp_path) as client:
-        text = client.get("/plan").text
+        page = client.get("/plan").text
+        assert "Kipdoner" in page
+        store, plan_id = _proposal(tmp_path)
+        days = sorted(r.day for r in store.plan_entries(plan_id))
+        select = "".join(
+            client.get(f"/plan/select?day={d.isoformat()}").text for d in (days[0], days[1])
+        )
         # kipfilet is a component: it can fill a part, never an evening
-        assert "Kipdoner" in text
-        assert 'value="kipfilet"' not in text
+        assert 'value="kipfilet"' not in select
 
 
 def test_a_dish_uses_its_own_amount_of_a_shared_component(tmp_path):
@@ -2909,30 +2926,35 @@ def test_the_week_row_shows_the_longest_part_and_the_total(tmp_path):
         assert "30/45 min" in text  # the longest part decides the evening
 
 
-def test_a_dish_appears_in_the_picker_with_its_part_labels(tmp_path):
+def test_a_dish_appears_on_the_select_page_with_its_part_labels(tmp_path):
     seed_part_recipes(tmp_path)
     seed_dish(tmp_path)
     with make_client(tmp_path) as client:
-        text = client.get("/plan").text
+        store, plan_id = _open_week(client, tmp_path)
+        days = sorted(r.day for r in store.plan_entries(plan_id))
+        text = "".join(
+            client.get(f"/plan/select?day={d.isoformat()}").text for d in (days[0], days[1])
+        )
         assert "Aardappel-groente-vlees" in text
         assert "(Aardappels + Groente + Vlees)" in text
 
 
-def test_a_dish_that_cannot_be_planned_shows_why_in_the_picker(tmp_path):
+def test_a_dish_that_cannot_be_planned_shows_why_on_the_select_page(tmp_path):
     """The dish must not vanish: that is what a typo in a part option looks like."""
     seed_part_recipes(tmp_path)
     seed_dish(tmp_path)
     (tmp_path / "recipes" / "sperziebonen.yaml").unlink()
     with make_client(tmp_path) as client:
-        # a different evening's picker, since a row never offers its own dish
-        _open_week(client, tmp_path)
-
-        text = client.get("/plan").text
+        store, plan_id = _open_week(client, tmp_path)
+        days = sorted(r.day for r in store.plan_entries(plan_id))
+        text = "".join(
+            client.get(f"/plan/select?day={d.isoformat()}").text for d in (days[0], days[1])
+        )
         assert "Aardappel-groente-vlees" in text
         assert "sperziebonen bestaat niet meer" in text
         # greyed out, not a button you can press
         assert 'value="aardappel-groente-vlees"' not in text
-        assert "dish-option unavailable" in text
+        assert "select-row unavailable" in text
 
 
 def test_a_parts_options_show_what_they_cost_the_evening(tmp_path):
@@ -3343,3 +3365,148 @@ def test_a_dish_may_not_take_a_recipes_name(tmp_path):
         assert page.status_code == 200
         assert "al een recept" in page.text
         assert not (tmp_path / "dishes" / "pasta.yaml").exists()
+
+
+# --- the /plan/select recipe-selection page --------------------------------
+
+
+def _seed_select_data(tmp_path):
+    """Recipes with known recency buckets plus a current week that is all
+    broccoli, so the select page for any of its days offers exactly the four
+    other recipes (the day's own dish is excluded)."""
+    for slug, name in (
+        ("pasta", "Pasta"),
+        ("curry", "Curry"),
+        ("soep", "Soep"),
+        ("tortilla", "Tortilla"),
+        ("broccoli", "Broccoli"),
+    ):
+        recipes = tmp_path / "recipes"
+        recipes.mkdir(parents=True, exist_ok=True)
+        (recipes / f"{slug}.yaml").write_text(
+            f"name: {name}\nservings: 4\ntime: {{cook: 20}}\n"
+            "ingredients:\n  - {product: rijst, amount: 400, unit: g}\n",
+            encoding="utf-8",
+        )
+    store = Store(tmp_path / "state.db")
+    today = date.today()
+
+    def plan_back(days: int, slug: str) -> None:
+        back = today - timedelta(days=days)
+        plan_id = store.save_proposal(back, [PlanEntryRow(day=back, recipe_slug=slug)])
+        store.approve_proposal(plan_id)  # so the next save_proposal keeps it
+
+    plan_back(30, "pasta")  # langer geleden
+    plan_back(12, "curry")  # 2-3 weken geleden
+    plan_back(3, "tortilla")  # deze week
+    # soep is never planned -> nog nooit
+    store.save_proposal(
+        today,
+        [PlanEntryRow(day=today + timedelta(days=i), recipe_slug="broccoli") for i in range(7)],
+    )
+    return store
+
+
+def test_select_page_shows_popularity_and_recency_indicators(tmp_path):
+    """Badges: geliefd / niet geliefd / ok, the favourite heart and the
+    per-person dots, plus the four last-used buckets. The legend repeats each
+    label once, so a unique row badge shows up exactly twice."""
+    store = _seed_select_data(tmp_path)
+    with make_client(tmp_path) as client:
+        client.post(
+            "/settings/people",
+            data={"person_id": "mama", "name": "Mama", "role": "adult", "weight": "1"},
+        )
+        client.post("/recipes/verdict", data={"slug": "pasta", "person": "mama", "verdict": "love"})
+        client.post(
+            "/recipes/verdict", data={"slug": "curry", "person": "mama", "verdict": "dislike"}
+        )
+        start = store.load_proposal()[1]
+        text = client.get(f"/plan/select?day={start.isoformat()}").text
+        assert text.count('class="pop love"') == 2  # legend + pasta (geliefd)
+        assert text.count('class="pop hate"') == 2  # legend + curry (niet geliefd)
+        assert text.count('class="pop ok"') == 3  # legend + soep + tortilla
+        assert text.count("&#9829;") == 2  # legend + pasta (favourite)
+        assert 'class="dot love"' in text
+        assert 'class="dot dislike"' in text
+        assert text.count("deze week") == 2  # legend + tortilla
+        assert text.count("2-3 weken") == 2  # legend + curry
+        assert text.count("langer geleden") == 2  # legend + pasta
+        assert text.count("nog nooit") == 2  # legend + soep
+
+
+def test_select_page_search_filters_names(tmp_path):
+    store = _seed_select_data(tmp_path)
+    with make_client(tmp_path) as client:
+        start = store.load_proposal()[1]
+        day = start.isoformat()
+        page = client.get(f"/plan/select?day={day}&q=cur").text
+        assert 'value="curry"' in page
+        assert 'value="pasta"' not in page
+        assert 'value="tortilla"' not in page
+        # a miss shows the empty state, not an empty list
+        empty = client.get(f"/plan/select?day={day}&q=nope").text
+        assert "Geen recepten gevonden" in empty
+
+
+def test_select_page_sorts_by_last_used(tmp_path):
+    """sort=recent puts the most recently planned option first; never-used last."""
+    store = _seed_select_data(tmp_path)
+    with make_client(tmp_path) as client:
+        start = store.load_proposal()[1]
+        text = client.get(f"/plan/select?day={start.isoformat()}&sort=recent").text
+        assert (
+            text.index("Tortilla") < text.index("Curry") < text.index("Pasta") < text.index("Soep")
+        )
+
+
+def test_select_page_asks_confirmation_on_a_besteld_day(tmp_path):
+    """The select page repeats the plan page's force gate for confirmed days."""
+    seed_recipe(tmp_path)
+    (tmp_path / "recipes" / "curry.yaml").write_text(
+        "name: Curry\nservings: 4\ntime: {cook: 30}\n"
+        "ingredients:\n  - {product: rijst, amount: 400, unit: g}\n",
+        encoding="utf-8",
+    )
+    with make_client(tmp_path) as client:
+        client.get("/plan")
+        store = Store(tmp_path / "state.db")
+        plan_id, _start, _ = store.load_proposal()
+        days = sorted(r.day for r in store.plan_entries(plan_id))
+        third, first = days[2], days[0]
+        client.post("/plan/approve", data={"day": third.isoformat()}, follow_redirects=False)
+        client.post("/plan/order", follow_redirects=False)
+        client.post("/order/confirm", follow_redirects=False)
+
+        locked = client.get(f"/plan/select?day={third.isoformat()}").text
+        assert 'name="force"' in locked
+        assert "al besteld" in locked
+
+        plain = client.get(f"/plan/select?day={first.isoformat()}").text
+        assert 'name="force"' not in plain
+
+
+def test_recipes_page_searches_and_shows_indicators(tmp_path):
+    seed_recipe(tmp_path)
+    (tmp_path / "recipes" / "curry.yaml").write_text(
+        "name: Curry\nservings: 4\ntime: {cook: 30}\n"
+        "ingredients:\n  - {product: rijst, amount: 400, unit: g}\n",
+        encoding="utf-8",
+    )
+    with make_client(tmp_path) as client:
+        client.post(
+            "/settings/people",
+            data={"person_id": "mama", "name": "Mama", "role": "adult", "weight": "1"},
+        )
+        client.post("/recipes/verdict", data={"slug": "pasta", "person": "mama", "verdict": "love"})
+
+        page = client.get("/recipes").text
+        assert "Waardering" in page
+        assert "Laatst" in page
+        assert "geliefd" in page
+        assert "&#9829;" in page
+        assert "nog nooit" in page
+
+        search = client.get("/recipes?q=cur").text
+        assert "Curry" in search
+        assert "Pasta" not in search
