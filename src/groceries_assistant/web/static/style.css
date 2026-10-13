@@ -495,7 +495,7 @@ table.plan .parts-label { font-size: 0.98rem; }
 .select-search { margin: 0.6rem 0; }
 .select-search input[type="search"] { padding: 0.35rem 0.6rem; }
 .legend { margin: 0.2rem 0 0.4rem; }
-table.select-table { width: 100%; border-collapse: collapse; margin: 0.75rem 0; }
+table.select-table { border-collapse: collapse; margin: 0.75rem 0; width: auto; }
 table.select-table th {
   text-align: left;
   border-bottom: 2px solid var(--ink);
@@ -508,7 +508,7 @@ table.select-table td {
   vertical-align: middle;
 }
 table.select-table tr:last-child td { border-bottom: none; }
-table.select-table .col-name { width: 45%; display: flex; align-items: center; gap: 0.6rem; }
+table.select-table .col-name { display: flex; align-items: center; gap: 0.6rem; }
 table.select-table .col-name .thumb {
   width: 3rem;
   height: 3rem;
@@ -519,6 +519,7 @@ table.select-table .col-name .thumb {
 }
 table.select-table .col-name .name-wrap { flex: 1 1 auto; min-width: 0; }
 table.select-table .col-name form { flex: 0 0 auto; }
+table.select-table .col-name .confirm-force { max-width: 15rem; white-space: normal; }
 table.select-table .score { font-variant-numeric: tabular-nums; }
 .select-row.unavailable { background: var(--surface); }
 .option-name { font-weight: 600; }
