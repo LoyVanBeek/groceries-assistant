@@ -254,10 +254,9 @@ table.order-links td.col-confirm { white-space: nowrap; }
 .qrcell {
   display: inline-block;
   background: #fff;
-  padding: 0.35rem;
-  border-radius: 6px;
-  width: 5.5rem;
-  line-height: 0;
+  padding: 1rem;
+  width: 240px;
+  border-radius: 8px;
 }
 .qrcell svg { width: 100%; height: auto; display: block; }
 
