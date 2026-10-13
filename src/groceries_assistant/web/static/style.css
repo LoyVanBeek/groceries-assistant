@@ -495,35 +495,33 @@ table.plan .parts-label { font-size: 0.98rem; }
 .select-search { margin: 0.6rem 0; }
 .select-search input[type="search"] { padding: 0.35rem 0.6rem; }
 .legend { margin: 0.2rem 0 0.4rem; }
-.select-list { list-style: none; padding: 0; margin: 0.75rem 0; }
-.select-row { border: 1.5px solid var(--border); border-radius: 8px; margin: 0.4rem 0; }
-.select-row .option-form { margin: 0; }
-.option-body {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  flex-wrap: wrap;
-  width: 100%;
-  padding: 0.5rem 0.7rem;
-  font: inherit;
+table.select-table { width: 100%; border-collapse: collapse; margin: 0.75rem 0; }
+table.select-table th {
   text-align: left;
-  background: none;
-  border: none;
-  cursor: pointer;
+  border-bottom: 2px solid var(--ink);
+  padding: 0.35rem 0.5rem;
+  vertical-align: bottom;
 }
-button.option-body:hover { background: var(--accent-soft); }
+table.select-table td {
+  border-bottom: 1px solid var(--rule);
+  padding: 0.5rem;
+  vertical-align: middle;
+}
+table.select-table tr:last-child td { border-bottom: none; }
+table.select-table .col-name { width: 42%; }
+table.select-table .col-name .thumb {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 6px;
+  margin-right: 0.5rem;
+  vertical-align: middle;
+}
+table.select-table td.actions { text-align: right; white-space: nowrap; }
+table.select-table td.actions .confirm-force { white-space: normal; }
+table.select-table .score { font-variant-numeric: tabular-nums; }
 .select-row.unavailable { background: var(--surface); }
-.select-row.unavailable .option-body {
-  cursor: default;
-  padding-bottom: 0.25rem;
-}
-.select-row.unavailable .option-body:hover { background: none; }
-.option-body .thumb { width: 3rem; height: 3rem; border-radius: 6px; margin-right: 0; }
-.option-name { flex: 1 1 auto; min-width: 0; font-weight: 600; }
-.option-badges { display: inline-flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
-.option-meta { flex: 0 0 auto; display: inline-flex; gap: 0.5rem; align-items: center; }
-.option-meta .dish-score { font-variant-numeric: tabular-nums; }
-.row-problem { flex-basis: 100%; font-size: 0.85rem; }
+.option-name { font-weight: 600; }
+.row-problem { display: block; font-size: 0.85rem; }
 .special-actions { margin: 0.6rem 0; }
 .fave { color: var(--pop-hate); font-weight: 700; }
 .pop {
@@ -624,6 +622,15 @@ table.plan .col-attend .cell-name { display: none; }
   table.plan select, table.plan button { width: auto; }
   table.plan .col-attend { display: inline-block; width: auto; padding-right: 0.75rem; }
   table.plan .col-attend .cell-name { display: inline; padding-right: 0.3rem; }
+
+  table.select-table thead { display: none; }
+  table.select-table, table.select-table tbody, table.select-table tr, table.select-table td {
+    display: block;
+    width: 100%;
+  }
+  table.select-table tr { border-bottom: 1px solid var(--rule); padding-bottom: 0.5rem; margin-bottom: 0.5rem; }
+  table.select-table td { border: none; padding: 0.2rem 0; }
+  table.select-table td.actions { text-align: left; }
 }
 
 /* the dish form: one fieldset per part, each with a row per option to fill in */

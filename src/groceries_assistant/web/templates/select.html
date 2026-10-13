@@ -1,14 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Gerecht kiezen{% endblock %}
 {% block content %}
-{% macro indicators(o) %}
-{% if o.favourite %}<span class="fave" title="Favoriet &mdash; mag best vaker terugkomen">&#9829;</span>{% endif %}
-<span class="pop {{ o.badge.key }}" title="Waardering">{{ o.badge.label }}</span>
-<span class="dot-row" aria-label="Waardering per persoon: {{ o.dots|map(attribute='verdict')|select|join(', ') or 'nog niets' }}">
-  {% for d in o.dots %}<span class="dot {{ d.verdict }}" title="{{ d.person }}"></span>{% endfor %}
-</span>
-<span class="rec {{ o.recency.key }}" title="Laatst gepland: {{ (o.recency.last | dutch_date) if o.recency.last else 'nooit' }}">{{ o.recency.label }}</span>
-{% endmacro %}
 <h1>Gerecht kiezen &mdash; {{ label }}</h1>
 {% if errors %}<p class="warnings">Ongeldige receptbestanden: {{ errors|join('; ') }}</p>{% endif %}
 {% if confirmed %}
@@ -36,41 +28,51 @@
   &middot;
   {% if sort != 'recent' %}<a href="/plan/select?day={{ day }}&amp;sort=recent{% if q %}&amp;q={{ q | urlencode }}{% endif %}">laatst gebruikt</a>{% else %}<strong>laatst gebruikt</strong>{% endif %}
 </p>
-<ul class="select-list">
+<table class="select-table">
+  <tr>
+    <th class="col-name">Gerecht</th>
+    <th>Waardering</th>
+    <th>Laatst gepland</th>
+    <th>Tijd</th>
+    <th>Score</th>
+    <th></th>
+  </tr>
   {% for o in options %}
-  <li class="select-row{% if o.problem %} unavailable{% endif %}">
-    {% if o.problem %}
-    <div class="option-body">
+  <tr class="select-row{% if o.problem %} unavailable{% endif %}">
+    <td class="col-name">
       {% if o.image %}<img class="thumb" src="{{ o.image }}" alt="">{% endif %}
       <span class="option-name">{{ o.name }}{% if o.is_dish %} <span class="muted">({{ o.part_labels|join(' + ') }})</span>{% endif %}</span>
-      <span class="option-badges">{{ indicators(o) }}</span>
-      <span class="option-meta">
-        {% if o.minutes is not none %}<span class="muted">{{ o.minutes }} min</span>{% endif %}
-        <span class="dish-score muted" title="score">{{ '%.1f'|format(o.score)|replace('.', ',') }}</span>
+      {% if o.problem %}<span class="muted row-problem">{{ o.problem }}</span>{% endif %}
+    </td>
+    <td>
+      {% if o.favourite %}<span class="fave" title="Favoriet &mdash; mag best vaker terugkomen">&#9829;</span>{% endif %}
+      <span class="pop {{ o.badge.key }}" title="Waardering">{{ o.badge.label }}</span>
+      <span class="dot-row" aria-label="Waardering per persoon: {{ o.dots|map(attribute='verdict')|select|join(', ') or 'nog niets' }}">
+        {% for d in o.dots %}<span class="dot {{ d.verdict }}" title="{{ d.person }}"></span>{% endfor %}
       </span>
-      <span class="muted row-problem">{{ o.problem }}</span>
-    </div>
-    {% else %}
-    <form method="post" action="/plan/swap" class="option-form">
-      <input type="hidden" name="day" value="{{ day }}">
-      <input type="hidden" name="choice" value="{{ o.slug }}">
-      {% if confirmed %}<label class="confirm-force"><input type="checkbox" name="force" required> boodschappen al besteld &mdash; ik maak de items vrij</label>{% endif %}
-      <button class="option-body" type="submit">
-        {% if o.image %}<img class="thumb" src="{{ o.image }}" alt="">{% endif %}
-        <span class="option-name">{{ o.name }}{% if o.is_dish %} <span class="muted">({{ o.part_labels|join(' + ') }})</span>{% endif %}</span>
-        <span class="option-badges">{{ indicators(o) }}</span>
-        <span class="option-meta">
-          {% if o.minutes is not none %}<span class="muted">{{ o.minutes }} min</span>{% endif %}
-          <span class="dish-score muted" title="score">{{ '%.1f'|format(o.score)|replace('.', ',') }}</span>
-        </span>
-      </button>
-    </form>
-    {% endif %}
-  </li>
+    </td>
+    <td>
+      <span class="rec {{ o.recency.key }}" title="Laatst gepland: {{ (o.recency.last | dutch_date) if o.recency.last else 'nooit' }}">{{ o.recency.label }}</span>
+    </td>
+    <td class="muted">{% if o.minutes is not none %}{{ o.minutes }} min{% else %}&mdash;{% endif %}</td>
+    <td class="muted score">{{ '%.1f'|format(o.score)|replace('.', ',') }}</td>
+    <td class="actions">
+      {% if o.problem %}
+      <span class="muted">&mdash;</span>
+      {% else %}
+      <form method="post" action="/plan/swap">
+        <input type="hidden" name="day" value="{{ day }}">
+        <input type="hidden" name="choice" value="{{ o.slug }}">
+        <button class="btn-small" type="submit">kies</button>
+        {% if confirmed %}<label class="confirm-force"><input type="checkbox" name="force" required> boodschappen al besteld &mdash; ik maak de items vrij</label>{% endif %}
+      </form>
+      {% endif %}
+    </td>
+  </tr>
   {% else %}
-  <li class="muted">Geen recepten gevonden{% if q %} voor &lsquo;{{ q }}&rsquo;{% endif %}.</li>
+  <tr><td colspan="6" class="muted">Geen recepten gevonden{% if q %} voor &lsquo;{{ q }}&rsquo;{% endif %}.</td></tr>
   {% endfor %}
-</ul>
+</table>
 {% if can_leftovers or not is_no_cook %}
 <p class="special-actions">
   {% if can_leftovers %}
