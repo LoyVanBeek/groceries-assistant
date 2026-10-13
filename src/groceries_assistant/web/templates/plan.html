@@ -214,6 +214,7 @@
         <summary class="besteld-tag" aria-label="Toon of verberg de acties voor deze bestelde dag">&#10003; besteld</summary>
         <div class="locked-actions-body">
           <form method="post" action="/plan/swap-days" class="inline ruil-form">
+            <input type="hidden" name="day" value="{{ e.day_iso }}">
             <select name="swap_to" aria-label="Ruil dit gerecht naar een andere dag">
               {% for o in e.swap_targets %}<option value="{{ o.day_iso }}">{{ o.label }}</option>{% endfor %}
             </select>

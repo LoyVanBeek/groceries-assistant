@@ -333,6 +333,11 @@ def test_swap_days_moves_a_confirmed_recipe(tmp_path):
         client.post("/plan/approve", data={"day": third.isoformat()}, follow_redirects=False)
         client.post("/plan/order", follow_redirects=False)
         client.post("/order/confirm", follow_redirects=False)
+        # the rendered ruil-dag form must carry the day (route requires it)
+        page = client.get("/plan").text
+        ruil_form = re.search(r'<form method="post" action="/plan/swap-days".*?</form>', page, re.S)
+        assert ruil_form, "swap-days form not rendered"
+        assert f'name="day" value="{third.isoformat()}"' in ruil_form.group(0)
         resp = client.post(
             "/plan/swap-days",
             data={"day": third.isoformat(), "swap_to": fourth.isoformat()},
