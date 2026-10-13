@@ -508,15 +508,17 @@ table.select-table td {
   vertical-align: middle;
 }
 table.select-table tr:last-child td { border-bottom: none; }
-table.select-table .col-name { width: 45%; }
+table.select-table .col-name { width: 45%; display: flex; align-items: center; gap: 0.6rem; }
 table.select-table .col-name .thumb {
   width: 3rem;
   height: 3rem;
   border-radius: 6px;
-  margin-right: 0.5rem;
+  margin-right: 0;
   vertical-align: middle;
+  flex: 0 0 auto;
 }
-table.select-table .col-name form { margin: 0.35rem 0 0; }
+table.select-table .col-name .name-wrap { flex: 1 1 auto; min-width: 0; }
+table.select-table .col-name form { margin: 0 0 0 auto; flex: 0 0 auto; text-align: right; }
 table.select-table .score { font-variant-numeric: tabular-nums; }
 .select-row.unavailable { background: var(--surface); }
 .option-name { font-weight: 600; }
