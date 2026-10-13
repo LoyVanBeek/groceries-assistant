@@ -1213,6 +1213,29 @@ def test_toch_koken_converts_leftovers_to_best_fit(tmp_path):
         assert "gerecht kiezen" in page.text
 
 
+def test_leftovers_show_the_repeated_dish_thumbnail_with_an_icon(tmp_path):
+    seed_recipe(tmp_path)
+    (tmp_path / "recipes" / "img").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "recipes" / "img" / "pasta.png").write_bytes(_png_bytes())
+    with make_client(tmp_path) as client:
+        client.get("/plan")
+        from groceries_assistant.store.db import Store
+
+        s = Store(tmp_path / "state.db")
+        monday = s.load_proposal()[1]
+        tuesday = monday.replace(day=monday.day + 1)
+        client.post(
+            "/plan/swap",
+            data={"day": tuesday.isoformat(), "choice": "__leftovers__"},
+            follow_redirects=False,
+        )
+        page = client.get("/plan").text
+        assert "Restjes (Pasta)" in page
+        assert '<span class="restjes-thumb">' in page
+        assert '<img class="thumb" src="/recipes/img/pasta.png"' in page
+        assert 'class="restjes-icon"' in page
+
+
 def test_grid_checkboxes_bound_to_their_own_row(tmp_path):
     """Regression: person checkboxes must reference their own evening's form.
 

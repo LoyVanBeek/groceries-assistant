@@ -200,7 +200,11 @@ def plan_view(
                 "part_options": part_options,
                 "unfilled": unfilled,
                 "people": (len(evening.joiners) if evening.joiners is not None else row.people),
-                "image": (image_for(row.recipe_slug) if image_for and row.recipe_slug else None),
+                "image": (
+                    image_for(row.source_slug)
+                    if image_for and row.kind == "leftovers" and row.source_slug
+                    else (image_for(row.recipe_slug) if image_for and row.recipe_slug else None)
+                ),
                 "members": members,
                 "cooking": cooking,
                 "can_leftovers": (row.kind in ("cook", "no_cook") and last_cook_slug is not None),

@@ -45,6 +45,12 @@
       <span class="parts-label">{{ e.parts_label or 'nog te kiezen' }}</span>
       {% else %}<strong>{% if e.slug %}<a href="/recipes/{{ e.slug }}">{{ e.name }}</a>{% else %}{{ e.name }}{% endif %}</strong>{% endif %}
       {% elif e.kind == 'leftovers' %}
+      {% if e.image %}
+      <span class="restjes-thumb">
+        <img class="thumb" src="{{ e.image }}" alt="">
+        <span class="restjes-icon" aria-label="restjes" title="Restjes">&#9851;</span>
+      </span>
+      {% endif %}
       {% if e.is_dish %}
       <span class="dish-label">{{ e.name }}</span>
       <span class="parts-label">{{ e.parts_label or 'nog te kiezen' }}</span>

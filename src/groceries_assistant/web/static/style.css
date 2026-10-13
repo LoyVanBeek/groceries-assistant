@@ -529,6 +529,23 @@ table.select-table .score { font-variant-numeric: tabular-nums; }
 .option-name { font-weight: 600; }
 .row-problem { display: block; font-size: 0.85rem; }
 .special-actions { margin: 0.6rem 0; }
+.restjes-thumb { position: relative; display: inline-block; line-height: 0; margin-right: 0.5rem; vertical-align: middle; }
+.restjes-thumb .thumb { margin-right: 0; }
+.restjes-thumb .restjes-icon {
+  position: absolute;
+  right: -0.35rem;
+  bottom: -0.35rem;
+  width: 1.15rem;
+  height: 1.15rem;
+  background: var(--bg);
+  border: 1.5px solid var(--border);
+  border-radius: 50%;
+  font-size: 0.72rem;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 .fave { color: var(--pop-hate); font-weight: 700; }
 .pop {
   display: inline-block;
