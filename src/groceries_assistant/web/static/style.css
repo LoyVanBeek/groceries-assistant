@@ -495,7 +495,11 @@ table.plan .parts-label { font-size: 0.98rem; }
 .select-search { margin: 0.6rem 0; }
 .select-search input[type="search"] { padding: 0.35rem 0.6rem; }
 .legend { margin: 0.2rem 0 0.4rem; }
-table.select-table { border-collapse: collapse; margin: 0.75rem 0; width: auto; }
+table.select-table { border-collapse: collapse; margin: 0.75rem 0; width: 100%; table-layout: fixed; }
+table.select-table th:nth-child(2), table.select-table td:nth-child(2) { width: 26%; }
+table.select-table th:nth-child(3), table.select-table td:nth-child(3) { width: 22%; }
+table.select-table th:nth-child(4), table.select-table td:nth-child(4) { width: 12%; }
+table.select-table th:nth-child(5), table.select-table td:nth-child(5) { width: 8%; }
 table.select-table th {
   text-align: left;
   border-bottom: 2px solid var(--ink);
