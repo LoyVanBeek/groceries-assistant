@@ -1389,13 +1389,13 @@ def create_app(
             raise HTTPException(404, "Geen actieve week")
         plan_id = latest[0]
         links = _order_links(plan_id)
-        qr = generate_qr_svg(links[0]) if links else None
+        qrs = [generate_qr_svg(link) for link in links]
         pending = sorted(store().plan_approvals(plan_id) - store().plan_ordered(plan_id))
         return render(
             request,
             "link.html",
             links=links,
-            qr=qr,
+            qrs=qrs,
             pending=pending,
             link_confirmed=store().plan_links_confirmed(plan_id),
         )

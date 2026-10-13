@@ -305,10 +305,12 @@ def test_confirming_every_ah_link_locks_the_days(tmp_path):
         store = Store(tmp_path / "state.db")
         assert store.plan_ordered(plan_id) == set()
 
-        # 30 matched items chunk into two deep-links, each with its own tick
+        # 30 matched items chunk into two deep-links; each row shows its own
+        # link, QR and confirm checkbox
         page = client.get("/order/link").text
         assert page.count('action="/order/link/confirm"') == 2
         assert page.count('class="big-link"') == 2
+        assert page.count("<svg") == 2
 
         # halfway (one of two links) changes nothing yet
         resp = client.post("/order/link/confirm", data={"seq": "0"}, follow_redirects=False)

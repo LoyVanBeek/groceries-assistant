@@ -3,29 +3,42 @@
 {% block content %}
 <h1>Naar Albert Heijn</h1>
 <p>Tik de link (telefoon) of scan de QR (scherm). De producten belanden in je AH-lijst; controleer en bestel daar.</p>
-{% for link in links %}
-<div class="link-row">
-  <p><a class="big-link" href="{{ link }}" rel="noopener">Lijst {{ loop.index }} openen in AH</a></p>
-  {% if pending %}
-  <form method="post" action="/order/link/confirm" class="link-confirm">
-    <input type="hidden" name="seq" value="{{ loop.index0 }}">
-    <label class="link-confirm-label">
-      <input type="checkbox" name="placed" id="link-{{ loop.index0 }}"
-        onchange="this.form.requestSubmit()"
-        {% if loop.index0 in link_confirmed %}checked{% endif %}>
-      Deze lijst is besteld bij AH
-    </label>
-  </form>
+<table class="order-links">
+  <thead>
+    <tr>
+      <th>Lijst</th>
+      <th>QR</th>
+      <th>Besteld?</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for link in links %}
+    <tr>
+      <td class="col-link"><a class="big-link" href="{{ link }}" rel="noopener">Lijst {{ loop.index }} openen in AH</a></td>
+      <td><span class="qrcell">{{ qrs[loop.index0]|safe }}</span></td>
+      <td class="col-confirm">
+        {% if pending %}
+        <form method="post" action="/order/link/confirm" class="link-confirm">
+          <input type="hidden" name="seq" value="{{ loop.index0 }}">
+          <label class="link-confirm-label">
+            <input type="checkbox" name="placed" id="link-{{ loop.index0 }}"
+              onchange="this.form.requestSubmit()"
+              {% if loop.index0 in link_confirmed %}checked{% endif %}>
+            Deze lijst is besteld bij AH
+          </label>
+        </form>
+        {% else %}
+        <span class="muted">&#10003; besteld &mdash; de dagen zijn vastgezet</span>
+        {% endif %}
+      </td>
+    </tr>
   {% else %}
-  <p class="muted">&#10003; besteld &mdash; de dagen zijn vastgezet</p>
-  {% endif %}
-</div>
-{% else %}
-<p>Geen gematchte producten. Voeg ze handmatig toe in de AH-app.</p>
-{% endfor %}
-{% if qr %}
-<div class="qr">{{ qr|safe }}</div>
-{% endif %}
+    <tr>
+      <td colspan="3">Geen gematchte producten. Voeg ze handmatig toe in de AH-app.</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
 {% if pending and links %}
 <p class="muted">Kruis elke lijst aan zodra je die bestelling hebt geplaatst &mdash; pas als alle lijstjes zijn aangekruist, staan de goedgekeurde dagen vast. Niet-herkende producten voeg je zelf toe in de AH-app.</p>
 {% endif %}

@@ -244,10 +244,22 @@ tbody tr.today:hover { background: var(--accent-soft); }
 /* the alternatives drop leftward over the table from the narrow column */
 table.plan .locked-actions .dish-options { left: auto; right: 0; min-width: 24rem; }
 
-.link-row { margin: 0.9rem 0; }
+table.order-links { margin: 0.9rem 0; }
+table.order-links th { text-align: left; border-bottom: 2px solid var(--ink); }
+table.order-links td.col-link { white-space: nowrap; }
+table.order-links td.col-confirm { white-space: nowrap; }
 .link-confirm { margin-top: 0.3rem; }
 .link-confirm-label { font-size: 0.85rem; cursor: pointer; }
 .link-confirm-label input { vertical-align: middle; margin-right: 0.35rem; }
+.qrcell {
+  display: inline-block;
+  background: #fff;
+  padding: 0.35rem;
+  border-radius: 6px;
+  width: 5.5rem;
+  line-height: 0;
+}
+.qrcell svg { width: 100%; height: auto; display: block; }
 
 .chip {
   display: inline-flex;
@@ -274,9 +286,6 @@ table.plan .locked-actions .dish-options { left: auto; right: 0; min-width: 24re
   font-size: 1.05rem;
 }
 .big-link:hover { background: var(--accent-soft); }
-
-.qr { background: #fff; padding: 1rem; width: 240px; border-radius: 8px; }
-.qr svg { width: 100%; height: auto; }
 
 .recipe-img {
   display: block;
