@@ -256,11 +256,9 @@ def test_ordered_rows_are_locked_on_the_plan_page(tmp_path):
     assert page.count(">goedkeuren<") == n - 1
 
 
-def test_confirm_places_the_order_and_locks_days(tmp_path):
-    """'Bevestig bestelling' on /order locks the approved days, not /plan/order.
-
-    The confirm step is two-phase: it first shows which days will be locked,
-    and the final submit needs the required checkbox ticked."""
+def test_order_page_no_longer_confirms(tmp_path):
+    """Confirmation moved to /order/link: /order never locks days itself and
+    points the shopper at the link page."""
     seed_recipe(tmp_path)
     with make_client(tmp_path) as client:
         client.get("/plan")
@@ -269,20 +267,97 @@ def test_confirm_places_the_order_and_locks_days(tmp_path):
     third = sorted(r.day for r in store.plan_entries(plan_id))[2]
     with make_client(tmp_path) as client:
         client.post("/plan/approve", data={"day": third.isoformat()}, follow_redirects=False)
-        # the confirm step only shows while something is approved but not confirmed
+        client.post("/plan/order", follow_redirects=False)
         page = client.get("/order").text
-        assert page.count("Bevestig bestelling") == 1
-        assert '<details class="confirm-step">' in page
+        assert "Bevestig bestelling" not in page
+        assert "confirm-step" not in page
+        assert 'href="/order/link"' in page
+
+
+def test_confirming_every_ah_link_locks_the_days(tmp_path):
+    """Each AH link on /order/link carries its own 'besteld' checkbox; the
+    approved days lock only once every link is confirmed, never early."""
+    recipes = tmp_path / "recipes"
+    recipes.mkdir(parents=True, exist_ok=True)
+    lines = ["name: Mega", "servings: 4", "time: {cook: 30}", "ingredients:"]
+    lines += [f"  - {{product: p{i:02d}, amount: 1, unit: stuk}}" for i in range(30)]
+    lines += ["steps:", "  - Kook."]
+    (recipes / "mega.yaml").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    class FakeProduct:
+        def __init__(self, webshop_id, title, unit_size="500 g"):
+            self.webshop_id = webshop_id
+            self.title = title
+            self.unit_size = unit_size
+
+    def search(query):
+        return [FakeProduct(7777, "AH " + query)]
+
+    with make_client(tmp_path, search_fn=search) as client:
+        client.get("/plan")
+        store = Store(tmp_path / "state.db")
+        plan_id, _start, _ = store.load_proposal()
+        third = sorted(r.day for r in store.plan_entries(plan_id))[2]
+        client.post("/plan/approve", data={"day": third.isoformat()}, follow_redirects=False)
+        client.post("/plan/order", follow_redirects=False)
+
+        # building the list locks nothing
+        store = Store(tmp_path / "state.db")
+        assert store.plan_ordered(plan_id) == set()
+
+        # 30 matched items chunk into two deep-links, each with its own tick
+        page = client.get("/order/link").text
+        assert page.count('action="/order/link/confirm"') == 2
+        assert page.count('class="big-link"') == 2
+
+        # halfway (one of two links) changes nothing yet
+        resp = client.post("/order/link/confirm", data={"seq": "0"}, follow_redirects=False)
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/order/link"
+        store = Store(tmp_path / "state.db")
+        assert store.plan_ordered(plan_id) == set()
+        assert store.plan_links_confirmed(plan_id) == {0}
+        # the first link's form now carries the tick
+        first_form = (
+            client.get("/order/link")
+            .text.split('action="/order/link/confirm"')[1]
+            .split("</form>")[0]
+        )
+        assert 'value="0"' in first_form
+        assert "checked" in first_form
+
+        # the last link locks the approved day
+        resp = client.post("/order/link/confirm", data={"seq": "1"}, follow_redirects=False)
+        assert resp.status_code == 303
+        store = Store(tmp_path / "state.db")
+        assert store.plan_ordered(plan_id) == {third}
+        # nothing left to confirm: the checkboxes are gone
+        page = client.get("/order/link").text
+        assert 'action="/order/link/confirm"' not in page
+        assert "vastgezet" in page
+
+
+def test_no_links_falls_back_to_one_confirm_button(tmp_path):
+    """Without AH matches there are no links to tick: a single guarded button
+    posts to /order/confirm, locking the days after placing the order
+    manually."""
+    seed_recipe(tmp_path)
+    with make_client(tmp_path, search_fn=lambda q: []) as client:
+        client.get("/plan")
+        store = Store(tmp_path / "state.db")
+        plan_id, _start, _ = store.load_proposal()
+        third = sorted(r.day for r in store.plan_entries(plan_id))[2]
+        client.post("/plan/approve", data={"day": third.isoformat()}, follow_redirects=False)
+        client.post("/plan/order", follow_redirects=False)
+        page = client.get("/order/link").text
+        assert 'action="/order/link/confirm"' not in page
         assert 'action="/order/confirm"' in page
-        # it lists exactly the day it will lock
-        assert third.strftime("%d-%m") in page
-        assert "Pasta" in page
+        assert 'name="force" required' in page
         resp = client.post("/order/confirm", follow_redirects=False)
         assert resp.status_code == 303
         assert resp.headers["location"] == "/plan"
     store = Store(tmp_path / "state.db")
     assert store.plan_ordered(plan_id) == {third}
-    assert store.order_items(plan_id) != []
 
 
 def test_forced_change_of_a_confirmed_day_frees_its_items(tmp_path):

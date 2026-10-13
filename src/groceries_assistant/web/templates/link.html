@@ -4,12 +4,39 @@
 <h1>Naar Albert Heijn</h1>
 <p>Tik de link (telefoon) of scan de QR (scherm). De producten belanden in je AH-lijst; controleer en bestel daar.</p>
 {% for link in links %}
-<p><a class="big-link" href="{{ link }}" rel="noopener">Lijst {{ loop.index }} openen in AH</a></p>
+<div class="link-row">
+  <p><a class="big-link" href="{{ link }}" rel="noopener">Lijst {{ loop.index }} openen in AH</a></p>
+  {% if pending %}
+  <form method="post" action="/order/link/confirm" class="link-confirm">
+    <input type="hidden" name="seq" value="{{ loop.index0 }}">
+    <label class="link-confirm-label">
+      <input type="checkbox" name="placed" id="link-{{ loop.index0 }}"
+        onchange="this.form.requestSubmit()"
+        {% if loop.index0 in link_confirmed %}checked{% endif %}>
+      Deze lijst is besteld bij AH
+    </label>
+  </form>
+  {% else %}
+  <p class="muted">&#10003; besteld &mdash; de dagen zijn vastgezet</p>
+  {% endif %}
+</div>
 {% else %}
 <p>Geen gematchte producten. Voeg ze handmatig toe in de AH-app.</p>
 {% endfor %}
 {% if qr %}
 <div class="qr">{{ qr|safe }}</div>
+{% endif %}
+{% if pending and links %}
+<p class="muted">Kruis elke lijst aan zodra je die bestelling hebt geplaatst &mdash; pas als alle lijstjes zijn aangekruist, staan de goedgekeurde dagen vast. Niet-herkende producten voeg je zelf toe in de AH-app.</p>
+{% endif %}
+{% if pending and not links %}
+<form method="post" action="/order/confirm">
+  <p class="confirm-force">
+    <input type="checkbox" name="force" required> Ik heb alles toegevoegd en besteld bij AH &mdash; ik wil de goedgekeurde dagen vastzetten.
+  </p>
+  <p><button type="submit" class="primary">Bevestig bestelling</button></p>
+</form>
+<p class="muted">Er is geen AH-link: alles is al in huis of nog niet aan AH gekoppeld. Voeg de producten handmatig toe en bevestig daarna dat je besteld hebt.</p>
 {% endif %}
 <h2>Handmatig toevoegen</h2>
 <ul class="plain">

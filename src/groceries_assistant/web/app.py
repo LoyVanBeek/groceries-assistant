@@ -1019,8 +1019,8 @@ def create_app(
         """Build the grocery list for the approved-but-not-yet-confirmed days.
 
         The list is only ever a preview: days become 'besteld' (locked in,
-        hold for ordering) when the shopper confirms the AH order on /order,
-        not when the list is built here.
+        hold for ordering) when the shopper confirms the AH links on
+        /order/link, not when the list is built here.
         """
         proposal = store().load_proposal()
         if proposal is None:
@@ -1120,36 +1120,12 @@ def create_app(
             mapping = mappings().get(item["product"])
             item["image"] = mapping.ah_image_url if mapping else None
             item["recipes"] = sources.get(item["product"].lower(), [])
-        pending = sorted(store().plan_approvals(plan_id) - store().plan_ordered(plan_id))
-        pending_days = set(pending)
-        by_slug = all_known()
-        dishes = dishes_by_slug()
-        pending_summary = []
-        for row in store().plan_entries(plan_id):
-            if row.day not in pending_days:
-                continue
-            label = f"{WEEKDAYS[row.day.weekday()].capitalize()} {row.day.strftime('%d-%m')}"
-            if row.kind == "cook" and row.recipe_slug in dishes:
-                name = dishes[row.recipe_slug].name
-            elif row.recipe_slug:
-                recipe = by_slug.get(row.recipe_slug)
-                name = recipe.name if recipe else row.recipe_slug
-            elif row.kind == "leftovers":
-                source = by_slug.get(row.source_slug or "")
-                name = f"Restjes ({source.name if source else (row.source_slug or '')})"
-            elif row.kind == "no_cook":
-                name = "niet koken (eten elders)"
-            else:
-                name = ""
-            pending_summary.append({"label": label, "name": name})
         return render(
             request,
             "order.html",
             items=items,
             warnings=_plan_warnings(plan_id),
             leftovers=_plan_leftovers(plan_id),
-            can_confirm=bool(pending),
-            pending_summary=pending_summary,
             fmt=format_amount,
         )
 
@@ -1397,20 +1373,62 @@ def create_app(
                 updated += 1
         return RedirectResponse(f"/order/match?opgehaald={updated}", status_code=303)
 
+    def _order_links(plan_id: int) -> list[str]:
+        """The AH deep-links for the saved list, one per chunk of 25 items."""
+        pairs = [
+            (int(i["webshop_id"]), 1)
+            for i in store().order_items(plan_id)
+            if i["webshop_id"] and not i["have"]
+        ]
+        return [build_add_multiple_url(chunk) for chunk in chunk_items(pairs)]
+
     @app.get("/order/link", response_class=HTMLResponse)
     def order_link(request: Request):
         latest = store().latest_plan()
         if latest is None:
             raise HTTPException(404, "Geen actieve week")
         plan_id = latest[0]
-        pairs = [
-            (int(i["webshop_id"]), 1)
-            for i in store().order_items(plan_id)
-            if i["webshop_id"] and not i["have"]
-        ]
-        links = [build_add_multiple_url(chunk) for chunk in chunk_items(pairs)]
+        links = _order_links(plan_id)
         qr = generate_qr_svg(links[0]) if links else None
-        return render(request, "link.html", links=links, qr=qr)
+        pending = sorted(store().plan_approvals(plan_id) - store().plan_ordered(plan_id))
+        return render(
+            request,
+            "link.html",
+            links=links,
+            qr=qr,
+            pending=pending,
+            link_confirmed=store().plan_links_confirmed(plan_id),
+        )
+
+    @app.post("/order/link/confirm")
+    def order_link_confirm(seq: int = Form(...)):
+        """Record that the order behind one AH link was placed.
+
+        Each link gets its own confirmation checkbox. The approved-but-not-
+        yet-confirmed days lock only once *every* current link is confirmed,
+        so placing the order in batches never locks anything early. Like the
+        old /order/confirm, the list is rebuilt at that point so it covers
+        exactly the days being locked, with 'in huis' ticks preserved.
+        """
+        latest = store().latest_plan()
+        if latest is None:
+            raise HTTPException(404, "Geen actieve week")
+        plan_id = latest[0]
+        links = _order_links(plan_id)
+        if not links or not 0 <= seq < len(links):
+            raise HTTPException(400, "Onbekende lijst")
+        store().set_link_confirmed(plan_id, seq)
+        confirmed = set(store().plan_links_confirmed(plan_id))
+        if confirmed >= set(range(len(links))):
+            approved_days = store().plan_approvals(plan_id)
+            pending = sorted(approved_days - store().plan_ordered(plan_id))
+            if pending:
+                rows = [r for r in store().plan_entries(plan_id) if r.day in pending]
+                _build_and_save_order(plan_id, rows)
+                for day in pending:
+                    store().set_day_ordered(plan_id, day, True)
+                store().clear_links_confirmed(plan_id)
+        return RedirectResponse("/order/link", status_code=303)
 
     # --- composed dishes ---------------------------------------------------------
 

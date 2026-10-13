@@ -106,6 +106,15 @@ CREATE TABLE IF NOT EXISTS plan_ordered (
     PRIMARY KEY (plan_id, day)
 );
 
+-- Which AH deep-link on /order/link was confirmed 'besteld'. seq is the
+-- zero-based index of the link. The approved days lock only once *every*
+-- current link is confirmed, so ticking a few links never locks early.
+CREATE TABLE IF NOT EXISTS plan_links_confirmed (
+    plan_id INTEGER NOT NULL REFERENCES plans(id) ON DELETE CASCADE,
+    seq INTEGER NOT NULL,
+    PRIMARY KEY (plan_id, seq)
+);
+
 -- What one purchase of a product looks like, and how long the rest keeps.
 -- Opt-in: a product without a row is bought as the summed need, as before.
 CREATE TABLE IF NOT EXISTS product_facts (
@@ -583,6 +592,25 @@ class Store:
             "SELECT day FROM plan_ordered WHERE plan_id = ?", (plan_id,)
         ).fetchall()
         return {date.fromisoformat(row["day"]) for row in rows}
+
+    def set_link_confirmed(self, plan_id: int, seq: int) -> None:
+        """Record that the order behind one AH link (seq) was placed."""
+        self.conn.execute(
+            "INSERT OR IGNORE INTO plan_links_confirmed(plan_id, seq) VALUES (?,?)",
+            (plan_id, seq),
+        )
+        self.conn.commit()
+
+    def plan_links_confirmed(self, plan_id: int) -> set[int]:
+        rows = self.conn.execute(
+            "SELECT seq FROM plan_links_confirmed WHERE plan_id = ?", (plan_id,)
+        ).fetchall()
+        return {row["seq"] for row in rows}
+
+    def clear_links_confirmed(self, plan_id: int) -> None:
+        """Forget the per-link ticks (called when the days get locked)."""
+        self.conn.execute("DELETE FROM plan_links_confirmed WHERE plan_id = ?", (plan_id,))
+        self.conn.commit()
 
     def swap_days(self, plan_id: int, day_a: date, day_b: date) -> None:
         """Exchange the full content of two evenings.

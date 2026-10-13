@@ -3,23 +3,6 @@
 {% block content %}
 <h1>Controle &mdash; week van {{ start }}</h1>
 <p>Vink wat je al in huis hebt; dit komt niet op de lijst.</p>
-{% if can_confirm %}
-<details class="confirm-step">
-  <summary>Bevestig bestelling &mdash; de boodschappen zijn geplaatst</summary>
-  <div class="confirm-step-body">
-    <p class="muted">Hiermee zet je deze dagen vast (een gerecht kan daarna alleen nog geruild worden naar een andere dag, of met extra bevestiging gewijzigd worden):</p>
-    <ul class="plain">
-      {% for d in pending_summary %}<li><strong>{{ d.label }}</strong> &mdash; {{ d.name }}</li>{% endfor %}
-    </ul>
-    <form method="post" action="/order/confirm">
-      <label class="confirm-force">
-        <input type="checkbox" name="force" required> Ik heb de bestelling echt geplaatst bij AH &mdash; ik wil deze dagen vastzetten.
-      </label>
-      <button type="submit" class="primary">Bevestigen</button>
-    </form>
-  </div>
-</details>
-{% endif %}
 {% if warnings %}
 <ul class="plain warnings">
   {% for w in warnings %}<li>{{ w }}</li>{% endfor %}
@@ -59,4 +42,5 @@
   <a class="big-link" href="/order/link">Genereer AH-link &rarr;</a>
   <a class="big-link" href="/order/match">AH-artikelen koppelen</a>
 </p>
+<p class="muted">Besteld bij AH? Zet de goedgekeurde dagen vast op de <a href="/order/link">linkpagina</a>.</p>
 {% endblock %}
