@@ -257,7 +257,10 @@ def test_ordered_rows_are_locked_on_the_plan_page(tmp_path):
 
 
 def test_confirm_places_the_order_and_locks_days(tmp_path):
-    """'Bevestig bestelling' on /order locks the approved days, not /plan/order."""
+    """'Bevestig bestelling' on /order locks the approved days, not /plan/order.
+
+    The confirm step is two-phase: it first shows which days will be locked,
+    and the final submit needs the required checkbox ticked."""
     seed_recipe(tmp_path)
     with make_client(tmp_path) as client:
         client.get("/plan")
@@ -266,8 +269,14 @@ def test_confirm_places_the_order_and_locks_days(tmp_path):
     third = sorted(r.day for r in store.plan_entries(plan_id))[2]
     with make_client(tmp_path) as client:
         client.post("/plan/approve", data={"day": third.isoformat()}, follow_redirects=False)
-        # the button only shows while something is approved but not confirmed
-        assert client.get("/order").text.count("Bevestig bestelling") == 1
+        # the confirm step only shows while something is approved but not confirmed
+        page = client.get("/order").text
+        assert page.count("Bevestig bestelling") == 1
+        assert '<details class="confirm-step">' in page
+        assert 'action="/order/confirm"' in page
+        # it lists exactly the day it will lock
+        assert third.strftime("%d-%m") in page
+        assert "Pasta" in page
         resp = client.post("/order/confirm", follow_redirects=False)
         assert resp.status_code == 303
         assert resp.headers["location"] == "/plan"

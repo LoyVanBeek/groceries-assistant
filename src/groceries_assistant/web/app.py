@@ -1121,6 +1121,27 @@ def create_app(
             item["image"] = mapping.ah_image_url if mapping else None
             item["recipes"] = sources.get(item["product"].lower(), [])
         pending = sorted(store().plan_approvals(plan_id) - store().plan_ordered(plan_id))
+        pending_days = set(pending)
+        by_slug = all_known()
+        dishes = dishes_by_slug()
+        pending_summary = []
+        for row in store().plan_entries(plan_id):
+            if row.day not in pending_days:
+                continue
+            label = f"{WEEKDAYS[row.day.weekday()].capitalize()} {row.day.strftime('%d-%m')}"
+            if row.kind == "cook" and row.recipe_slug in dishes:
+                name = dishes[row.recipe_slug].name
+            elif row.recipe_slug:
+                recipe = by_slug.get(row.recipe_slug)
+                name = recipe.name if recipe else row.recipe_slug
+            elif row.kind == "leftovers":
+                source = by_slug.get(row.source_slug or "")
+                name = f"Restjes ({source.name if source else (row.source_slug or '')})"
+            elif row.kind == "no_cook":
+                name = "niet koken (eten elders)"
+            else:
+                name = ""
+            pending_summary.append({"label": label, "name": name})
         return render(
             request,
             "order.html",
@@ -1128,6 +1149,7 @@ def create_app(
             warnings=_plan_warnings(plan_id),
             leftovers=_plan_leftovers(plan_id),
             can_confirm=bool(pending),
+            pending_summary=pending_summary,
             fmt=format_amount,
         )
 

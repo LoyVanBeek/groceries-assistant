@@ -243,6 +243,28 @@ tbody tr.today:hover { background: var(--accent-soft); }
 .locked-actions-body { display: block; margin-top: 0.5rem; }
 /* the alternatives drop leftward over the table from the narrow column */
 table.plan .locked-actions .dish-options { left: auto; right: 0; min-width: 24rem; }
+details.confirm-step { margin: 0.75rem 0; }
+details.confirm-step > summary {
+  list-style: none;
+  cursor: pointer;
+  display: inline-block;
+  padding: 0.55rem 1rem;
+  border-radius: 7px;
+  border: 1.5px solid var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+details.confirm-step > summary::-webkit-details-marker { display: none; }
+details.confirm-step > summary::after { content: " \25B8"; }
+details.confirm-step[open] > summary::after { content: " \25BC"; }
+details.confirm-step-body {
+  margin-top: 0.6rem;
+  padding: 0.75rem 1rem;
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  max-width: 42rem;
+}
 
 .chip {
   display: inline-flex;

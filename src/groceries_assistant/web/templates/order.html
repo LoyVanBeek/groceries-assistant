@@ -4,12 +4,21 @@
 <h1>Controle &mdash; week van {{ start }}</h1>
 <p>Vink wat je al in huis hebt; dit komt niet op de lijst.</p>
 {% if can_confirm %}
-<form method="post" action="/order/confirm">
-  <p>
-    <button type="submit" class="primary">Bevestig bestelling &mdash; de boodschappen zijn geplaatst</button>
-    <span class="muted">Daarna staan de goedgekeurde dagen vast: een gerecht kan alleen nog geruild worden naar een andere dag, of met extra bevestiging gewijzigd worden.</span>
-  </p>
-</form>
+<details class="confirm-step">
+  <summary>Bevestig bestelling &mdash; de boodschappen zijn geplaatst</summary>
+  <div class="confirm-step-body">
+    <p class="muted">Hiermee zet je deze dagen vast (een gerecht kan daarna alleen nog geruild worden naar een andere dag, of met extra bevestiging gewijzigd worden):</p>
+    <ul class="plain">
+      {% for d in pending_summary %}<li><strong>{{ d.label }}</strong> &mdash; {{ d.name }}</li>{% endfor %}
+    </ul>
+    <form method="post" action="/order/confirm">
+      <label class="confirm-force">
+        <input type="checkbox" name="force" required> Ik heb de bestelling echt geplaatst bij AH &mdash; ik wil deze dagen vastzetten.
+      </label>
+      <button type="submit" class="primary">Bevestigen</button>
+    </form>
+  </div>
+</details>
 {% endif %}
 {% if warnings %}
 <ul class="plain warnings">
