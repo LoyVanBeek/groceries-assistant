@@ -518,7 +518,7 @@ table.select-table .col-name .thumb {
   flex: 0 0 auto;
 }
 table.select-table .col-name .name-wrap { flex: 1 1 auto; min-width: 0; }
-table.select-table .col-name form { margin: 0 0 0 auto; flex: 0 0 auto; text-align: right; }
+table.select-table .col-name form { flex: 0 0 auto; }
 table.select-table .score { font-variant-numeric: tabular-nums; }
 .select-row.unavailable { background: var(--surface); }
 .option-name { font-weight: 600; }

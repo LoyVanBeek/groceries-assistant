@@ -39,11 +39,6 @@
   {% for o in options %}
   <tr class="select-row{% if o.problem %} unavailable{% endif %}">
     <td class="col-name">
-      {% if o.image %}<img class="thumb" src="{{ o.image }}" alt="">{% endif %}
-      <span class="name-wrap">
-        <span class="option-name">{{ o.name }}{% if o.is_dish %} <span class="muted">({{ o.part_labels|join(' + ') }})</span>{% endif %}</span>
-        {% if o.problem %}<span class="muted row-problem">{{ o.problem }}</span>{% endif %}
-      </span>
       {% if not o.problem %}
       <form method="post" action="/plan/swap">
         <input type="hidden" name="day" value="{{ day }}">
@@ -52,6 +47,11 @@
         {% if confirmed %}<label class="confirm-force"><input type="checkbox" name="force" required> boodschappen al besteld &mdash; ik maak de items vrij</label>{% endif %}
       </form>
       {% endif %}
+      {% if o.image %}<img class="thumb" src="{{ o.image }}" alt="">{% endif %}
+      <span class="name-wrap">
+        <span class="option-name">{{ o.name }}{% if o.is_dish %} <span class="muted">({{ o.part_labels|join(' + ') }})</span>{% endif %}</span>
+        {% if o.problem %}<span class="muted row-problem">{{ o.problem }}</span>{% endif %}
+      </span>
     </td>
     <td>
       {% if o.favourite %}<span class="fave" title="Favoriet &mdash; mag best vaker terugkomen">&#9829;</span>{% endif %}
