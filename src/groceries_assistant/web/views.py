@@ -5,9 +5,11 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import date
 from pathlib import Path
+from typing import TypedDict
 
 from groceries_assistant.models import ComposedDish, Recipe
 from groceries_assistant.planner.availability import EveningAvailability
+from groceries_assistant.planner.engine import DEFAULT_REPEAT_WINDOW_DAYS
 from groceries_assistant.preferences import Preferences
 from groceries_assistant.recipes.loader import load_recipes_with_errors
 from groceries_assistant.services import planner_service as planner
@@ -15,6 +17,46 @@ from groceries_assistant.services.planning import alternatives
 from groceries_assistant.store.db import Store
 
 WEEKDAYS = ("maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag", "zondag")
+
+
+class Popularity(TypedDict):
+    """Aggregate 'how well liked' badge (label + css key)."""
+
+    key: str
+    label: str
+    favourite: bool
+
+
+class VerdictDot(TypedDict):
+    """One per-person verdict dot."""
+
+    person: str
+    verdict: str
+
+
+class RecencyBadge(TypedDict):
+    """How long ago the recipe was planned (label + css key)."""
+
+    key: str
+    label: str
+    last: date | None
+
+
+class SelectOption(TypedDict):
+    """One alternative row of the /plan/select page, indicators included."""
+
+    slug: str
+    name: str
+    is_dish: bool
+    part_labels: tuple[str, ...]
+    problem: str
+    score: float
+    minutes: int | None
+    image: str | None
+    badge: Popularity
+    favourite: bool
+    dots: list[VerdictDot]
+    recency: RecencyBadge
 
 
 def load_recipes(data_dir: Path) -> tuple[list[Recipe], list[str]]:
@@ -59,8 +101,6 @@ def plan_view(
     store: Store,
     plan_id: int,
     by_slug: dict[str, Recipe],
-    meals: list[Recipe],
-    prefs: Preferences,
     people: list[dict],
     image_for=None,
     dishes: Sequence[ComposedDish] = (),
@@ -71,7 +111,7 @@ def plan_view(
     """Per-evening view model: label, dish, cook, joiners, swap options.
 
     `by_slug` includes all recipes and component-as-recipe objects for
-    resolving dish part picks; `meals` is the subset shown in the picker.
+    resolving dish part picks.
     """
     today = today or date.today()
     approved_days = approved_days or set()
@@ -98,12 +138,9 @@ def plan_view(
         parts_label = ""
         part_options: list[dict] = []
         unfilled: list[str] = []
-        alts: list[dict] = []
         if row.kind == "no_cook":
             name = "Niet koken (we eten elders)"
             minutes = 0
-            # offer dishes again so the evening can be switched back to cooking
-            alts = _alternatives(meals, prefs, evening, image_for, dishes, by_slug=by_slug)
         elif row.kind == "cook":
             dish = dishes_by_slug.get(row.recipe_slug or "")
             recipe = by_slug.get(row.recipe_slug) if row.recipe_slug else None
@@ -121,9 +158,6 @@ def plan_view(
                 name = recipe.name
                 minutes = recipe.time.same_day_minutes
                 total_minutes = recipe.time.total_minutes
-            alts = _alternatives(
-                meals, prefs, evening, image_for, dishes, exclude=row.recipe_slug, by_slug=by_slug
-            )
         else:
             source = by_slug.get(row.source_slug or "")
             dish = dishes_by_slug.get(row.source_slug or "")
@@ -169,7 +203,6 @@ def plan_view(
                 "image": (image_for(row.recipe_slug) if image_for and row.recipe_slug else None),
                 "members": members,
                 "cooking": cooking,
-                "alternatives": alts,
                 "can_leftovers": (row.kind in ("cook", "no_cook") and last_cook_slug is not None),
                 "over_budget": row.kind == "cook" and minutes > budget,
                 "is_today": row.day == today,
@@ -188,35 +221,103 @@ def plan_view(
     return view
 
 
-def _alternatives(
+def popularity(verdicts: dict[str, str]) -> Popularity:
+    """Aggregate 'how well liked' badge from the per-person verdicts.
+
+    'never' hard-excludes a recipe from the picker, so badge colours only
+    ever describe the rows that are actually on offer.
+    """
+    loves = any(verdict == "love" for verdict in verdicts.values())
+    dislikes = any(verdict == "dislike" for verdict in verdicts.values())
+    if loves and not dislikes:
+        return {"key": "love", "label": "geliefd", "favourite": True}
+    if loves:
+        return {"key": "mixed", "label": "gemengd", "favourite": True}
+    if dislikes:
+        return {"key": "hate", "label": "niet geliefd", "favourite": False}
+    return {"key": "ok", "label": "ok", "favourite": False}
+
+
+def recency(last_used: date | None, today: date) -> RecencyBadge:
+    """How recently a recipe was planned, as a coloured badge.
+
+    The orange bucket mirrors the planner's repeat window
+    (DEFAULT_REPEAT_WINDOW_DAYS): eating within it is the repetition the
+    planner normally hedges, so the badge makes it a conscious choice here.
+    """
+    if last_used is None:
+        return {"key": "never", "label": "nog nooit", "last": None}
+    days = max((today - last_used).days, 0)
+    if days <= 7:
+        return {"key": "week", "label": "deze week", "last": last_used}
+    if days <= DEFAULT_REPEAT_WINDOW_DAYS:
+        return {"key": "recent", "label": "2-3 weken geleden", "last": last_used}
+    return {"key": "old", "label": "langer geleden", "last": last_used}
+
+
+def select_options(
     recipes: list[Recipe],
     prefs: Preferences,
     evening: EveningAvailability,
     image_for,
     dishes: Sequence[ComposedDish],
-    exclude: str | None = None,
+    exclude_slug: str,
     *,
-    by_slug: dict[str, Recipe] | None = None,
-) -> list[dict]:
-    """Swap options for the picker, with the thumbnails it shows.
+    by_slug: dict[str, Recipe],
+    history: dict[str, date],
+    verdicts_by_slug: dict[str, dict[str, str]],
+    people: list[dict],
+    today: date,
+    q: str = "",
+    sort: str = "score",
+) -> list[SelectOption]:
+    """Full option list for the /plan/select page, indicators included.
 
-    When dish options reference components, pass the full `by_slug` dict so
-    the engine can resolve them. `recipes` is the picker's display list.
+    One row per alternative (composed dishes first, then recipes, blocked
+    rows at the bottom), enriched with the aggregate popularity badge, the
+    per-person verdict dots, the favourite marker and the last-used badge.
+    `exclude_slug` keeps the evening's current dish/recipe off the list.
     """
-    return [
-        {
-            "slug": row.slug,
-            "name": row.name,
-            "is_dish": row.is_dish,
-            "part_labels": row.part_labels,
-            "problem": row.problem,
-            "score": row.score,
-            "image": image_for(row.slug) if image_for and not row.is_dish else None,
-        }
-        for row in alternatives(
-            recipes, prefs, evening, exclude_slug=exclude, dishes=dishes, by_slug=by_slug
+    rows: list[SelectOption] = []
+    for row in alternatives(
+        recipes, prefs, evening, exclude_slug=exclude_slug, dishes=dishes, by_slug=by_slug
+    ):
+        verdicts = verdicts_by_slug.get(row.slug, {})
+        pop = popularity(verdicts)
+        rows.append(
+            {
+                "slug": row.slug,
+                "name": row.name,
+                "is_dish": row.is_dish,
+                "part_labels": row.part_labels,
+                "problem": row.problem,
+                "score": row.score,
+                "minutes": row.minutes,
+                "image": image_for(row.slug) if image_for and not row.is_dish else None,
+                "badge": pop,
+                "favourite": pop["favourite"],
+                "dots": [
+                    VerdictDot(person=p["id"], verdict=verdicts.get(p["id"], "")) for p in people
+                ],
+                "recency": recency(history.get(row.slug), today),
+            }
         )
-    ]
+    query = q.strip().lower()
+    if query:
+        rows = [row for row in rows if query in row["name"].lower()]
+    if sort == "recent":
+        # usable rows first, then blocked; within each, most recently planned
+        # first so the repeat is visible; never-used rows sink to the bottom
+        def _sort_key(row: SelectOption):
+            last = row["recency"]["last"]
+            return (
+                1 if row["problem"] else 0,
+                1 if last is None else 0,
+                -last.toordinal() if last is not None else 0,
+            )
+
+        rows.sort(key=_sort_key)
+    return rows
 
 
 def _dish_parts(

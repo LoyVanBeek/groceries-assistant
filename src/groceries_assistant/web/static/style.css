@@ -11,6 +11,14 @@
   --accent: #2e6e46;
   --accent-ink: #fff;
   --accent-soft: #e4efe7;
+  --pop-love: #1a7f37;
+  --pop-love-bg: #dafbe1;
+  --pop-mixed: #9a6700;
+  --pop-mixed-bg: #fff8c5;
+  --pop-hate: #cf222e;
+  --pop-hate-bg: #ffebe9;
+  --pop-ok: #57606a;
+  --pop-ok-bg: #eaeef2;
 }
 
 /* Explicit dark override (max contrast: pure black / pure white) */
@@ -26,6 +34,14 @@
   --accent: #86d3a8;
   --accent-ink: #000;
   --accent-soft: #123324;
+  --pop-love: #3fb950;
+  --pop-love-bg: rgba(46, 160, 67, 0.2);
+  --pop-mixed: #d29922;
+  --pop-mixed-bg: rgba(187, 128, 9, 0.2);
+  --pop-hate: #f85149;
+  --pop-hate-bg: rgba(248, 81, 73, 0.2);
+  --pop-ok: #8b949e;
+  --pop-ok-bg: rgba(110, 118, 129, 0.2);
 }
 
 /* Follow the system preference until the user picks explicitly */
@@ -42,6 +58,14 @@
     --accent: #86d3a8;
     --accent-ink: #000;
     --accent-soft: #123324;
+    --pop-love: #3fb950;
+    --pop-love-bg: rgba(46, 160, 67, 0.2);
+    --pop-mixed: #d29922;
+    --pop-mixed-bg: rgba(187, 128, 9, 0.2);
+    --pop-hate: #f85149;
+    --pop-hate-bg: rgba(248, 81, 73, 0.2);
+    --pop-ok: #8b949e;
+    --pop-ok-bg: rgba(110, 118, 129, 0.2);
   }
 }
 
@@ -241,8 +265,6 @@ tbody tr.today:hover { background: var(--accent-soft); }
 }
 .locked-actions[open] > summary.besteld-tag::after { content: " \25BC"; }
 .locked-actions-body { display: block; margin-top: 0.5rem; }
-/* the alternatives drop leftward over the table from the narrow column */
-table.plan .locked-actions .dish-options { left: auto; right: 0; min-width: 24rem; }
 
 table.order-links { margin: 0.9rem 0; }
 table.order-links th { text-align: left; border-bottom: 2px solid var(--ink); }
@@ -437,43 +459,7 @@ table.plan button { min-width: 5.5rem; text-align: center; white-space: nowrap; 
 table.plan .col-day { white-space: nowrap; width: 10rem; }
 table.plan .col-dish { width: 40%; }
 
-/* dish picker: summary = current dish (thumb + name), body = alternatives */
-table.plan details.dish-picker { position: relative; display: block; }
-table.plan details.dish-picker summary {
-  list-style: none;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.15rem 0.4rem;
-  border-radius: 7px;
-  border: 1.5px solid var(--border);
-  min-height: 2.9rem;
-}
-table.plan details.dish-picker summary::-webkit-details-marker { display: none; }
-table.plan details.dish-picker summary::after {
-  content: "\25BE";
-  margin-left: auto;
-  color: var(--muted);
-}
-table.plan details.dish-picker[open] summary {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-}
-table.plan .dish-options {
-  position: absolute;
-  left: 0;
-  right: 0;
-  z-index: 20;
-  margin-top: 0.2rem;
-  background: var(--bg);
-  border: 1.5px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
-  padding: 0.25rem;
-  max-height: 19rem;
-  overflow-y: auto;
-}
+/* part picker: the option rows are per-part buttons; reuse .dish-option */
 table.plan .dish-option {
   display: flex;
   align-items: center;
@@ -504,6 +490,74 @@ table.plan .dish-option.unavailable .muted { font-size: 0.8rem; width: 100%; }
 table.plan .dish-combo { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
 table.plan .dish-label { font-size: 0.82rem; color: var(--muted); }
 table.plan .parts-label { font-size: 0.98rem; }
+
+/* recipe selection page (/plan/select) + the shared indicators */
+.select-search { margin: 0.6rem 0; }
+.select-search input[type="search"] { padding: 0.35rem 0.6rem; }
+.legend { margin: 0.2rem 0 0.4rem; }
+.select-list { list-style: none; padding: 0; margin: 0.75rem 0; }
+.select-row { border: 1.5px solid var(--border); border-radius: 8px; margin: 0.4rem 0; }
+.select-row .option-form { margin: 0; }
+.option-body {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  width: 100%;
+  padding: 0.5rem 0.7rem;
+  font: inherit;
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+button.option-body:hover { background: var(--accent-soft); }
+.select-row.unavailable { background: var(--surface); }
+.select-row.unavailable .option-body {
+  cursor: default;
+  padding-bottom: 0.25rem;
+}
+.select-row.unavailable .option-body:hover { background: none; }
+.option-body .thumb { width: 3rem; height: 3rem; border-radius: 6px; margin-right: 0; }
+.option-name { flex: 1 1 auto; min-width: 0; font-weight: 600; }
+.option-badges { display: inline-flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+.option-meta { flex: 0 0 auto; display: inline-flex; gap: 0.5rem; align-items: center; }
+.option-meta .dish-score { font-variant-numeric: tabular-nums; }
+.row-problem { flex-basis: 100%; font-size: 0.85rem; }
+.special-actions { margin: 0.6rem 0; }
+.fave { color: var(--pop-hate); font-weight: 700; }
+.pop {
+  display: inline-block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.4;
+  padding: 0 0.5rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.pop.love { background: var(--pop-love-bg); color: var(--pop-love); }
+.pop.mixed { background: var(--pop-mixed-bg); color: var(--pop-mixed); }
+.pop.hate { background: var(--pop-hate-bg); color: var(--pop-hate); }
+.pop.ok { background: var(--pop-ok-bg); color: var(--pop-ok); }
+.dot-row { display: inline-flex; gap: 0.2rem; align-items: center; }
+.dot { width: 0.7rem; height: 0.7rem; border-radius: 50%; border: 1px solid var(--border); background: transparent; }
+.dot.love { background: var(--pop-love); border-color: var(--pop-love); }
+.dot.ok { background: var(--pop-ok); border-color: var(--pop-ok); }
+.dot.dislike { background: var(--pop-hate); border-color: var(--pop-hate); }
+.dot.never { border-color: var(--pop-hate); }
+.rec {
+  display: inline-block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.4;
+  padding: 0 0.5rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.rec.week { background: var(--pop-hate-bg); color: var(--pop-hate); }
+.rec.recent { background: var(--pop-mixed-bg); color: var(--pop-mixed); }
+.rec.old { background: var(--pop-love-bg); color: var(--pop-love); }
+.rec.never { background: var(--pop-ok-bg); color: var(--pop-ok); }
 
 /* part picker: summary = the part and what fills it, body = the options.
    A <select> cannot show a photo, so this is a details/popup like the dish

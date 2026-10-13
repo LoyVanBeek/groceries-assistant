@@ -9,8 +9,12 @@
   <a class="big-link" href="/recipes/ocr">Bulk importeren (foto's)</a>
 </p>
 {% if errors %}<p class="warnings">{{ errors|join('; ') }}</p>{% endif %}
+<form method="get" action="/recipes" class="select-search">
+  <input type="search" name="q" value="{{ q }}" placeholder="Zoek recept&hellip;" aria-label="Zoek recept">
+  <button type="submit">Zoek</button>
+</form>
 <table>
-  <tr><th>Recept</th><th>Tijd</th><th>Protein</th><th></th>{% for p in people %}<th>{{ p['name'] or p['id'] }}</th>{% endfor %}</tr>
+  <tr><th>Recept</th><th>Tijd</th><th>Protein</th><th>Waardering</th><th>Laatst</th><th></th>{% for p in people %}<th>{{ p['name'] or p['id'] }}</th>{% endfor %}</tr>
   {% for r in recipes %}
   <tr>
     <td>
@@ -19,6 +23,11 @@
     </td>
     <td>{{ r.minutes }} min</td>
     <td>{{ r.protein or '' }}</td>
+    <td>
+      {% if r.favourite %}<span class="fave" title="Favoriet &mdash; mag best vaker terugkomen">&#9829;</span>{% endif %}
+      <span class="pop {{ r.badge.key }}" title="Waardering">{{ r.badge.label }}</span>
+    </td>
+    <td><span class="rec {{ r.recency.key }}" title="Laatst gepland: {{ (r.recency.last | dutch_date) if r.recency.last else 'nooit' }}">{{ r.recency.label }}</span></td>
     <td class="actions">
       <a class="btn-small" href="/recipes/{{ r.slug }}/edit">wijzig</a>
       <form method="post" action="/recipes/{{ r.slug }}/delete" style="display:inline"
@@ -44,7 +53,7 @@
     {% endfor %}
   </tr>
   {% else %}
-  <tr><td colspan="9">Nog geen recepten. <a href="/recipes/import">Importeer er een</a>.</td></tr>
+  <tr><td colspan="{{ 6 + people|length }}">Nog geen recepten. <a href="/recipes/import">Importeer er een</a>.</td></tr>
   {% endfor %}
 </table>
 {% endblock %}

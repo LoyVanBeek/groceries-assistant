@@ -83,7 +83,17 @@ from groceries_assistant.services.planner_service import (
     rows_to_entries,
 )
 from groceries_assistant.store.db import PlanEntryRow, Store
-from groceries_assistant.web.views import WEEKDAYS, dutch_date, format_amount, plan_view
+from groceries_assistant.web.views import (
+    WEEKDAYS,
+    Popularity,
+    RecencyBadge,
+    dutch_date,
+    format_amount,
+    plan_view,
+    popularity,
+    recency,
+    select_options,
+)
 
 SERVINGS = 4
 LEFTOVERS_CHOICE = "__leftovers__"
@@ -174,6 +184,20 @@ class PartSlot(TypedDict):
 
     label: str
     options: list[OptionRow]
+
+
+class RecipeRow(TypedDict):
+    """One row of the /recipes table, indicators included."""
+
+    slug: str
+    name: str
+    minutes: int
+    protein: str | None
+    image: Path | None
+    verdicts: dict[str, str]
+    badge: Popularity
+    favourite: bool
+    recency: RecencyBadge
 
 
 def empty_slot() -> PartSlot:
@@ -666,15 +690,12 @@ def create_app(
         if delta:
             store().shift_proposal(plan_id, delta)
             start = start + timedelta(days=delta)
-        prefs = preferences_from_store(store())
         approved_days = store().plan_approvals(plan_id)
         ordered_days = store().plan_ordered(plan_id)
         evenings = plan_view(
             store(),
             plan_id,
             all_known(),
-            [r for r in all_recipes],
-            prefs,
             store().people(),
             image_for=image_url_for,
             dishes=list(dishes_by_slug().values()),
@@ -695,6 +716,63 @@ def create_app(
             order_to=pending[-1] if pending else None,
             approved_any=bool(approved_days),
             evenings=evenings,
+            errors=errors,
+        )
+
+    @app.get("/plan/select", response_class=HTMLResponse)
+    def plan_select(request: Request, day: str = "", q: str = "", sort: str = "score"):
+        """Pick one evening's dish on its own page.
+
+        Every option is the same /plan/swap form the old dropdown posted; the
+        page only adds the indicators (how well liked, how recently planned,
+        favourite) and, for a 'besteld' day, the same 'force' gate. The day's
+        current dish is excluded so the list starts where the old picker did.
+        """
+        proposal = store().load_proposal()
+        if proposal is None or not day:
+            raise HTTPException(404, "Geen voorstel")
+        plan_id = proposal[0]
+        try:
+            target = date.fromisoformat(day)
+        except ValueError:
+            raise HTTPException(400, "Ongeldige datum") from None
+        rows = store().plan_entries(plan_id)
+        current = next((r for r in rows if r.day == target), None)
+        if current is None:
+            raise HTTPException(404, "Geen avond die dag")
+        all_recipes, errors = load_all()
+        prefs = preferences_from_store(store())
+        people = store().people()
+        evening = evenings_for(store(), target, days=1)[0]
+        options = select_options(
+            all_recipes,
+            prefs,
+            evening,
+            image_url_for,
+            list(dishes_by_slug().values()),
+            current.recipe_slug or current.source_slug or "",
+            by_slug=all_known(),
+            history=store().history(),
+            verdicts_by_slug=store().verdicts(),
+            people=people,
+            today=date.today(),
+            q=q,
+            sort=sort,
+        )
+        return render(
+            request,
+            "select.html",
+            day=day,
+            q=q,
+            sort=sort,
+            label=f"{WEEKDAYS[target.weekday()].capitalize()} {target.strftime('%d-%m')}",
+            options=options,
+            confirmed=target in store().plan_ordered(plan_id),
+            is_no_cook=current.kind == "no_cook",
+            can_leftovers=(
+                current.kind in ("cook", "no_cook")
+                and _previous_cook_slug(rows, target) is not None
+            ),
             errors=errors,
         )
 
@@ -1797,27 +1875,39 @@ def create_app(
         )
 
     @app.get("/recipes", response_class=HTMLResponse)
-    def recipes_page(request: Request):
+    def recipes_page(request: Request, q: str = ""):
         all_recipes, errors = load_all()
         people = store().people()
         verdicts = store().verdicts()
-        rows = [
-            {
-                "slug": r.slug,
-                "name": r.name,
-                "minutes": r.time.total_minutes,
-                "protein": r.protein,
-                "image": image_path(r.slug),
-                "verdicts": {p["id"]: verdicts.get(r.slug, {}).get(p["id"], "") for p in people},
-            }
-            for r in sorted(all_recipes, key=lambda r: r.name.lower())
-        ]
+        history = store().history()
+        today = date.today()
+        rows: list[RecipeRow] = []
+        for r in sorted(all_recipes, key=lambda r: r.name.lower()):
+            pop = popularity(verdicts.get(r.slug, {}))
+            per_person = {p["id"]: verdicts.get(r.slug, {}).get(p["id"], "") for p in people}
+            rows.append(
+                {
+                    "slug": r.slug,
+                    "name": r.name,
+                    "minutes": r.time.total_minutes,
+                    "protein": r.protein,
+                    "image": image_path(r.slug),
+                    "verdicts": per_person,
+                    "badge": pop,
+                    "favourite": pop["favourite"],
+                    "recency": recency(history.get(r.slug), today),
+                }
+            )
+        query = q.strip().lower()
+        if query:
+            rows = [row for row in rows if query in row["name"].lower()]
         return render(
             request,
             "recipes.html",
             recipes=rows,
             people=people,
             errors=errors,
+            q=q,
         )
 
     def _stage_web_image(url: str) -> str | None:

@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}Gerecht kiezen{% endblock %}
+{% block content %}
+{% macro indicators(o) %}
+{% if o.favourite %}<span class="fave" title="Favoriet &mdash; mag best vaker terugkomen">&#9829;</span>{% endif %}
+<span class="pop {{ o.badge.key }}" title="Waardering">{{ o.badge.label }}</span>
+<span class="dot-row" aria-label="Waardering per persoon: {{ o.dots|map(attribute='verdict')|select|join(', ') or 'nog niets' }}">
+  {% for d in o.dots %}<span class="dot {{ d.verdict }}" title="{{ d.person }}"></span>{% endfor %}
+</span>
+<span class="rec {{ o.recency.key }}" title="Laatst gepland: {{ (o.recency.last | dutch_date) if o.recency.last else 'nooit' }}">{{ o.recency.label }}</span>
+{% endmacro %}
+<h1>Gerecht kiezen &mdash; {{ label }}</h1>
+{% if errors %}<p class="warnings">Ongeldige receptbestanden: {{ errors|join('; ') }}</p>{% endif %}
+{% if confirmed %}
+<p class="warnings">
+  De boodschappen voor deze dag zijn al besteld en vastgezet. Kies je een ander gerecht, vink dan
+  de bevestiging aan: de dag wordt weer vrij en de oude items gaan op &lsquo;in huis&rsquo;.
+</p>
+{% endif %}
+<p class="muted legend">
+  <span class="pop love">geliefd</span> <span class="pop mixed">gemengd</span>
+  <span class="pop ok">ok</span> <span class="pop hate">niet geliefd</span>
+  <span class="fave">&#9829;</span> favoriet &middot;
+  <span class="rec week">deze week</span> <span class="rec recent">2-3 weken</span>
+  <span class="rec old">langer geleden</span> <span class="rec never">nog nooit</span> = laatst gepland
+</p>
+<form method="get" action="/plan/select" class="select-search">
+  <input type="hidden" name="day" value="{{ day }}">
+  <input type="hidden" name="sort" value="{{ sort }}">
+  <input type="search" name="q" value="{{ q }}" placeholder="Zoek recept&hellip;" aria-label="Zoek recept">
+  <button type="submit">Zoek</button>
+</form>
+<p class="muted">
+  Sorteer:
+  {% if sort != 'score' %}<a href="/plan/select?day={{ day }}&amp;sort=score{% if q %}&amp;q={{ q | urlencode }}{% endif %}">scores</a>{% else %}<strong>scores</strong>{% endif %}
+  &middot;
+  {% if sort != 'recent' %}<a href="/plan/select?day={{ day }}&amp;sort=recent{% if q %}&amp;q={{ q | urlencode }}{% endif %}">laatst gebruikt</a>{% else %}<strong>laatst gebruikt</strong>{% endif %}
+</p>
+<ul class="select-list">
+  {% for o in options %}
+  <li class="select-row{% if o.problem %} unavailable{% endif %}">
+    {% if o.problem %}
+    <div class="option-body">
+      {% if o.image %}<img class="thumb" src="{{ o.image }}" alt="">{% endif %}
+      <span class="option-name">{{ o.name }}{% if o.is_dish %} <span class="muted">({{ o.part_labels|join(' + ') }})</span>{% endif %}</span>
+      <span class="option-badges">{{ indicators(o) }}</span>
+      <span class="option-meta">
+        {% if o.minutes is not none %}<span class="muted">{{ o.minutes }} min</span>{% endif %}
+        <span class="dish-score muted" title="score">{{ '%.1f'|format(o.score)|replace('.', ',') }}</span>
+      </span>
+      <span class="muted row-problem">{{ o.problem }}</span>
+    </div>
+    {% else %}
+    <form method="post" action="/plan/swap" class="option-form">
+      <input type="hidden" name="day" value="{{ day }}">
+      <input type="hidden" name="choice" value="{{ o.slug }}">
+      {% if confirmed %}<label class="confirm-force"><input type="checkbox" name="force" required> boodschappen al besteld &mdash; ik maak de items vrij</label>{% endif %}
+      <button class="option-body" type="submit">
+        {% if o.image %}<img class="thumb" src="{{ o.image }}" alt="">{% endif %}
+        <span class="option-name">{{ o.name }}{% if o.is_dish %} <span class="muted">({{ o.part_labels|join(' + ') }})</span>{% endif %}</span>
+        <span class="option-badges">{{ indicators(o) }}</span>
+        <span class="option-meta">
+          {% if o.minutes is not none %}<span class="muted">{{ o.minutes }} min</span>{% endif %}
+          <span class="dish-score muted" title="score">{{ '%.1f'|format(o.score)|replace('.', ',') }}</span>
+        </span>
+      </button>
+    </form>
+    {% endif %}
+  </li>
+  {% else %}
+  <li class="muted">Geen recepten gevonden{% if q %} voor &lsquo;{{ q }}&rsquo;{% endif %}.</li>
+  {% endfor %}
+</ul>
+{% if can_leftovers or not is_no_cook %}
+<p class="special-actions">
+  {% if can_leftovers %}
+  <form method="post" action="/plan/swap" class="inline">
+    <input type="hidden" name="day" value="{{ day }}">
+    <input type="hidden" name="choice" value="__leftovers__">
+    {% if confirmed %}<label class="confirm-force"><input type="checkbox" name="force" required> boodschappen al besteld</label>{% endif %}
+    <button>Restjes (avond ervoor)</button>
+  </form>
+  {% endif %}
+  {% if not is_no_cook %}
+  <form method="post" action="/plan/swap" class="inline">
+    <input type="hidden" name="day" value="{{ day }}">
+    <input type="hidden" name="choice" value="__no_cook__">
+    {% if confirmed %}<label class="confirm-force"><input type="checkbox" name="force" required> boodschappen al besteld</label>{% endif %}
+    <button>niet koken (eten elders)</button>
+  </form>
+  {% endif %}
+</p>
+{% endif %}
+<p>
+  <a class="big-link" href="/plan">Terug naar het weekplan</a>
+  <form method="post" action="/plan/swap" class="inline">
+    <input type="hidden" name="day" value="{{ day }}">
+    <input type="hidden" name="choice" value="__keep__">
+    <button class="link">laten staan</button>
+  </form>
+</p>
+{% endblock %}

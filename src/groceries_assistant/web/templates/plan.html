@@ -1,43 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Weekplan{% endblock %}
 {% block content %}
-{% macro dish_option_form(e, alt, force) %}
-<form method="post" action="/plan/swap">
-  <input type="hidden" name="day" value="{{ e.day_iso }}">
-  <input type="hidden" name="choice" value="{{ alt.slug }}">
-  {% if force %}<label class="confirm-force"><input type="checkbox" name="force" required> boodschappen al besteld &mdash; ik maak de items vrij</label>{% endif %}
-  <button class="dish-option">
-    {% if alt.image %}<img class="thumb" src="{{ alt.image }}" alt="">{% endif %}
-    <span class="dish-option-name">{{ alt.name }}
-      {% if alt.is_dish %}<span class="muted"> ({{ alt.part_labels|join(' + ') }})</span>{% endif %}</span>
-    <span class="dish-score muted" title="score">{{ '%.1f'|format(alt.score)|replace('.', ',') }}</span>
-  </button>
-</form>
-{% endmacro %}
-{% macro special_option_form(e, slug, force, label, css) %}
-<form method="post" action="/plan/swap">
-  <input type="hidden" name="day" value="{{ e.day_iso }}">
-  <input type="hidden" name="choice" value="{{ slug }}">
-  {% if force %}<label class="confirm-force"><input type="checkbox" name="force" required> boodschappen al besteld &mdash; ik maak de items vrij</label>{% endif %}
-  <button class="dish-option {{ css }}">{{ label }}</button>
-</form>
-{% endmacro %}
-{% macro picker_options(e, force) %}
-{% for alt in e.alternatives %}
-  {% if alt.problem %}
-  <div class="dish-option unavailable" aria-disabled="true">
-    <span class="dish-option-name">{{ alt.name }}
-      {% if alt.is_dish %}<span class="muted"> ({{ alt.part_labels|join(' + ') }})</span>{% endif %}</span>
-    <span class="dish-score muted">{{ '%.1f'|format(alt.score)|replace('.', ',') }}</span>
-    <div class="muted">{{ alt.problem }}</div>
-  </div>
-  {% else %}
-  {{ dish_option_form(e, alt, force) }}
-  {% endif %}
-{% endfor %}
-{% if e.can_leftovers %}{{ special_option_form(e, '__leftovers__', force, 'Restjes (avond ervoor)', '') }}{% endif %}
-{% if e.kind != 'no_cook' %}{{ special_option_form(e, '__no_cook__', force, 'niet koken (eten elders)', 'muted') }}{% endif %}
-{% endmacro %}
 {% if request.query_params.error == 'kok' %}
 <p class="warnings">Kok moet een volwassene zijn die mee-eet.</p>
 {% endif %}
@@ -92,34 +55,23 @@
         <button>toch koken</button>
       </form>
       {% else %}
-      <details class="dish-picker">
-        <summary aria-label="Gerecht wisselen voor {{ e.label }}">
-          {% if e.image %}<img class="thumb" src="{{ e.image }}" alt="">{% endif %}
-          {% if e.is_dish %}
-          <span class="dish-combo">
-            <span class="dish-label">{{ e.name }}</span>
-            <span class="parts-label">
-              {% if e.parts_label %}
-              <strong>{{ e.parts_label }}</strong>
-              {% if e.unfilled %}<span class="muted"> + nog te kiezen: {{ e.unfilled|join(', ') }}</span>{% endif %}
-              {% else %}
-              <strong class="muted">nog te kiezen</strong>
-              {% endif %}
-            </span>
-          </span>
+      {% if e.image %}<img class="thumb" src="{{ e.image }}" alt="">{% endif %}
+      {% if e.is_dish %}
+      <span class="dish-combo">
+        <span class="dish-label">{{ e.name }}</span>
+        <span class="parts-label">
+          {% if e.parts_label %}
+          <strong>{{ e.parts_label }}</strong>
+          {% if e.unfilled %}<span class="muted"> + nog te kiezen: {{ e.unfilled|join(', ') }}</span>{% endif %}
           {% else %}
-          <strong{% if e.kind == 'no_cook' %} class="muted"{% endif %}>{{ e.name }}</strong>
+          <strong class="muted">nog te kiezen</strong>
           {% endif %}
-        </summary>
-        <div class="dish-options">
-          {{ picker_options(e, false) }}
-          <form method="post" action="/plan/swap">
-            <input type="hidden" name="day" value="{{ e.day_iso }}">
-            <input type="hidden" name="choice" value="__keep__">
-            <button class="dish-option muted">laten staan</button>
-          </form>
-        </div>
-      </details>
+        </span>
+      </span>
+      {% else %}
+      <strong{% if e.kind == 'no_cook' %} class="muted"{% endif %}>{{ e.name }}</strong>
+      {% endif %}
+      <div><a class="btn-small" href="/plan/select?day={{ e.day_iso }}" aria-label="Gerecht kiezen voor {{ e.label }}">gerecht kiezen</a></div>
       {% endif %}
       {% if not e.is_ordered and e.is_dish and e.editable_parts and e.part_options %}
       <div class="parts-form">
@@ -220,17 +172,7 @@
             </select>
             <button class="link" aria-label="Ruil de gerechten van deze en de gekozen dag">ruil dag</button>
           </form>
-          <details class="dish-picker">
-            <summary aria-label="Gerecht wisselen voor {{ e.label }}">gerecht wisselen <span class="muted">(boodschappen al besteld)</span></summary>
-            <div class="dish-options">
-              {{ picker_options(e, true) }}
-              <form method="post" action="/plan/swap">
-                <input type="hidden" name="day" value="{{ e.day_iso }}">
-                <input type="hidden" name="choice" value="__keep__">
-                <button class="dish-option muted">laten staan</button>
-              </form>
-            </div>
-          </details>
+          <a class="btn-small" href="/plan/select?day={{ e.day_iso }}" aria-label="Gerecht wisselen voor {{ e.label }}">gerecht wisselen <span class="muted">(boodschappen al besteld)</span></a>
         </div>
       </details>
       {% elif e.is_approved %}
