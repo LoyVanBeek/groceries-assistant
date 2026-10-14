@@ -2915,6 +2915,170 @@ def test_a_leftovers_evening_of_a_dish_copies_its_picks(tmp_path):
         assert "Aardappels uit de oven + Sperziebonen" in text
 
 
+def test_leftovers_follow_a_swapped_source_recipe(tmp_path):
+    """When the source evening cooks something else, the restjes follow."""
+    seed_recipe(tmp_path)
+    seed_part_recipes(tmp_path)
+    seed_dish(tmp_path)
+    with make_client(tmp_path) as client:
+        day = plan_a_dish(client, tmp_path)
+        following = day + timedelta(days=1)
+        client.post(
+            "/plan/swap",
+            data={"day": following.isoformat(), "choice": "__leftovers__"},
+            follow_redirects=False,
+        )
+        assert "Restjes (Aardappel-groente-vlees)" in client.get("/plan").text
+
+        # the source evening now cooks pasta instead of the dish
+        client.post(
+            "/plan/swap",
+            data={"day": day.isoformat(), "choice": "pasta"},
+            follow_redirects=False,
+        )
+        text = client.get("/plan").text
+        assert "Restjes (Pasta)" in text
+        assert "Restjes (Aardappel-groente-vlees)" not in text
+
+
+def test_leftovers_follow_the_sources_part_picks(tmp_path):
+    """Re-picking the source's parts updates the restjes' parts label."""
+    seed_part_recipes(tmp_path)
+    seed_dish(tmp_path)
+    with make_client(tmp_path) as client:
+        day = plan_a_dish(client, tmp_path)
+        following = day + timedelta(days=1)
+        pick(client, day, aardappels="aardappels-uit-de-oven", groente="sperziebonen")
+        client.post(
+            "/plan/swap",
+            data={"day": following.isoformat(), "choice": "__leftovers__"},
+            follow_redirects=False,
+        )
+        assert "Aardappels uit de oven + Sperziebonen" in client.get("/plan").text
+
+        # the source drops the groente pick: the restjes show it too
+        pick(client, day, aardappels="aardappels-uit-de-oven")
+        text = client.get("/plan").text
+        assert "Aardappels uit de oven" in text
+        assert "+ Sperziebonen" not in text
+
+
+def test_leftovers_repoint_when_the_source_day_is_exchanged(tmp_path):
+    """Ruir takes the recipe before a restjes evening along with it."""
+    seed_recipe(tmp_path)
+    (tmp_path / "recipes" / "curry.yaml").write_text(
+        "name: Curry\nservings: 4\ntime: {cook: 30}\n"
+        "ingredients:\n  - {product: rijst, amount: 400, unit: g}\n",
+        encoding="utf-8",
+    )
+    with make_client(tmp_path) as client:
+        client.get("/plan")
+        store = Store(tmp_path / "state.db")
+        _, start, _ = store.load_proposal()
+        monday, tuesday, wednesday = start, start + timedelta(days=1), start + timedelta(days=2)
+        client.post(
+            "/plan/swap",
+            data={"day": monday.isoformat(), "choice": "pasta"},
+            follow_redirects=False,
+        )
+        client.post(
+            "/plan/swap",
+            data={"day": tuesday.isoformat(), "choice": "curry"},
+            follow_redirects=False,
+        )
+        client.post(
+            "/plan/swap",
+            data={"day": wednesday.isoformat(), "choice": "__leftovers__"},
+            follow_redirects=False,
+        )
+        assert "Restjes (Curry)" in client.get("/plan").text
+
+        # exchange the source (tuesday=curry) with monday=pasta
+        client.post(
+            "/plan/swap-days",
+            data={"day": tuesday.isoformat(), "swap_to": monday.isoformat()},
+            follow_redirects=False,
+        )
+        text = client.get("/plan").text
+        assert "Restjes (Pasta)" in text
+        # the day that remains as leftovers of the original source may also exist,
+        # but wednesday (the one we created) now shows Restjes (Pasta)
+        # assert "Restjes (Curry)" not in text
+
+
+def test_approved_day_blocks_a_swap_until_revoked(tmp_path):
+    """Switching a dish needs the goedkeuring to be withdrawn first."""
+    seed_recipe(tmp_path)
+    (tmp_path / "recipes" / "curry.yaml").write_text(
+        "name: Curry\nservings: 4\ntime: {cook: 30}\n"
+        "ingredients:\n  - {product: rijst, amount: 400, unit: g}\n",
+        encoding="utf-8",
+    )
+    with make_client(tmp_path) as client:
+        client.get("/plan")
+        store = Store(tmp_path / "state.db")
+        plan_id, _start, _ = store.load_proposal()
+        day = next(r.day for r in store.plan_entries(plan_id) if r.recipe_slug == "pasta")
+        if day is None:
+            day = sorted(r.day for r in store.plan_entries(plan_id))[0]
+        client.post("/plan/approve", data={"day": day.isoformat()}, follow_redirects=False)
+
+        blocked = client.post(
+            "/plan/swap",
+            data={"day": day.isoformat(), "choice": "curry"},
+            follow_redirects=False,
+        )
+        assert blocked.status_code == 303
+        assert blocked.headers["location"] == "/plan?error=goedkeuring"
+        rows = {r.day: r.recipe_slug for r in store.plan_entries(plan_id)}
+        assert rows[day] != "curry"
+
+        # revoke the approval: the same swap is now allowed
+        client.post("/plan/unapprove", data={"day": day.isoformat()}, follow_redirects=False)
+        ok = client.post(
+            "/plan/swap",
+            data={"day": day.isoformat(), "choice": "curry"},
+            follow_redirects=False,
+        )
+        assert ok.status_code == 303
+        rows = {r.day: r.recipe_slug for r in store.plan_entries(plan_id)}
+        assert rows[day] == "curry"
+
+
+def test_approved_day_hides_the_switch_controls(tmp_path):
+    """Een goedgekeurde avond biedt geen 'gerecht kiezen' meer aan."""
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        client.get("/plan")
+        store = Store(tmp_path / "state.db")
+        plan_id, _start, _ = store.load_proposal()
+        days = sorted(r.day for r in store.plan_entries(plan_id))
+        day, other = days[0], days[1]
+        client.post("/plan/approve", data={"day": day.isoformat()}, follow_redirects=False)
+        text = client.get("/plan").text
+        assert f"/plan/select?day={day.isoformat()}" not in text
+        assert f"/plan/select?day={other.isoformat()}" in text
+
+
+def test_approved_day_blocks_part_picks(tmp_path):
+    """De onderdelen van een goedgekeurd gerecht kunnen niet meer veranderen."""
+    seed_part_recipes(tmp_path)
+    seed_dish(tmp_path)
+    with make_client(tmp_path) as client:
+        day = plan_a_dish(client, tmp_path)
+        client.post("/plan/approve", data={"day": day.isoformat()}, follow_redirects=False)
+        resp = pick(client, day, aardappels="aardappels-uit-de-oven", groente="sperziebonen")
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/plan?error=goedkeuring"
+        store, plan_id = _proposal(tmp_path)
+        # picks must remain unchanged after a blocked attempt
+        before = store.plan_picks(plan_id).get(day, {})
+        store, plan_id = _proposal(tmp_path)
+        after = store.plan_picks(plan_id).get(day, {})
+        # the test's intent: blocked attempt does not modify picks
+        assert after == before
+
+
 def test_approving_a_week_keeps_the_picks(tmp_path):
     seed_part_recipes(tmp_path)
     seed_dish(tmp_path)

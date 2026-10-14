@@ -643,6 +643,42 @@ def create_app(
         earlier = [r for r in rows if r.day < day and r.kind == "cook" and r.recipe_slug]
         return earlier[-1].recipe_slug if earlier else None
 
+    def _previous_cook_row(rows: list[PlanEntryRow], day: date) -> PlanEntryRow | None:
+        earlier = [r for r in rows if r.day < day and r.kind == "cook" and r.recipe_slug]
+        return earlier[-1] if earlier else None
+
+    def _repoint_leftovers(plan_id: int, rows: list[PlanEntryRow]) -> list[PlanEntryRow]:
+        """Re-point each leftovers evening at the evening that now cooks before it.
+
+        A leftovers evening eats what the most recent cook evening before it
+        makes, so when a swap moves that source (or part picks fill it
+        differently), the leftover follows: `source_slug` updates and the
+        day's picks are copied from the source again. An evening with no
+        preceding cook keeps its stored source -- the dish was planned, even
+        if it can no longer be cooked.
+        """
+        new_rows: list[PlanEntryRow] = []
+        for row in rows:
+            if row.kind != "leftovers":
+                new_rows.append(row)
+                continue
+            source = _previous_cook_row(rows, row.day)
+            if source is None:
+                new_rows.append(row)
+                continue
+            new_rows.append(
+                PlanEntryRow(
+                    day=row.day,
+                    kind="leftovers",
+                    source_slug=source.recipe_slug,
+                    people=row.people,
+                )
+            )
+            fresh = store().plan_picks(plan_id).get(source.day, {})
+            if fresh != store().plan_picks(plan_id).get(row.day, {}):
+                store().set_picks(plan_id, row.day, fresh)
+        return new_rows
+
     # --- plan ---------------------------------------------------------------
 
     @app.get("/", response_class=HTMLResponse)
@@ -810,6 +846,10 @@ def create_app(
                 "De boodschappen voor deze dag zijn al besteld: vink de bevestiging"
                 " aan om het gerecht te wisselen",
             )
+        if not was_confirmed and target in store().plan_approvals(plan_id):
+            # een goedgekeurde avond staat vast tot de goedkeuring wordt
+            # ingetrokken; pas daarna kan het gerecht gewisseld worden
+            return RedirectResponse("/plan?error=goedkeuring", status_code=303)
         freed = {}
         if was_confirmed:
             freed = _day_ordered_products(plan_id, target)
@@ -832,6 +872,7 @@ def create_app(
                 new_rows.append(PlanEntryRow(day=target, kind="no_cook", people=0))
             else:
                 new_rows.append(PlanEntryRow(day=target, kind="cook", recipe_slug=choice, people=4))
+        new_rows = _repoint_leftovers(plan_id, new_rows)
         store().update_proposal_rows(plan_id, new_rows)
         _reconcile_picks(plan_id, new_rows, target, _row_dish_slug(rows, target))
         if was_confirmed:
@@ -859,6 +900,9 @@ def create_app(
             store().swap_days(plan_id, target, other)
         except KeyError:
             raise HTTPException(400, "Onbekende dag") from None
+        store().update_proposal_rows(
+            plan_id, _repoint_leftovers(plan_id, store().plan_entries(plan_id))
+        )
         return RedirectResponse("/plan", status_code=303)
 
     def _row_dish_slug(rows: list[PlanEntryRow], day: date) -> str:
@@ -911,6 +955,8 @@ def create_app(
             raise HTTPException(404, "Geen voorstel om te wijzigen")
         plan_id = proposal[0]
         target = date.fromisoformat(day)
+        if target in store().plan_approvals(plan_id):
+            return RedirectResponse("/plan?error=goedkeuring", status_code=303)
         row = next((r for r in store().plan_entries(plan_id) if r.day == target), None)
         dish = dishes_by_slug().get(row.recipe_slug or "") if row and row.kind == "cook" else None
         if dish is None:
@@ -923,6 +969,9 @@ def create_app(
             if chosen and chosen in part.option_slugs:
                 picks[part.key] = chosen
         store().set_picks(plan_id, target, picks)
+        store().update_proposal_rows(
+            plan_id, _repoint_leftovers(plan_id, store().plan_entries(plan_id))
+        )
         return RedirectResponse("/plan", status_code=303)
 
     def _best_cook_row(rows: list[PlanEntryRow], target: date) -> PlanEntryRow:

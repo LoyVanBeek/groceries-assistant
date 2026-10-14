@@ -4,6 +4,9 @@
 {% if request.query_params.error == 'kok' %}
 <p class="warnings">Kok moet een volwassene zijn die mee-eet.</p>
 {% endif %}
+{% if request.query_params.error == 'goedkeuring' %}
+<p class="warnings">Deze dag staat goedgekeurd: trek de goedkeuring eerst in om het gerecht te wisselen.</p>
+{% endif %}
 <h1>Week van {{ start | dutch_date }}</h1>
 {% if errors %}
 <p class="warnings">Ongeldige receptbestanden: {{ errors|join('; ') }}</p>
@@ -55,11 +58,13 @@
       <span class="dish-label">{{ e.name }}</span>
       <span class="parts-label">{{ e.parts_label or 'nog te kiezen' }}</span>
       {% else %}<strong>{{ e.name }}</strong>{% endif %}
+      {% if not e.is_approved %}
       <form method="post" action="/plan/swap" class="inline">
         <input type="hidden" name="day" value="{{ e.day_iso }}">
         <input type="hidden" name="choice" value="__cook__">
         <button>toch koken</button>
       </form>
+      {% endif %}
       {% else %}
       {% if e.image %}<img class="thumb" src="{{ e.image }}" alt="">{% endif %}
       {% if e.is_dish %}
@@ -77,9 +82,11 @@
       {% else %}
       <strong{% if e.kind == 'no_cook' %} class="muted"{% endif %}>{{ e.name }}</strong>
       {% endif %}
+      {% if not e.is_approved %}
       <div><a class="btn-small" href="/plan/select?day={{ e.day_iso }}" aria-label="Gerecht kiezen voor {{ e.label }}">gerecht kiezen</a></div>
       {% endif %}
-      {% if not e.is_ordered and e.is_dish and e.editable_parts and e.part_options %}
+      {% endif %}
+      {% if not e.is_ordered and not e.is_approved and e.is_dish and e.editable_parts and e.part_options %}
       <div class="parts-form">
         {% for part in e.part_options %}
         <details class="part-picker">
@@ -113,7 +120,7 @@
         </details>
         {% endfor %}
       </div>
-      {% elif not e.is_ordered and e.is_dish and e.unfilled and not e.part_options %}
+      {% elif not e.is_ordered and not e.is_approved and e.is_dish and e.unfilled and not e.part_options %}
       <div class="muted">Nog te kiezen: {{ e.unfilled|join(', ') }}</div>
       {% endif %}
     </td>
