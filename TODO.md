@@ -79,7 +79,7 @@
       sperzieboontjes, bloemkool, boontjes, worstjes, kipfilet, speklapje,
       kipschnitzel, vegaschitzel -- 17 components in total, the dish
       references them and appears in the planner)
-- [ ] When there are 'restjes', use the thumbnail of the repeated dish but with an icon overlayed on it
+- [x] When there are 'restjes', use the thumbnail of the repeated dish but with an icon overlayed on it
 - [ ] Have a preference for recipes when ingredients of it are in Bonus
 - [x] Configure week-start. Groceries are delivered on Tuesdays, for a week ahead
       ('De week begint op' select in the settings, stored as week_start_weekday,

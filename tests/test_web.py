@@ -1570,6 +1570,33 @@ def test_leftovers_show_the_repeated_dish_thumbnail_with_an_icon(tmp_path):
         assert 'class="restjes-icon"' in page
 
 
+def test_ordered_leftovers_keep_the_recycle_icon(tmp_path):
+    """The restjes icon also shows once the leftovers evening is besteld."""
+    seed_recipe(tmp_path)
+    (tmp_path / "recipes" / "img").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "recipes" / "img" / "pasta.png").write_bytes(_png_bytes())
+    with make_client(tmp_path) as client:
+        client.get("/plan")
+        from groceries_assistant.store.db import Store
+
+        s = Store(tmp_path / "state.db")
+        plan_id, _start, _ = s.load_proposal()
+        rows = s.plan_entries(plan_id)
+        leftovers = [r for r in rows if r.kind == "leftovers"]
+        assert leftovers, "the proposal should contain a leftovers evening"
+        lday = leftovers[0].day
+        # order the source evening too, so the confirmed order is non-empty
+        src_day = next(r.day for r in rows if r.recipe_slug == leftovers[0].source_slug)
+        client.post("/plan/approve", data={"day": src_day.isoformat()}, follow_redirects=False)
+        client.post("/plan/approve", data={"day": lday.isoformat()}, follow_redirects=False)
+        client.post("/plan/order", follow_redirects=False)
+        client.post("/order/confirm", follow_redirects=False)
+        page = client.get("/plan").text
+        assert "Restjes (Pasta)" in page
+        assert page.count('class="restjes-icon"') == 1
+        assert '<span class="restjes-thumb">' in page
+
+
 def test_grid_checkboxes_bound_to_their_own_row(tmp_path):
     """Regression: person checkboxes must reference their own evening's form.
 

@@ -50,7 +50,16 @@
     </td>
     <td class="col-dish">
       {% if e.is_ordered %}
-      {% if e.image %}<img class="thumb" src="{{ e.image }}" alt="">{% endif %}
+      {% if e.image %}
+      {% if e.kind == 'leftovers' %}
+      <span class="restjes-thumb">
+        <img class="thumb" src="{{ e.image }}" alt="">
+        <span class="restjes-icon" aria-label="restjes" title="Restjes">&#9851;</span>
+      </span>
+      {% else %}
+      <img class="thumb" src="{{ e.image }}" alt="">
+      {% endif %}
+      {% endif %}
       {% if e.is_dish %}
       <span class="dish-label">{% if e.slug %}<a href="/recipes/{{ e.slug }}">{{ e.name }}</a>{% else %}{{ e.name }}{% endif %}</span>
       <span class="parts-label">{{ e.parts_label or 'nog te kiezen' }}</span>
