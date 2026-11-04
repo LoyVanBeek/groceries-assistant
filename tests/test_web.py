@@ -68,25 +68,34 @@ def test_pages_render(tmp_path):
         assert client.get("/recipes/import").status_code == 200
 
 
-def test_plan_only_fills_on_button_press(tmp_path):
-    """Opening /plan never creates a proposal: the button does, once."""
+def test_plan_starts_empty_and_fills_on_button_press(tmp_path):
+    """A fresh week shows all seven days with nothing selected; 'Vul de week
+    in' replaces it with the planner's proposal, and only then."""
     seed_recipe(tmp_path)
     with make_client(tmp_path) as client:
         page = client.get("/plan").text
         assert "Vul de week in" in page
-        assert "Nog geen voorstel" in page
+        assert page.count(">gerecht kiezen<") == 7
+
         store = Store(tmp_path / "state.db")
-        assert store.load_proposal() is None
+        plan_id, _start, _ = store.load_proposal()
+        entries = store.plan_entries(plan_id)
+        assert len(entries) == 7
+        assert all(r.kind == "cook" and r.recipe_slug is None for r in entries)
+        assert "Nog te kiezen" in page
 
         resp = client.post("/plan/fill", follow_redirects=False)
         assert resp.status_code == 303
         assert resp.headers["location"] == "/plan"
-        client.post("/plan/fill", follow_redirects=False)  # no-op the second time
 
         plan_id, _start, _ = store.load_proposal()
-        assert len(store.plan_entries(plan_id)) == 7
+        slugs_before = [r.recipe_slug for r in store.plan_entries(plan_id)]
+        assert slugs_before != [None] * 7  # the planner filled the week
+        client.post("/plan/fill", follow_redirects=False)  # no-op: selections exist
+        assert [r.recipe_slug for r in store.plan_entries(plan_id)] == slugs_before
         page = client.get("/plan").text
         assert "Pasta" in page
+        assert "Vul de week in" not in page
 
 
 def test_clear_weeks_brings_back_the_fill_button(tmp_path):

@@ -728,14 +728,12 @@ def create_app(
             )
         proposal = store().load_proposal()
         if proposal is None:
-            # no implicit planning: the week fills on the button press only
-            return render(
-                request,
-                "plan.html",
-                no_proposal=True,
-                start=parse_start(None, start_weekday=store().week_start_weekday()),
-                errors=errors,
-            )
+            # an empty week: seven unselected evenings to fill by hand per day
+            # (or with the fill button); nothing is planned implicitly
+            start = parse_start(None, start_weekday=store().week_start_weekday())
+            skeleton = [PlanEntryRow(day=start + timedelta(days=i)) for i in range(7)]
+            plan_id = store().save_proposal(start, skeleton)
+            proposal = (plan_id, start)
         plan_id, start = proposal[0], proposal[1]
         # Re-anchor an existing proposal to the configured start weekday: shift
         # the days (and with them every swap and part pick) so the change lands
@@ -759,12 +757,16 @@ def create_app(
         last_day = max(e["day_iso"] for e in evenings) if evenings else None
         next_start = date.fromisoformat(last_day) + timedelta(days=1) if last_day else start
         pending = sorted(approved_days - ordered_days)
+        week_empty = all(
+            r.kind == "cook" and r.recipe_slug is None for r in store().plan_entries(plan_id)
+        )
         return render(
             request,
             "plan.html",
             plan_id=plan_id,
             start=start,
             next_start=next_start,
+            week_empty=week_empty,
             order_open=bool(pending),
             order_from=pending[0] if pending else None,
             order_to=pending[-1] if pending else None,
@@ -775,9 +777,13 @@ def create_app(
 
     @app.post("/plan/fill")
     def plan_fill():
-        """Create the week proposal on explicit request; /plan stays empty."""
+        """Fill the week with a planner proposal: from nothing, or by
+        replacing an untouched week. Selections are never overwritten."""
         all_recipes, _errors = load_all()
-        if all_recipes and store().load_proposal() is None:
+        existing = store().load_proposal()
+        entries = store().plan_entries(existing[0]) if existing else []
+        untouched = not entries or all(r.kind == "cook" and r.recipe_slug is None for r in entries)
+        if all_recipes and untouched:
             start = parse_start(None, start_weekday=store().week_start_weekday())
             dishes = dishes_by_slug()
             plan = propose(

@@ -44,15 +44,16 @@ dropdown filter; `/plan/select` respects the filter; pytest green.
 
 ## 3. Only auto-fill the week on button press (small)
 
-- [ ] Verify the auto-fill trigger in `plan_page` (`web/app.py:699-756`)
-- [ ] Opening /plan with no proposal renders an empty state instead of
-      planning implicitly
-- [ ] New `POST /plan/fill` runs `plan_week` once; "Vul de week in" button on
-      the empty state
-- [ ] Tests: fresh store -> /plan stays empty until the button
+- [ ] /plan with no proposal shows an empty week: all seven days, nothing
+      selected ("Nog te kiezen" + gerecht kiezen per day)
+- [ ] "Vul de week in" replaces the untouched week with the planner's
+      proposal once; hidden once the week has selections
+- [ ] "Week(en) leegmaken" clears this week + planned-ahead weeks so the
+      empty week (and its button) returns
+- [ ] Tests: fresh store -> /plan shows the skeleton; fill only on button
 
-**Verify**: fresh data dir -> /plan is empty, button fills it, filled week
-behaves as before.
+**Verify**: fresh data dir -> /plan shows 7 empty days; fill plans once;
+manual picks are never overwritten; leegmaken brings the empty week back.
 
 ## 4. Drag & drop re-order week menu (medium)
 

@@ -11,16 +11,17 @@
 <p class="warnings">Week(en) leeggemaakt, de kogel is terug.</p>
 {% endif %}
 <h1>Week van {{ start | dutch_date }}</h1>
+{% if week_empty %}
+<form method="post" action="/plan/fill">
+  <p><button type="submit" class="primary">Vul de week in</button>
+    <span class="muted">de week staat leeg; zelf invullen kan per dag via &lsquo;gerecht kiezen&rsquo;</span></p>
+</form>
+{% endif %}
 {% if errors %}
 <p class="warnings">Ongeldige receptbestanden: {{ errors|join('; ') }}</p>
 {% endif %}
 {% if no_recipes %}
 <p>Importeer eerst recepten via <a href="/recipes/import">importeren</a>.</p>
-{% elif no_proposal %}
-<p class="muted">Nog geen voorstel voor deze week.</p>
-<form method="post" action="/plan/fill">
-  <p><button type="submit" class="primary">Vul de week in</button></p>
-</form>
 {% else %}
 <table class="plan">
   <thead>
@@ -97,7 +98,7 @@
         </span>
       </span>
       {% else %}
-      <strong{% if e.kind == 'no_cook' %} class="muted"{% endif %}>{{ e.name }}</strong>
+      <strong{% if e.kind == 'no_cook' or not e.slug %} class="muted"{% endif %}>{{ e.name }}</strong>
       {% endif %}
       {% if not e.is_approved %}
       <div><a class="btn-small" href="/plan/select?day={{ e.day_iso }}" aria-label="Gerecht kiezen voor {{ e.label }}">gerecht kiezen</a></div>

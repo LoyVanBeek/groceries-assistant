@@ -152,6 +152,8 @@ def plan_view(
                 parts_label = " + ".join(
                     part["chosen_name"] for part in part_options if part["chosen_name"]
                 )
+            elif row.recipe_slug is None:
+                name = "Nog te kiezen"
             elif recipe is None:
                 name = "(recept verwijderd)"
             else:
