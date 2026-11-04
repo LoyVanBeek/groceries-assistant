@@ -106,3 +106,4 @@
 - [ ] Only auto-fill in week with a button press, leave empty otherwise
 - [ ] Barcode scanner to add new grocery items
 - [ ] Bookmarklet should POST new recipes to server directly
+- [ ] Make look nice on mobile as well
