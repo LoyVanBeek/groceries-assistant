@@ -103,3 +103,6 @@
       fetching is hopeless and the bookmarklet provides the JSON)
 - [ ] Drag and drop to re-order week menu
 - [ ] Tags for recipes, filter on tags in search
+- [ ] Only auto-fill in week with a button press, leave empty otherwise
+- [ ] Barcode scanner to add new grocery items
+- [ ] Bookmarklet should POST new recipes to server directly
