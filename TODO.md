@@ -92,3 +92,5 @@
       (on the same surface a 'Laatst gepland' badge colours each recipe:
       deze week red, 2-3 weken orange, langer geleden green, nog nooit grey)
 - [ ] Import recipes from Albert Heijn's Allerhande. 
+- [ ] Drag and drop to re-order week menu
+- [ ] Tags for recipes, filter on tags in search
