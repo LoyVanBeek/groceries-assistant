@@ -1576,7 +1576,7 @@ def test_ordered_leftovers_keep_the_recycle_icon(tmp_path):
     (tmp_path / "recipes" / "img").mkdir(parents=True, exist_ok=True)
     (tmp_path / "recipes" / "img" / "pasta.png").write_bytes(_png_bytes())
     with make_client(tmp_path) as client:
-        client.get("/plan")
+        seed_plan(client)
         from groceries_assistant.store.db import Store
 
         s = Store(tmp_path / "state.db")
