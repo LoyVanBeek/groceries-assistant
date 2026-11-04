@@ -11,10 +11,18 @@
 {% if errors %}<p class="warnings">{{ errors|join('; ') }}</p>{% endif %}
 <form method="get" action="/recipes" class="select-search">
   <input type="search" name="q" value="{{ q }}" placeholder="Zoek recept&hellip;" aria-label="Zoek recept">
+  {% if all_tags %}
+  <select name="tag" aria-label="Filter op tag">
+    <option value="">alle tags</option>
+    {% for t in all_tags %}
+    <option value="{{ t }}" {% if t == tag %}selected{% endif %}>{{ t }}</option>
+    {% endfor %}
+  </select>
+  {% endif %}
   <button type="submit">Zoek</button>
 </form>
 <table>
-  <tr><th>Recept</th><th>Tijd</th><th>Protein</th><th>Waardering</th><th>Laatst</th><th></th>{% for p in people %}<th>{{ p['name'] or p['id'] }}</th>{% endfor %}</tr>
+  <tr><th>Recept</th><th>Tijd</th><th>Protein</th><th>Tags</th><th>Waardering</th><th>Laatst</th><th></th>{% for p in people %}<th>{{ p['name'] or p['id'] }}</th>{% endfor %}</tr>
   {% for r in recipes %}
   <tr>
     <td>
@@ -23,6 +31,7 @@
     </td>
     <td>{{ r.minutes }} min</td>
     <td>{{ r.protein or '' }}</td>
+    <td>{% for t in r.tags %}<span class="tag-chip">{{ t }}</span>{% endfor %}</td>
     <td>
       {% if r.favourite %}<span class="fave" title="Favoriet &mdash; mag best vaker terugkomen">&#9829;</span>{% endif %}
       <span class="pop {{ r.badge.key }}" title="Waardering">{{ r.badge.label }}</span>
@@ -53,7 +62,7 @@
     {% endfor %}
   </tr>
   {% else %}
-  <tr><td colspan="{{ 6 + people|length }}">Nog geen recepten. <a href="/recipes/import">Importeer er een</a>.</td></tr>
+  <tr><td colspan="{{ 7 + people|length }}">Nog geen recepten. <a href="/recipes/import">Importeer er een</a>.</td></tr>
   {% endfor %}
 </table>
 {% endblock %}

@@ -20,13 +20,21 @@
   <input type="hidden" name="day" value="{{ day }}">
   <input type="hidden" name="sort" value="{{ sort }}">
   <input type="search" name="q" value="{{ q }}" placeholder="Zoek recept&hellip;" aria-label="Zoek recept">
+  {% if all_tags %}
+  <select name="tag" aria-label="Filter op tag">
+    <option value="">alle tags</option>
+    {% for t in all_tags %}
+    <option value="{{ t }}" {% if t == tag %}selected{% endif %}>{{ t }}</option>
+    {% endfor %}
+  </select>
+  {% endif %}
   <button type="submit">Zoek</button>
 </form>
 <p class="muted">
   Sorteer:
-  {% if sort != 'score' %}<a href="/plan/select?day={{ day }}&amp;sort=score{% if q %}&amp;q={{ q | urlencode }}{% endif %}">scores</a>{% else %}<strong>scores</strong>{% endif %}
+  {% if sort != 'score' %}<a href="/plan/select?day={{ day }}&amp;sort=score{% if q %}&amp;q={{ q | urlencode }}{% endif %}{% if tag %}&amp;tag={{ tag | urlencode }}{% endif %}">scores</a>{% else %}<strong>scores</strong>{% endif %}
   &middot;
-  {% if sort != 'recent' %}<a href="/plan/select?day={{ day }}&amp;sort=recent{% if q %}&amp;q={{ q | urlencode }}{% endif %}">laatst gebruikt</a>{% else %}<strong>laatst gebruikt</strong>{% endif %}
+  {% if sort != 'recent' %}<a href="/plan/select?day={{ day }}&amp;sort=recent{% if q %}&amp;q={{ q | urlencode }}{% endif %}{% if tag %}&amp;tag={{ tag | urlencode }}{% endif %}">laatst gebruikt</a>{% else %}<strong>laatst gebruikt</strong>{% endif %}
 </p>
 <table class="select-table">
   <tr>

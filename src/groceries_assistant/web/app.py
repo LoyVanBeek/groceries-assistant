@@ -211,6 +211,7 @@ class RecipeRow(TypedDict):
     name: str
     minutes: int
     protein: str | None
+    tags: list[str]
     image: Path | None
     verdicts: dict[str, str]
     badge: Popularity
@@ -774,7 +775,9 @@ def create_app(
         )
 
     @app.get("/plan/select", response_class=HTMLResponse)
-    def plan_select(request: Request, day: str = "", q: str = "", sort: str = "score"):
+    def plan_select(
+        request: Request, day: str = "", q: str = "", sort: str = "score", tag: str = ""
+    ):
         """Pick one evening's dish on its own page.
 
         Every option is the same /plan/swap form the old dropdown posted; the
@@ -798,6 +801,16 @@ def create_app(
         prefs = preferences_from_store(store())
         people = store().people()
         evening = evenings_for(store(), target, days=1)[0]
+        known = all_known()
+        # slug -> tags, with composed dishes inheriting the union of the tags
+        # of the recipes/components that may fill their parts
+        tags_by_slug: dict[str, list[str]] = {slug: r.tags for slug, r in known.items()}
+        for dish in dishes_by_slug().values():
+            dish_tags: set[str] = set()
+            for part in dish.parts:
+                for opt in part.options:
+                    dish_tags.update(tags_by_slug.get(opt.slug, ()))
+            tags_by_slug[dish.slug] = sorted(dish_tags)
         options = select_options(
             all_recipes,
             prefs,
@@ -805,13 +818,15 @@ def create_app(
             image_url_for,
             list(dishes_by_slug().values()),
             current.recipe_slug or current.source_slug or "",
-            by_slug=all_known(),
+            by_slug=known,
             history=store().history(),
             verdicts_by_slug=store().verdicts(),
             people=people,
             today=date.today(),
             q=q,
             sort=sort,
+            tags_by_slug=tags_by_slug,
+            tag=tag,
         )
         return render(
             request,
@@ -819,6 +834,8 @@ def create_app(
             day=day,
             q=q,
             sort=sort,
+            tag=tag,
+            all_tags=sorted({t for tags in tags_by_slug.values() for t in tags}),
             label=f"{WEEKDAYS[target.weekday()].capitalize()} {target.strftime('%d-%m')}",
             options=options,
             confirmed=target in store().plan_ordered(plan_id),
@@ -1942,7 +1959,7 @@ def create_app(
         )
 
     @app.get("/recipes", response_class=HTMLResponse)
-    def recipes_page(request: Request, q: str = ""):
+    def recipes_page(request: Request, q: str = "", tag: str = ""):
         all_recipes, errors = load_all()
         people = store().people()
         verdicts = store().verdicts()
@@ -1958,6 +1975,7 @@ def create_app(
                     "name": r.name,
                     "minutes": r.time.total_minutes,
                     "protein": r.protein,
+                    "tags": r.tags,
                     "image": image_path(r.slug),
                     "verdicts": per_person,
                     "badge": pop,
@@ -1968,6 +1986,10 @@ def create_app(
         query = q.strip().lower()
         if query:
             rows = [row for row in rows if query in row["name"].lower()]
+        wanted = tag.strip().lower()
+        if wanted:
+            rows = [row for row in rows if wanted in row["tags"]]
+        all_tags = sorted({t for r in all_recipes for t in r.tags})
         return render(
             request,
             "recipes.html",
@@ -1975,6 +1997,8 @@ def create_app(
             people=people,
             errors=errors,
             q=q,
+            tag=wanted,
+            all_tags=all_tags,
         )
 
     def _stage_web_image(url: str) -> str | None:
@@ -2216,6 +2240,7 @@ def create_app(
             "prep_ahead_value": 0,
             "protein_value": "",
             "url_value": "",
+            "tags_value": "",
             "ingredient_lines": "",
             "steps_text": "",
             "parsed": None,
@@ -2253,6 +2278,7 @@ def create_app(
                 prep_ahead_value=recipe.time.prep_ahead,
                 protein_value=recipe.protein or "",
                 url_value=recipe.url or "",
+                tags_value=", ".join(recipe.tags),
                 ingredient_lines="\n".join(
                     f"{i.amount:g} {i.unit} {i.product}" for i in recipe.ingredients
                 ),
@@ -2393,6 +2419,7 @@ def create_app(
         prep_ahead: int = Form(0),
         protein: str = Form(""),
         url: str = Form(""),
+        tags: str = Form(""),
         ingredients: str = Form(""),
         steps: str = Form(""),
         image: Annotated[list[UploadFile] | None, File()] = None,
@@ -2400,6 +2427,7 @@ def create_app(
         card_photo: str = Form(""),
     ):
         """Save the editor form; `ocr_stage` retires the reviewed card photo."""
+        tags_list = [t.strip() for t in tags.split(",") if t.strip()]
         ingredient_lines = [line.strip() for line in ingredients.splitlines() if line.strip()]
         parsed_ingredients: list[dict] = []
         bad_lines: list[str] = []
@@ -2423,6 +2451,7 @@ def create_app(
                     prep_ahead_value=prep_ahead,
                     protein_value=protein,
                     url_value=url,
+                    tags_value=tags,
                     ingredient_lines=ingredients,
                     steps_text=steps,
                     staged_photo=ocr_staged_url(ocr_stage),
@@ -2439,6 +2468,7 @@ def create_app(
             time={"prep": prep, "cook": cook, "prep_ahead": prep_ahead},
             protein=protein.strip() or None,
             url=url.strip() or None,
+            tags=tags_list,
             steps=number_steps(steps.splitlines()),
             ingredients=parsed_ingredients,
         )

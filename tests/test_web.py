@@ -24,6 +24,22 @@ steps:
   - Kook de spaghetti.
 """
 
+SOEP = """\
+name: Bonensoep
+servings: 4
+time: {cook: 40}
+tags: [vegetarisch]
+ingredients:
+  - {product: witte bonen, amount: 400, unit: g}
+  - {product: ui, amount: 1, unit: stuk}
+steps:
+  - Kook de bonen.
+"""
+
+
+def seed_soep(tmp_path: Path) -> None:
+    (tmp_path / "recipes" / "bonensoep.yaml").write_text(SOEP, encoding="utf-8")
+
 
 def make_client(tmp_path: Path, search_fn=None):
     recipes = tmp_path / "recipes"
@@ -3954,3 +3970,70 @@ def test_recipes_page_searches_and_shows_indicators(tmp_path):
         search = client.get("/recipes?q=cur").text
         assert "Curry" in search
         assert "Pasta" not in search
+
+
+def test_recipe_tags_round_trip(tmp_path):
+    """Editing a recipe prefills its tags and saving keeps them (no wipe)."""
+    seed_recipe(tmp_path)
+    (tmp_path / "recipes" / "pasta.yaml").write_text(
+        PASTA + "tags: [pasta, snel]\n", encoding="utf-8"
+    )
+    with make_client(tmp_path) as client:
+        edit = client.get("/recipes/pasta/edit").text
+        assert 'name="tags"' in edit
+        assert 'value="pasta, snel"' in edit
+        resp = client.post(
+            "/recipes/save",
+            data={
+                "original_slug": "pasta",
+                "name": "Pasta",
+                "servings": "4",
+                "prep": "0",
+                "cook": "30",
+                "prep_ahead": "0",
+                "protein": "",
+                "url": "",
+                "tags": "Pasta, snel ",
+                "ingredients": "500 g spaghetti\n1 stuk ui",
+                "steps": "Kook de spaghetti.",
+            },
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        saved = yaml.safe_load((tmp_path / "recipes" / "pasta.yaml").read_text())
+        assert saved["tags"] == ["pasta", "snel"]
+
+
+def test_recipes_page_filters_on_tag(tmp_path):
+    seed_recipe(tmp_path)
+    seed_soep(tmp_path)
+    with make_client(tmp_path) as client:
+        page = client.get("/recipes").text
+        assert '<span class="tag-chip">vegetarisch</span>' in page
+        assert 'value="vegetarisch"' in page  # dropdown lists tags in use
+
+        filtered = client.get("/recipes?tag=vegetarisch").text
+        assert "Bonensoep" in filtered
+        assert "Pasta" not in filtered
+
+
+def test_select_page_filters_on_tag(tmp_path):
+    seed_recipe(tmp_path)
+    seed_soep(tmp_path)
+    with make_client(tmp_path) as client:
+        client.get("/plan")
+        store = Store(tmp_path / "state.db")
+        plan_id, _start, _ = store.load_proposal()
+        days = sorted(r.day for r in store.plan_entries(plan_id))
+        # the evening's current pick is excluded from the option list, so find
+        # an evening where Bonensoep is actually offered before filtering
+        offer_day = None
+        for day in days:
+            if "Bonensoep" in client.get(f"/plan/select?day={day.isoformat()}").text:
+                offer_day = day
+                break
+        assert offer_day is not None
+        filtered = client.get(f"/plan/select?day={offer_day.isoformat()}&tag=vegetarisch").text
+        assert "Bonensoep" in filtered
+        unmatched = client.get(f"/plan/select?day={offer_day.isoformat()}&tag=pasta").text
+        assert "Bonensoep" not in unmatched

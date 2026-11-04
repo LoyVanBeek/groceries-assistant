@@ -85,6 +85,17 @@ class Recipe(BaseModel):
             raise ValueError("must not be empty")
         return value.strip()
 
+    @field_validator("tags")
+    @classmethod
+    def _clean_tags(cls, value: list[str]) -> list[str]:
+        """Trimmed, lowercased, de-duplicated; insertion order preserved."""
+        cleaned: list[str] = []
+        for tag in value:
+            tag = tag.strip().lower()
+            if tag and tag not in cleaned:
+                cleaned.append(tag)
+        return cleaned
+
 
 class DishOption(BaseModel):
     """One way to fill a part, as this dish uses it.

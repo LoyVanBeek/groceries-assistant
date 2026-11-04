@@ -68,6 +68,9 @@
     <label>Cook (min)</label> <input type="number" name="cook" value="{{ cook_value }}" min="0" size="3">
     <label>Protein</label> <input type="text" name="protein" value="{{ protein_value }}" placeholder="kip, rund, vis, vegetarisch">
   </p>
+  <p><label>Tags (komma-gescheiden)</label><br>
+     <input type="text" name="tags" value="{{ tags_value }}" size="60"
+            placeholder="pasta, vegetarisch, snel"></p>
   <p>
     <label>Ingredi&euml;nten (hoeveelheid + eenheid + product, per regel)</label><br>
      <textarea name="ingredients" rows="10" cols="60">{{ ingredient_lines }}</textarea></p>

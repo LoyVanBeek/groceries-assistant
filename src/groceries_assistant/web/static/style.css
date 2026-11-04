@@ -295,6 +295,16 @@ table.order-links td.col-confirm { white-space: nowrap; }
 }
 .chip.absent { opacity: 0.45; text-decoration: line-through; }
 
+.tag-chip {
+  display: inline-block;
+  padding: 0.05em 0.5em;
+  margin: 0 0.15em 0.15em 0;
+  border-radius: 999px;
+  font-size: 0.8em;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+}
+
 .big-link {
   display: inline-block;
   margin: 0.75rem 0.75rem 0.75rem 0;

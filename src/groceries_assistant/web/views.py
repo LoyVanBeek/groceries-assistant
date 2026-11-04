@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import date
 from pathlib import Path
 from typing import TypedDict
@@ -274,6 +274,8 @@ def select_options(
     today: date,
     q: str = "",
     sort: str = "score",
+    tags_by_slug: Mapping[str, Sequence[str]] | None = None,
+    tag: str = "",
 ) -> list[SelectOption]:
     """Full option list for the /plan/select page, indicators included.
 
@@ -309,6 +311,9 @@ def select_options(
     query = q.strip().lower()
     if query:
         rows = [row for row in rows if query in row["name"].lower()]
+    if tag and tags_by_slug:
+        wanted = tag.strip().lower()
+        rows = [row for row in rows if wanted in tags_by_slug.get(row["slug"], ())]
     if sort == "recent":
         # usable rows first, then blocked; within each, most recently planned
         # first so the repeat is visible; never-used rows sink to the bottom
