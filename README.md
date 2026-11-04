@@ -12,6 +12,19 @@ docker compose up -d          # web UI op http://<host>:8901
 
 Of lokaal: `uv run groceries-assistant serve`.
 
+Of via systemd (boot-vast, alle logs in journalctl; de host hoeft alleen
+Docker te hebben, tesseract/xvfb/chromium zitten in de image):
+
+```bash
+sudo ./deploy/setup.sh     # eenmalig: bouwt image, installeert + start de unit
+journalctl -u groceries-assistant.service -f
+systemctl stop groceries-assistant.service
+```
+
+De unit draait als je eigen user in deze checkout (`data/` blijft `data/`).
+Zodra de unit actief is: geen `docker compose up -d` meer met de hand, die
+vecht met de service om dezelfde containers; stop/start gaat via `systemctl`.
+
 Flow:
 
 1. **Instellingen** — weekschema (per avond: kok, minuten, restjes oké?),
