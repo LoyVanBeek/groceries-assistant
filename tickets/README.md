@@ -3,17 +3,20 @@
 Work split from the composed-dish / pantry / planner design. One commit per ticket,
 in the order listed. Each ticket lists what it blocks and what blocks it.
 
-| # | Ticket | Blocked by |
-|---|--------|-----------|
-| 1 | [Dishes: models + loader](01-dishes-models-loader.md) | - |
-| 2 | [Dishes: plan picks + grocery plumbing](02-dishes-picks-and-groceries.md) | 1 |
-| 3 | [Dishes: definition pages at /dishes](03-dishes-web-pages.md) | 1 |
-| 4 | [Dishes: week view with per-part picks](04-dishes-week-view.md) | 2, 3 |
-| 5 | [Pantry: product facts + AH unit size](05-pantry-product-facts.md) | - |
-| 6 | [Pantry: day-aware demand + allocation](06-pantry-allocation.md) | 5 |
-| 7 | [Pantry: order page, settings, prefill](07-pantry-web.md) | 6 |
-| 8 | [Planner: composed dishes in plan_week](08-planner-dishes.md) | 2, 3 |
-| 9 | [Planner: persist picks + reasons + verdicts](09-planner-picks-and-reasons.md) | 8 |
+All nine tickets are implemented; this document stays as the design record of
+that work.
+
+| # | Ticket | Blocked by | Done |
+|---|--------|-----------|------|
+| 1 | [Dishes: models + loader](01-dishes-models-loader.md) | - | ✓ |
+| 2 | [Dishes: plan picks + grocery plumbing](02-dishes-picks-and-groceries.md) | 1 | ✓ |
+| 3 | [Dishes: definition pages at /dishes](03-dishes-web-pages.md) | 1 | ✓ |
+| 4 | [Dishes: week view with per-part picks](04-dishes-week-view.md) | 2, 3 | ✓ |
+| 5 | [Pantry: product facts + AH unit size](05-pantry-product-facts.md) | - | ✓ |
+| 6 | [Pantry: day-aware demand + allocation](06-pantry-allocation.md) | 5 | ✓ |
+| 7 | [Pantry: order page, settings, prefill](07-pantry-web.md) | 6 | ✓ |
+| 8 | [Planner: composed dishes in plan_week](08-planner-dishes.md) | 2, 3 | ✓ |
+| 9 | [Planner: persist picks + reasons + verdicts](09-planner-picks-and-reasons.md) | 8 | ✓ |
 
 ## Design in one page
 

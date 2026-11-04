@@ -38,19 +38,23 @@ Flow:
    per onderdeel een lijstje recepten waaruit dat onderdeel gekozen wordt. Ook
    over het gerecht zelf kun je per persoon love/ok/dislike/never zeggen; dat
    weegt zwaarder dan de onderdelen samen.
-4. **Week** — planner stelt 7 diners voor (tijd past bij de avond, geen
-   herhaling binnen ~3 weken, geen zelfde proteïne op rij, verdicts geteld).
-   Gerechten doen mee als gewoon voorstel, met de onderdelen meteen gekozen.
-   Wisselen via dropdown (ook 'restjes van de avond ervoor'), dan goedkeuren.
+4. **Week** — op `/plan/select` kies je per avond een gerecht: met een
+   kleurgecodeerde waardering per persoon en een 'Laatst gepland'-badge, en
+   een zoekbare lijst. De planner stelt zelf ook 7 diners voor (tijd past bij
+   de avond, geen herhaling binnen ~3 weken, geen zelfde proteïne op rij);
+   gerechten doen mee als gewoon voorstel, met de onderdelen meteen gekozen.
+   Wisselen kan daar ook (ook 'restjes van de avond ervoor'), dan per avond
+   goedkeuren.
 5. **Verpakkingen** — per product hoe één aankoop eruitziet en hoe lang het
    resteert (`broccoli: 1 stuk = 350 g, 3 dagen`). De lijst rekent dan met hele
    verpakkingen, koopt per dag wat nodig is, en houdt het restant als voorraad
    met datum; een regel wordt dan 'broccoli 2 stuk (700 g)' en de lijst laat zien
    wat er al in de koelkast ligt. Zonder verpakking blijft het een optelsom per
    product.
-6. **Lijst** — vink af wat je al hebt -> genereer de AH-link
-   (`ah.nl/mijnlijst/add-multiple?p=id:qty`): tik op telefoon of scan QR,
-   bestel af in de AH-app.
+6. **Lijst** — vink af wat je al hebt; per dag goedkeuren en 'besteld' vinken
+   (dan vergrendelt de dag), en de AH-link per avond
+   (`ah.nl/mijnlijst/add-multiple?p=id:qty`) in een tabel met QR: tik op
+   telefoon of scan, bestel af in de AH-app.
 
 Zondags voorbereiden: recept met `prep_ahead: <minuten>` in de YAML; de planner
 boekt die minuten op een avond eerder met genoeg ruimte.
@@ -58,6 +62,8 @@ boekt die minuten op een avond eerder met genoeg ruimte.
 ## Data
 
 - `data/recipes/*.yaml` — recepten (bewerken mag, is de bron van waarheid)
+- `data/recipes/img/` — receptfoto's (geïmporteerd of geüpload)
+- `data/components/*.yaml` — onderdelen: recepten die een deel van een gerecht zijn
 - `data/dishes/*.yaml` — gerechten uit onderdelen (idem, ook bewerkbaar)
 - `data/state.db` — SQLite: mensen, verdicts, weekschema, voorstellen/goedgekeurde
   weken, basisvoorraad, verpakkingen, AH-matches
