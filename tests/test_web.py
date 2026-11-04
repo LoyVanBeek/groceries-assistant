@@ -53,6 +53,12 @@ def seed_recipe(tmp_path: Path) -> None:
     (recipes / "pasta.yaml").write_text(PASTA, encoding="utf-8")
 
 
+def seed_plan(client) -> None:
+    """Create the week proposal explicitly (/plan no longer auto-fills)."""
+    resp = client.post("/plan/fill", follow_redirects=False)
+    assert resp.status_code == 303
+
+
 def test_pages_render(tmp_path):
     seed_recipe(tmp_path)
     with make_client(tmp_path) as client:
@@ -60,6 +66,27 @@ def test_pages_render(tmp_path):
         assert client.get("/recipes").status_code == 200
         assert client.get("/settings").status_code == 200
         assert client.get("/recipes/import").status_code == 200
+
+
+def test_plan_only_fills_on_button_press(tmp_path):
+    """Opening /plan never creates a proposal: the button does, once."""
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        page = client.get("/plan").text
+        assert "Vul de week in" in page
+        assert "Nog geen voorstel" in page
+        store = Store(tmp_path / "state.db")
+        assert store.load_proposal() is None
+
+        resp = client.post("/plan/fill", follow_redirects=False)
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/plan"
+        client.post("/plan/fill", follow_redirects=False)  # no-op the second time
+
+        plan_id, _start, _ = store.load_proposal()
+        assert len(store.plan_entries(plan_id)) == 7
+        page = client.get("/plan").text
+        assert "Pasta" in page
 
 
 def test_import_page_shows_bookmarklet(tmp_path):
@@ -125,6 +152,7 @@ def test_configured_week_start_anchors_a_new_proposal(tmp_path):
     seed_recipe(tmp_path)
     with make_client(tmp_path) as client:
         client.post("/settings/template", data={"week_start": "2"})  # woensdag
+        seed_plan(client)
         assert client.get("/plan").status_code == 200
     store = Store(tmp_path / "state.db")
     start = store.load_proposal()[1]
@@ -137,6 +165,7 @@ def test_today_row_is_highlighted(tmp_path):
     anchor = str(date.today().weekday())
     with make_client(tmp_path) as client:
         client.post("/settings/template", data={"week_start": anchor})
+        seed_plan(client)
         page = client.get("/plan")
         assert page.status_code == 200
         first_row = re.search(r'<tr class="evening(.*?)"', page.text)
@@ -157,6 +186,7 @@ def test_past_rows_are_struck_through(tmp_path):
             [PlanEntryRow(day=start + timedelta(days=i), recipe_slug="pasta") for i in range(7)],
         )
         store.close()
+        seed_plan(client)
         page = client.get("/plan")
         assert page.status_code == 200
         rows = re.findall(r'<tr class="evening([^"]*)"', page.text)
@@ -169,6 +199,7 @@ def test_plan_advance_appends_another_week(tmp_path):
     right after the current one, on the same proposal, so the run stays one."""
     seed_recipe(tmp_path)
     with make_client(tmp_path) as client:
+        seed_plan(client)
         assert client.get("/plan").status_code == 200
     store = Store(tmp_path / "state.db")
     plan_id, start, _ = store.load_proposal()
@@ -197,7 +228,7 @@ def test_per_row_approve_flags_only_that_day(tmp_path):
     """A goedkeuren button approves exactly one day; ordering is separate."""
     seed_recipe(tmp_path)
     with make_client(tmp_path) as client:
-        client.get("/plan")
+        seed_plan(client)
     store = Store(tmp_path / "state.db")
     plan_id, _start, _ = store.load_proposal()
     days = sorted(r.day for r in store.plan_entries(plan_id))
@@ -222,7 +253,7 @@ def test_approve_without_day_keeps_the_whole_week_flow(tmp_path):
     """The long-standing approve action (no day) still approves and orders."""
     seed_recipe(tmp_path)
     with make_client(tmp_path) as client:
-        client.get("/plan")
+        seed_plan(client)
         resp = client.post("/plan/approve", follow_redirects=False)
         assert resp.status_code == 303
         assert resp.headers["location"] == "/order"
@@ -237,7 +268,7 @@ def test_order_button_builds_the_approved_days(tmp_path):
     """Approve two rows, then order: the list covers exactly the approved days."""
     seed_recipe(tmp_path)
     with make_client(tmp_path) as client:
-        client.get("/plan")
+        seed_plan(client)
     store = Store(tmp_path / "state.db")
     plan_id, _start, _ = store.load_proposal()
     days = sorted(r.day for r in store.plan_entries(plan_id))
@@ -270,7 +301,7 @@ def test_order_button_builds_the_approved_days(tmp_path):
 def test_revoke_a_single_day_keeps_later_approvals(tmp_path):
     seed_recipe(tmp_path)
     with make_client(tmp_path) as client:
-        client.get("/plan")
+        seed_plan(client)
     store = Store(tmp_path / "state.db")
     plan_id, _start, _ = store.load_proposal()
     days = sorted(r.day for r in store.plan_entries(plan_id))
@@ -289,7 +320,7 @@ def test_revoke_a_single_day_keeps_later_approvals(tmp_path):
 def test_cannot_revoke_an_ordered_day(tmp_path):
     seed_recipe(tmp_path)
     with make_client(tmp_path) as client:
-        client.get("/plan")
+        seed_plan(client)
     store = Store(tmp_path / "state.db")
     plan_id, _start, _ = store.load_proposal()
     third = sorted(r.day for r in store.plan_entries(plan_id))[2]
@@ -310,7 +341,7 @@ def test_ordered_rows_are_locked_on_the_plan_page(tmp_path):
     moving to another day, or changing with an extra confirmation."""
     seed_recipe(tmp_path)
     with make_client(tmp_path) as client:
-        client.get("/plan")
+        seed_plan(client)
     store = Store(tmp_path / "state.db")
     plan_id, _start, _ = store.load_proposal()
     n = len(store.plan_entries(plan_id))
@@ -339,7 +370,7 @@ def test_order_page_no_longer_confirms(tmp_path):
     points the shopper at the link page."""
     seed_recipe(tmp_path)
     with make_client(tmp_path) as client:
-        client.get("/plan")
+        seed_plan(client)
     store = Store(tmp_path / "state.db")
     plan_id, _start, _ = store.load_proposal()
     third = sorted(r.day for r in store.plan_entries(plan_id))[2]
@@ -372,7 +403,7 @@ def test_confirming_every_ah_link_locks_the_days(tmp_path):
         return [FakeProduct(7777, "AH " + query)]
 
     with make_client(tmp_path, search_fn=search) as client:
-        client.get("/plan")
+        seed_plan(client)
         store = Store(tmp_path / "state.db")
         plan_id, _start, _ = store.load_proposal()
         third = sorted(r.day for r in store.plan_entries(plan_id))[2]
@@ -423,7 +454,7 @@ def test_no_links_falls_back_to_one_confirm_button(tmp_path):
     manually."""
     seed_recipe(tmp_path)
     with make_client(tmp_path, search_fn=lambda q: []) as client:
-        client.get("/plan")
+        seed_plan(client)
         store = Store(tmp_path / "state.db")
         plan_id, _start, _ = store.load_proposal()
         third = sorted(r.day for r in store.plan_entries(plan_id))[2]
@@ -445,7 +476,7 @@ def test_forced_change_of_a_confirmed_day_frees_its_items(tmp_path):
     unlocks and the recipe's bought products are marked 'in huis'."""
     seed_recipe(tmp_path)
     with make_client(tmp_path) as client:
-        client.get("/plan")
+        seed_plan(client)
     store = Store(tmp_path / "state.db")
     plan_id, _start, _ = store.load_proposal()
     third = sorted(r.day for r in store.plan_entries(plan_id))[2]
@@ -487,7 +518,7 @@ def test_swap_days_moves_a_confirmed_recipe(tmp_path):
     """Ruil dag: the confirmed recipe moves to the other date, 'besteld' and all."""
     seed_recipe(tmp_path)
     with make_client(tmp_path) as client:
-        client.get("/plan")
+        seed_plan(client)
     store = Store(tmp_path / "state.db")
     plan_id, _start, _ = store.load_proposal()
     days = sorted(r.day for r in store.plan_entries(plan_id))
@@ -522,6 +553,7 @@ def test_changing_week_start_shifts_an_open_proposal_in_place(tmp_path):
     seed_recipe(tmp_path)
     with make_client(tmp_path) as client:
         pin_week_start(client, 0)  # Monday
+        seed_plan(client)
         assert client.get("/plan").status_code == 200
     store = Store(tmp_path / "state.db")
     plan_id, start, _ = store.load_proposal()
@@ -555,6 +587,7 @@ def test_full_flow_to_ah_link(tmp_path):
         return search_results.get(query.lower(), [])
 
     with make_client(tmp_path, search_fn=search) as client:
+        seed_plan(client)
         plan_page = client.get("/plan")
         assert plan_page.status_code == 200
         assert "Pasta" in plan_page.text
@@ -1090,7 +1123,7 @@ def test_rename_recipe_updates_files_and_state(tmp_path):
             data={"slug": "pasta", "person": "kid1", "verdict": "love"},
         )
         # trigger a proposal so plan rows reference the old slug
-        client.get("/plan")
+        seed_plan(client)
         saved = client.post(
             "/recipes/save",
             data={
@@ -1143,6 +1176,7 @@ def test_rename_collision_rejected(tmp_path):
 def test_theme_toggle_sets_cookie_and_attribute(tmp_path):
     seed_recipe(tmp_path)
     with make_client(tmp_path) as client:
+        seed_plan(client)
         page = client.get("/plan")
         assert "<html lang=" in page.text  # no cookie: system preference decides
         flipped = client.post(
@@ -1235,6 +1269,7 @@ def test_plan_evening_sets_cook_and_absences(tmp_path):
             "/settings/people",
             data={"person_id": "mama", "name": "Mama", "role": "adult", "weight": "1"},
         )
+        seed_plan(client)
         client.get("/plan")  # create proposal
         from groceries_assistant.store.db import Store
 
@@ -1283,7 +1318,7 @@ def test_plan_page_cook_inference(tmp_path):
             "/settings/people",
             data={"person_id": "papa", "name": "Papa", "role": "adult", "weight": "1"},
         )
-        client.get("/plan")
+        seed_plan(client)
         from groceries_assistant.store.db import Store
 
         s = Store(tmp_path / "state.db")
@@ -1315,7 +1350,7 @@ def test_plan_page_warns_when_no_adult_joins(tmp_path):
             "/settings/people",
             data={"person_id": "mama", "name": "Mama", "role": "adult", "weight": "1"},
         )
-        client.get("/plan")
+        seed_plan(client)
         from groceries_assistant.store.db import Store
 
         monday = Store(tmp_path / "state.db").load_proposal()[1]
@@ -1428,7 +1463,7 @@ def test_swap_with_default_option_is_noop_not_error(tmp_path):
     """Regression: '(behoud)' posts an empty value; FastAPI must not 422."""
     seed_recipe(tmp_path)
     with make_client(tmp_path) as client:
-        client.get("/plan")
+        seed_plan(client)
         response = client.post(
             "/plan/swap",
             data={"day": "2026-09-28", "choice": ""},
@@ -1455,7 +1490,7 @@ def test_swap_with_default_option_is_noop_not_error(tmp_path):
 def test_toch_koken_converts_leftovers_to_best_fit(tmp_path):
     seed_recipe(tmp_path)
     with make_client(tmp_path) as client:
-        client.get("/plan")
+        seed_plan(client)
         from groceries_assistant.store.db import Store
 
         s = Store(tmp_path / "state.db")
@@ -1491,7 +1526,7 @@ def test_leftovers_show_the_repeated_dish_thumbnail_with_an_icon(tmp_path):
     (tmp_path / "recipes" / "img").mkdir(parents=True, exist_ok=True)
     (tmp_path / "recipes" / "img" / "pasta.png").write_bytes(_png_bytes())
     with make_client(tmp_path) as client:
-        client.get("/plan")
+        seed_plan(client)
         from groceries_assistant.store.db import Store
 
         s = Store(tmp_path / "state.db")
@@ -1522,6 +1557,7 @@ def test_grid_checkboxes_bound_to_their_own_row(tmp_path):
                 "/settings/people",
                 data={"person_id": person_id, "name": person_id, "role": role, "weight": "1"},
             )
+        seed_plan(client)
         page = client.get("/plan").text
         # each evening id: exactly 3 checkbox refs (3 people); fields that
         # live inside the form itself don't need the form= attribute
@@ -1613,7 +1649,7 @@ def test_recipe_image_moves_on_rename(tmp_path):
 def test_evening_minutes_adjustable_from_plan_page(tmp_path):
     seed_recipe(tmp_path)
     with make_client(tmp_path) as client:
-        client.get("/plan")
+        seed_plan(client)
         from groceries_assistant.store.db import Store
 
         monday = Store(tmp_path / "state.db").load_proposal()[1]
@@ -1643,7 +1679,7 @@ def test_plan_page_shows_recipe_thumbnail(tmp_path):
             files={"image": ("foto.png", _png_bytes(), "image/png")},
             follow_redirects=False,
         )
-        client.get("/plan")
+        seed_plan(client)
         page = client.get("/plan").text
         assert '<img class="thumb" src="/recipes/img/fotopasta.png"' in page
 
@@ -1849,7 +1885,7 @@ def test_order_match_pin_unpin(tmp_path):
 
     with make_client(tmp_path, search_fn=search) as client:
         seed_recipe(tmp_path)
-        client.get("/plan")
+        seed_plan(client)
         client.post("/plan/approve", follow_redirects=False)
 
         page = client.get("/order/match")
@@ -1923,6 +1959,7 @@ def test_recipe_selection_is_a_page_and_lists_alternatives(tmp_path):
         (tmp_path / "recipes" / "img").mkdir()
         (tmp_path / "recipes" / "img" / "pasta.png").write_bytes(_png_bytes())
 
+        seed_plan(client)
         page = client.get("/plan").text
         # the dropdown is gone; each row shows its dish and a link to the page
         assert '<details class="dish-picker">' not in page
@@ -1953,7 +1990,7 @@ def test_order_match_custom_entry(tmp_path):
     """The koppel page allows pinning a manually looked-up AH id."""
     with make_client(tmp_path, search_fn=lambda q: []) as client:
         seed_recipe(tmp_path)
-        client.get("/plan")
+        seed_plan(client)
         client.post("/plan/approve", follow_redirects=False)
 
         page = client.get("/order/match")
@@ -1997,6 +2034,7 @@ def test_no_cook_evening(tmp_path):
         # pin the week to start Monday: the test asserts on Monday's 25-minute
         # budget and counts seven cook evenings, independent of the app default
         pin_week_start(client, 0)
+        seed_plan(client)
         client.get("/plan")  # create proposal
         from groceries_assistant.store.db import Store
 
@@ -2062,7 +2100,7 @@ def test_koppel_page_shows_ah_thumbnails(tmp_path):
         search_fn=lambda q: [_FakeImageProduct(111, "AH Pasta", image)] if q == "spaghetti" else [],
     ) as client:
         seed_recipe(tmp_path)
-        client.get("/plan")
+        seed_plan(client)
         client.post("/plan/approve", follow_redirects=False)
 
         page = client.get("/order/match")
@@ -2094,7 +2132,7 @@ def test_the_order_page_shows_matched_article_thumbnails(tmp_path):
     image = "https://static.ah.nl/dam/product/AHI_4354523130303637?rendition=800x800_WEBP"
     with make_client(tmp_path, search_fn=lambda q: []) as client:
         seed_recipe(tmp_path)
-        client.get("/plan")
+        seed_plan(client)
         client.post("/plan/approve", follow_redirects=False)
 
         # nothing pinned yet: no thumbnails at all
@@ -2124,7 +2162,7 @@ def test_the_match_page_puts_unmatched_items_first(tmp_path):
     """Unmatched items form the top section; matched ones become reference."""
     with make_client(tmp_path, search_fn=lambda q: []) as client:
         seed_recipe(tmp_path)
-        client.get("/plan")
+        seed_plan(client)
         client.post("/plan/approve", follow_redirects=False)
         # pin one of the two products
         client.post(
@@ -2149,7 +2187,7 @@ def test_the_order_page_names_the_recipe_per_product(tmp_path):
     """Each line says on the right which recipe (or dish) needs it."""
     with make_client(tmp_path, search_fn=lambda q: []) as client:
         seed_recipe(tmp_path)  # pasta needs spaghetti + ui
-        client.get("/plan")
+        seed_plan(client)
         client.post("/plan/approve", follow_redirects=False)
 
         page = client.get("/order").text
@@ -2181,7 +2219,7 @@ def test_order_match_custom_entry_accepts_pasted_url(tmp_path):
     """Pasting an ah.nl product link in the custom field pins the right article."""
     with make_client(tmp_path, search_fn=lambda q: []) as client:
         seed_recipe(tmp_path)
-        client.get("/plan")
+        seed_plan(client)
         client.post("/plan/approve", follow_redirects=False)
 
         # the field is free text now, so a full URL fits
@@ -2230,7 +2268,7 @@ def test_backfill_images_fetches_missing_thumbnails(tmp_path):
 
     with make_client(tmp_path, search_fn=lambda q: []) as client:
         seed_recipe(tmp_path)
-        client.get("/plan")
+        seed_plan(client)
         client.post("/plan/approve", follow_redirects=False)
 
         page = client.get("/order/match").text
@@ -2356,6 +2394,7 @@ def seed_part_recipes(tmp_path: Path) -> None:
 def test_a_component_is_never_offered_as_an_evening_dish(tmp_path):
     seed_part_recipes(tmp_path)
     with make_client(tmp_path) as client:
+        seed_plan(client)
         page = client.get("/plan").text
         assert "Kipdoner" in page
         store, plan_id = _proposal(tmp_path)
@@ -2422,6 +2461,7 @@ def test_a_component_fills_a_dish_part_and_buys_its_ingredients(tmp_path):
         day = plan_a_dish(client, tmp_path)
         assert pick(client, day, vlees="kipfilet").status_code == 303
 
+        seed_plan(client)
         assert "Kipfilet" in client.get("/plan").text
         client.post("/plan/approve", follow_redirects=False)
         store = Store(tmp_path / "state.db")
@@ -2433,6 +2473,7 @@ def test_recipes_filter_out_components_and_the_dish_form_lists_them(tmp_path):
     """A component is its own file in data/components/, not a recipe."""
     seed_part_recipes(tmp_path)
     with make_client(tmp_path) as client:
+        seed_plan(client)
         text = client.get("/plan").text
         # kipfilet is a component: it can fill a part, never an evening
         assert "Kipdoner" in text
@@ -2949,6 +2990,7 @@ def pin_week_start(client, weekday: int) -> None:
 
 def _open_week(client, tmp_path: Path):
     """The proposal is created on the first /plan visit."""
+    seed_plan(client)
     client.get("/plan")
     return _proposal(tmp_path)
 
@@ -2977,6 +3019,7 @@ def test_a_dish_can_be_planned_and_its_parts_chosen(tmp_path):
     with make_client(tmp_path) as client:
         day = plan_a_dish(client, tmp_path)
 
+        seed_plan(client)
         page = client.get("/plan")
         assert "Aardappel-groente-vlees" in page.text
         assert "nog te kiezen" in page.text
@@ -3005,6 +3048,7 @@ def test_picking_partly_shows_only_the_chosen_parts(tmp_path):
         day = plan_a_dish(client, tmp_path)
         pick(client, day, aardappels="aardappels-uit-de-oven", groente="")
 
+        seed_plan(client)
         text = client.get("/plan").text
         assert "Aardappels uit de oven" in text
         # the row names what is still missing
@@ -3060,6 +3104,7 @@ def test_the_part_picker_shows_the_photo_of_every_option(tmp_path):
 
     with make_client(tmp_path) as client:
         plan_a_dish(client, tmp_path)
+        seed_plan(client)
         text = client.get("/plan").text
         assert '<img class="thumb" src="/components/img/kipfilet.jpg"' in text
         assert '<img class="thumb" src="/recipes/img/kip-doner.jpg"' in text
@@ -3078,6 +3123,7 @@ def test_the_closed_part_picker_shows_the_chosen_photo(tmp_path):
         day = plan_a_dish(client, tmp_path)
         pick(client, day, vlees="kipfilet")
 
+        seed_plan(client)
         summary = client.get("/plan").text
         assert '<img class="thumb" src="/components/img/kipfilet.jpg"' in summary
 
@@ -3099,6 +3145,7 @@ def test_picking_one_part_leaves_the_others_alone(tmp_path):
             "groente": "sperziebonen",
             "vlees": "kipfilet",
         }
+        seed_plan(client)
         assert "Sperziebonen + Kipfilet" in client.get("/plan").text
 
 
@@ -3113,6 +3160,7 @@ def test_the_part_picker_can_clear_a_part(tmp_path):
 
         store, plan_id = _proposal(tmp_path)
         assert store.plan_picks(plan_id)[day] == {"groente": "sperziebonen"}
+        seed_plan(client)
         assert "nog te kiezen: Vlees" in client.get("/plan").text
 
 
@@ -3146,6 +3194,7 @@ def test_swapping_the_evening_to_another_dish_drops_the_picks(tmp_path):
 
         store, plan_id = _proposal(tmp_path)
         assert store.plan_picks(plan_id).get(day, {}) == {}  # 'aardappels' is not a part now
+        seed_plan(client)
         assert "Alleen groente" in client.get("/plan").text
 
 
@@ -3183,6 +3232,7 @@ def test_a_leftovers_evening_of_a_dish_copies_its_picks(tmp_path):
         store, plan_id = _proposal(tmp_path)
         picks = store.plan_picks(plan_id)
         assert picks[following] == picks[day]
+        seed_plan(client)
         text = client.get("/plan").text
         assert "Restjes (Aardappel-groente-vlees)" in text
         assert "Aardappels uit de oven + Sperziebonen" in text
@@ -3201,6 +3251,7 @@ def test_leftovers_follow_a_swapped_source_recipe(tmp_path):
             data={"day": following.isoformat(), "choice": "__leftovers__"},
             follow_redirects=False,
         )
+        seed_plan(client)
         assert "Restjes (Aardappel-groente-vlees)" in client.get("/plan").text
 
         # the source evening now cooks pasta instead of the dish
@@ -3227,6 +3278,7 @@ def test_leftovers_follow_the_sources_part_picks(tmp_path):
             data={"day": following.isoformat(), "choice": "__leftovers__"},
             follow_redirects=False,
         )
+        seed_plan(client)
         assert "Aardappels uit de oven + Sperziebonen" in client.get("/plan").text
 
         # the source drops the groente pick: the restjes show it too
@@ -3245,7 +3297,7 @@ def test_leftovers_repoint_when_the_source_day_is_exchanged(tmp_path):
         encoding="utf-8",
     )
     with make_client(tmp_path) as client:
-        client.get("/plan")
+        seed_plan(client)
         store = Store(tmp_path / "state.db")
         _, start, _ = store.load_proposal()
         monday, tuesday, wednesday = start, start + timedelta(days=1), start + timedelta(days=2)
@@ -3288,7 +3340,7 @@ def test_approved_day_blocks_a_swap_until_revoked(tmp_path):
         encoding="utf-8",
     )
     with make_client(tmp_path) as client:
-        client.get("/plan")
+        seed_plan(client)
         store = Store(tmp_path / "state.db")
         plan_id, _start, _ = store.load_proposal()
         day = next(r.day for r in store.plan_entries(plan_id) if r.recipe_slug == "pasta")
@@ -3322,7 +3374,7 @@ def test_approved_day_hides_the_switch_controls(tmp_path):
     """Een goedgekeurde avond biedt geen 'gerecht kiezen' meer aan."""
     seed_recipe(tmp_path)
     with make_client(tmp_path) as client:
-        client.get("/plan")
+        seed_plan(client)
         store = Store(tmp_path / "state.db")
         plan_id, _start, _ = store.load_proposal()
         days = sorted(r.day for r in store.plan_entries(plan_id))
@@ -3382,6 +3434,7 @@ def test_the_week_row_shows_the_longest_part_and_the_total(tmp_path):
             "/plan/evening", data={"day": day.isoformat(), "minutes": 45}, follow_redirects=False
         )
 
+        seed_plan(client)
         text = client.get("/plan").text
         assert "30/45 min" in text  # the longest part decides the evening
 
@@ -3425,6 +3478,7 @@ def test_a_parts_options_show_what_they_cost_the_evening(tmp_path):
         day = plan_a_dish(client, tmp_path)
         pick(client, day, groente="sperziebonen")  # 10 min
 
+        seed_plan(client)
         text = client.get("/plan").text
         assert "Sperziebonen (10 min)" in text
         assert "Kipdoner (20 min)" in text
@@ -3444,6 +3498,7 @@ def test_a_component_option_shows_the_amount_this_dish_uses(tmp_path):
         plan_a_dish(client, tmp_path)
 
         # the component says 600 g; this dish asks for 1000 g and the pick says so
+        seed_plan(client)
         assert "Kipfilet (1000 g, 15 min)" in client.get("/plan").text
 
 
@@ -3454,6 +3509,7 @@ def test_an_unfilled_dish_does_not_claim_zero_minutes(tmp_path):
     with make_client(tmp_path) as client:
         plan_a_dish(client, tmp_path)
 
+        seed_plan(client)
         text = client.get("/plan").text
         assert "0/60 min" not in text
         assert "nog te kiezen" in text
@@ -3526,7 +3582,7 @@ def test_a_declared_pack_reads_as_a_count_with_the_weight(tmp_path):
     with make_client(tmp_path) as client:
         pin_week_start(client, 0)  # Monday: 7 cook nights
         add_fact(client, "spaghetti")
-        client.get("/plan")
+        seed_plan(client)
         client.post("/plan/approve", follow_redirects=False)
         store = Store(tmp_path / "state.db")
         rows = {row["product"]: row for row in store.order_items(store.latest_plan()[0])}
@@ -3546,7 +3602,7 @@ def test_the_order_says_what_is_left_over(tmp_path):
     with make_client(tmp_path) as client:
         pin_week_start(client, 0)  # Monday: last night is Sunday
         add_fact(client, shelf_life_days=1)
-        client.get("/plan")
+        seed_plan(client)
         client.post("/plan/approve", follow_redirects=False)
 
         page = client.get("/order").text
@@ -3558,7 +3614,7 @@ def test_refreshing_the_order_changes_nothing(tmp_path):
     seed_recipe(tmp_path)
     with make_client(tmp_path) as client:
         add_fact(client, "spaghetti")
-        client.get("/plan")
+        seed_plan(client)
         client.post("/plan/approve", follow_redirects=False)
         store = Store(tmp_path / "state.db")
         plan_id = store.latest_plan()[0]
@@ -3623,7 +3679,7 @@ def test_the_match_page_offers_ahs_own_pack_size(tmp_path):
         search_fn=lambda q: [FakeProduct(7, "AH Broccoli 350 g", "350 g")],
     ) as client:
         seed_broccoli(tmp_path)
-        client.get("/plan")
+        seed_plan(client)
         client.post("/plan/approve", follow_redirects=False)
         client.post(
             "/order/match/pin",
@@ -3654,7 +3710,7 @@ def test_an_unreadable_pack_size_is_not_offered(tmp_path):
 
     with make_client(tmp_path, search_fn=lambda q: [FakeProduct()]) as client:
         seed_broccoli(tmp_path)
-        client.get("/plan")
+        seed_plan(client)
         client.post("/plan/approve", follow_redirects=False)
         client.post(
             "/order/match/pin",
@@ -3741,7 +3797,7 @@ def test_the_planner_fills_a_dish_and_the_week_view_shows_it_filled(tmp_path):
         judge_dish(client, "aardappel-groente-vlees", "love")
         cook_every_evening(client)
 
-        client.get("/plan")
+        seed_plan(client)
 
         store, plan_id = _proposal(tmp_path)
         dish_days = [
@@ -3768,7 +3824,7 @@ def test_approving_a_planned_dish_buys_its_parts(tmp_path):
         add_person(client)
         judge_dish(client, "aardappel-groente-vlees", "love")
         cook_every_evening(client)
-        client.get("/plan")
+        seed_plan(client)
         client.post("/plan/approve", follow_redirects=False)
 
         store = Store(tmp_path / "state.db")
@@ -3787,7 +3843,7 @@ def test_never_on_a_dish_keeps_the_planner_off_it(tmp_path):
 
         judge_dish(client, "aardappel-groente-vlees", "never")
         cook_every_evening(client)
-        client.get("/plan")
+        seed_plan(client)
 
         store, plan_id = _proposal(tmp_path)
         assert "aardappel-groente-vlees" not in {
@@ -3929,7 +3985,7 @@ def test_select_page_asks_confirmation_on_a_besteld_day(tmp_path):
         encoding="utf-8",
     )
     with make_client(tmp_path) as client:
-        client.get("/plan")
+        seed_plan(client)
         store = Store(tmp_path / "state.db")
         plan_id, _start, _ = store.load_proposal()
         days = sorted(r.day for r in store.plan_entries(plan_id))
@@ -4021,7 +4077,7 @@ def test_select_page_filters_on_tag(tmp_path):
     seed_recipe(tmp_path)
     seed_soep(tmp_path)
     with make_client(tmp_path) as client:
-        client.get("/plan")
+        seed_plan(client)
         store = Store(tmp_path / "state.db")
         plan_id, _start, _ = store.load_proposal()
         days = sorted(r.day for r in store.plan_entries(plan_id))

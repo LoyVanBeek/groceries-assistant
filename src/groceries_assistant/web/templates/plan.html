@@ -13,6 +13,11 @@
 {% endif %}
 {% if no_recipes %}
 <p>Importeer eerst recepten via <a href="/recipes/import">importeren</a>.</p>
+{% elif no_proposal %}
+<p class="muted">Nog geen voorstel voor deze week.</p>
+<form method="post" action="/plan/fill">
+  <p><button type="submit" class="primary">Vul de week in</button></p>
+</form>
 {% else %}
 <table class="plan">
   <thead>

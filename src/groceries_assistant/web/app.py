@@ -728,15 +728,14 @@ def create_app(
             )
         proposal = store().load_proposal()
         if proposal is None:
-            start = parse_start(None, start_weekday=store().week_start_weekday())
-            dishes = dishes_by_slug()
-            components = list(all_known().values())
-            dinners_only = all_recipes
-            plan = propose(
-                dinners_only, store(), start, dishes=list(dishes.values()), components=components
+            # no implicit planning: the week fills on the button press only
+            return render(
+                request,
+                "plan.html",
+                no_proposal=True,
+                start=parse_start(None, start_weekday=store().week_start_weekday()),
+                errors=errors,
             )
-            plan_id = store().save_proposal(start, plan_to_rows(plan), plan_to_picks(plan, dishes))
-            proposal = (plan_id, start)
         plan_id, start = proposal[0], proposal[1]
         # Re-anchor an existing proposal to the configured start weekday: shift
         # the days (and with them every swap and part pick) so the change lands
@@ -773,6 +772,23 @@ def create_app(
             evenings=evenings,
             errors=errors,
         )
+
+    @app.post("/plan/fill")
+    def plan_fill():
+        """Create the week proposal on explicit request; /plan stays empty."""
+        all_recipes, _errors = load_all()
+        if all_recipes and store().load_proposal() is None:
+            start = parse_start(None, start_weekday=store().week_start_weekday())
+            dishes = dishes_by_slug()
+            plan = propose(
+                all_recipes,
+                store(),
+                start,
+                dishes=list(dishes.values()),
+                components=list(all_known().values()),
+            )
+            store().save_proposal(start, plan_to_rows(plan), plan_to_picks(plan, dishes))
+        return RedirectResponse("/plan", status_code=303)
 
     @app.get("/plan/select", response_class=HTMLResponse)
     def plan_select(
