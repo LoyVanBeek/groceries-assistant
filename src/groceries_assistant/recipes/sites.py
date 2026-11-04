@@ -42,11 +42,18 @@ def register(host: str):
 
 
 def _plain_text(html: str) -> str:
-    """Strip HTML tags and collapse whitespace."""
-    text = re.sub(r"<[^>]+>", "\n", html)
+    """Strip script/style content, HTML tags and collapse whitespace.
+
+    No <head> stripping: a stray or unclosed tag would make the non-greedy
+    match swallow real content.
+    """
+    from html import unescape
+
+    text = re.sub(r"<(script|style)\b.*?</\1>", "\n", html, flags=re.S | re.I)
+    text = re.sub(r"<[^>]+>", "\n", text)
     text = re.sub(r"\n\s*\n", "\n", text)
     text = re.sub(r"\s{2,}", " ", text)
-    return text.strip()
+    return unescape(text).strip()
 
 
 def _title(html: str) -> str | None:
@@ -55,14 +62,16 @@ def _title(html: str) -> str | None:
     Site suffixes are split off on |, en dash or em dash only -- a plain
     hyphen stays, so 'Zuid-Afrikaanse Bobotie | Knorr' keeps its name.
     """
+    from html import unescape
+
     m = re.search(r"<title[^>]*>(.*?)</title>", html, re.S | re.I)
     if m:
-        t = re.sub(r"\s+", " ", m.group(1)).strip()
+        t = re.sub(r"\s+", " ", unescape(m.group(1))).strip()
         parts = [p for p in re.split(r"\s*[–—|]\s*", t) if p.strip()]
         return parts[0].strip()
     m = re.search(r"<h1[^>]*>(.*?)</h1>", html, re.S | re.I)
     if m:
-        return re.sub(r"\s+", " ", m.group(1)).strip()
+        return re.sub(r"\s+", " ", unescape(m.group(1))).strip()
     return None
 
 
@@ -182,6 +191,97 @@ def generic_text_fallback(html: str, url: str) -> UrlParseResult | None:
         steps=steps,
         cook_minutes=cook,
         servings=4,
+        image_url=_og_image(html),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Dutch label scan (no schema, free text between labels)
+# ---------------------------------------------------------------------------
+
+_START_LABEL = re.compile(r"(?i)ingredi[ëe]nt(en)?\s*:?\s*\n")
+_STOP_INGREDIENT = re.compile(
+    r"(?im)^\s*(bereiding|bereidingswijze|zo maak|instructies|aan de slag|aan het werk)\b[^\n]*$"
+)
+_STOP_STEPS = re.compile(
+    r"(?im)^\s*(extra tips|tips|bewaar|print|vorig|volgend|waardeer|deel|bron|eet smakelijk)\b"
+)
+_STAP_MARKER = re.compile(r"(?i)^stap\s+\d+\s*[.:]?$")
+
+
+def dutch_label_fallback(html: str, url: str) -> UrlParseResult | None:
+    """Parse free-text recipes: 'Ingrediënten:' ... 'Bereiding:' blocks.
+
+    Blogs without schema or clean lists (uitdekeukenvanfatima.nl,
+    dedagelijksekost.nl, ...) hold the recipe as plain text between labels;
+    the labels sit at a line start but not always on a line of their own.
+    Lines without an amount or unit are skipped (group headers like 'Kip
+    vulling:', prep notes like 'fijngesneden'); 'Stap N.' markers merge into
+    the step after them.
+    """
+    text = _plain_text(html)
+    start = _START_LABEL.search(text)
+    if start is None:
+        return None
+    rest = text[start.end() :]
+    stop = _STOP_INGREDIENT.search(rest)
+    ingredient_block, steps_block = (
+        (rest[: stop.start()], rest[stop.end() :]) if stop else (rest, "")
+    )
+
+    ingredients: list[Ingredient] = []
+    for ln in ingredient_block.splitlines()[:40]:
+        ln = ln.strip()
+        if not ln or ln.endswith(":") or len(ln) > 60:
+            continue  # group header or paragraph text
+        # '300 gr. kipfilet, in kleine stukjes': the prep note after the comma
+        # pollutes the product name; the amount+product stays behind
+        cleaned = ln.split(",")[0].replace("etl.", "el").rstrip(",;. ")
+        ingredient = parse_ingredient_line(cleaned)
+        if ingredient is not None:
+            ingredients.append(ingredient)
+    if len(ingredients) < 2:
+        return None
+
+    steps: list[str] = []
+    buf = ""
+    for ln in steps_block.splitlines()[:60]:
+        ln = ln.strip()
+        if not ln:
+            continue
+        if _STOP_STEPS.match(ln):
+            break
+        if _STAP_MARKER.match(ln):
+            if buf:
+                steps.append(buf)
+                buf = ""
+            continue
+        m = re.match(r"^(\d+)\s*[.:)]\s*(.*)$", ln)
+        if m:
+            if buf:
+                steps.append(buf)
+                buf = ""
+            buf = m.group(2).strip()
+        elif buf:
+            buf = f"{buf} {ln}"
+        else:
+            buf = ln
+        if buf and buf[-1] in ".!?":
+            steps.append(buf)
+            buf = ""
+    if buf:
+        steps.append(buf)
+    steps = [re.sub(r"\s+", " ", s).strip(" .") for s in steps if len(s.strip()) > 10]
+
+    name = _title(html)
+    if not name and not steps:
+        return None
+
+    return UrlParseResult(
+        source_url=url,
+        name=name,
+        ingredients=ingredients,
+        steps=steps,
         image_url=_og_image(html),
     )
 

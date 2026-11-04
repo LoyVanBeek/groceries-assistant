@@ -54,7 +54,7 @@ from groceries_assistant.models import (
 )
 from groceries_assistant.planner.pantry import StockEntry
 from groceries_assistant.planner.shopping import order_product
-from groceries_assistant.recipes.extract import extract_from_images
+from groceries_assistant.recipes.extract import extract_from_images, unique_recipe_path
 from groceries_assistant.recipes.loader import (
     RecipeError,
     load_recipe,
@@ -67,7 +67,11 @@ from groceries_assistant.recipes.textparser import (
     parse_ingredient_line,
     parse_recipe_text,
 )
-from groceries_assistant.recipes.urlimport import extract_from_url
+from groceries_assistant.recipes.urlimport import (
+    PASTE_DEFAULT_URL,
+    extract_from_url,
+    normalize_pasted_page,
+)
 from groceries_assistant.services.planner_service import (
     apply_absences,
     build_order,
@@ -99,6 +103,20 @@ SERVINGS = 4
 LEFTOVERS_CHOICE = "__leftovers__"
 COOK_CHOICE = "__cook__"
 NO_COOK_CHOICE = "__no_cook__"
+
+# Bookmarklet for ah.nl recipe pages: copies 'URL\nJSON-LD' to the clipboard.
+# ah.nl's bot protection only lets a real browser through, so the JSON is
+# grabbed on the page itself; the bulk importer accepts the URL + JSON pair.
+RECIPE_BOOKMARKLET = (
+    "(function(){var c=document.querySelector('link[rel=\"canonical\"]');"
+    "var u=((c&&c.href)||location.href).split('#')[0];"
+    "var e=document.querySelectorAll('script[type=\"application/ld+json\"]'),h='';"
+    "for(var i=0;i<e.length;i++){"
+    "if(e[i].textContent.indexOf('recipeIngredient')>=0){h=e[i].outerHTML;break}}"
+    "if(h){navigator.clipboard.writeText(u+'\\n'+h).then("
+    "function(){alert('URL + recept-JSON gekopieerd: plak ze in de bulkimport.')})}"
+    "else{alert('Geen recept-JSON gevonden op deze pagina.')}})()"
+)
 KEEP_CHOICE = ""
 
 ALLOWED_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
@@ -1972,7 +1990,7 @@ def create_app(
 
     @app.get("/recipes/import", response_class=HTMLResponse)
     def import_page(request: Request):
-        return render(request, "import.html")
+        return render(request, "import.html", bookmarklet=RECIPE_BOOKMARKLET)
 
     @app.post("/recipes/import")
     async def do_import(
@@ -1980,9 +1998,11 @@ def create_app(
         photos: Annotated[list[UploadFile] | None, File()] = None,
         text: str = Form(""),
         url: str = Form(""),
+        page_html: str = Form(""),
     ):
-        """Read one recipe from photos (all pages of it), pasted text or a URL."""
+        """Read one recipe from photos (all pages of it), pasted text, page source or a URL."""
         uploads = [p for p in (photos or []) if p.filename]
+        source_url = ""
         try:
             if uploads:
                 temp_paths = [await _temp_upload(p) for p in uploads]
@@ -1997,16 +2017,29 @@ def create_app(
             else:
                 used_photo = False
             if not used_photo:
-                if url.strip():
-                    _recipe, parsed = extract_from_url(url.strip())
+                source_url = url.strip()
+                if page_html.strip():
+                    # pasted page source / JSON-LD: parse offline, nothing is
+                    # fetched; a leading URL line (bookmarklet output) is the source
+                    pasted = page_html.strip()
+                    if not source_url and "\n" in pasted:
+                        first_line, _, rest = pasted.partition("\n")
+                        if re.match(r"^(?:https?://|www\.)\S+$", first_line.strip()):
+                            source_url, pasted = first_line.strip(), rest.strip()
+                    _recipe, parsed = extract_from_url(
+                        source_url or PASTE_DEFAULT_URL,
+                        html=normalize_pasted_page(pasted),
+                    )
+                elif source_url:
+                    _recipe, parsed = extract_from_url(source_url)
                 else:
                     raw = text
         except Exception as exc:
             return render(request, "import.html", error=f"Importeren mislukt: {exc}")
         stage_uid = ""
         staged_url = ""
-        if not used_photo and url.strip():
-            # URL import: use the structured result directly, no flatten/reparse
+        if not used_photo and (url.strip() or page_html.strip()):
+            # URL/paste import: use the structured result directly, no flatten/reparse
             if getattr(parsed, "image_url", None):
                 try:
                     stage_uid = _stage_web_image(getattr(parsed, "image_url", ""))
@@ -2017,7 +2050,7 @@ def create_app(
         elif not used_photo:
             # text import: flatten then reparse
             parsed = parse_recipe_text(raw)
-        ctx = _editor_ctx_from_parse(parsed, url_value=url.strip())
+        ctx = _editor_ctx_from_parse(parsed, url_value=url.strip() or source_url)
         ctx["staged_photo"] = staged_url
         ctx["stage_uid"] = stage_uid
         return render(
@@ -2025,6 +2058,122 @@ def create_app(
             "recipe_edit.html",
             **ctx,
             original_slug=None,
+        )
+
+    @app.get("/recipes/import-urls", response_class=HTMLResponse)
+    def import_urls_page(request: Request):
+        return render(request, "import_urls.html")
+
+    @app.post("/recipes/import-urls")
+    async def import_urls(request: Request, urls: str = Form("")):
+        """Bulk import: save every URL on its own line directly as a recipe.
+
+        Pastes of page source or JSON-LD also work -- for ah.nl, whose bot
+        protection only lets a real browser through: the bookmarklet copies
+        the recipe JSON, one paste per recipe, optionally preceded by the
+        recipe's URL. A blank line or the next URL ends a paste. Runs
+        sequentially (gentle on the sites, and the browser fallback is not
+        parallel-safe); fetched AH recipes may take ~20 s each.
+        """
+
+        def is_url(line: str) -> bool:
+            return bool(re.match(r"^(?:https?://|www\.)\S+$", line))
+
+        lines: list[str] = []
+        for raw in urls.splitlines():
+            ln = raw.strip()
+            if not ln:
+                lines.append("")  # blank line: paste separator
+                continue
+            if ln.startswith("#"):
+                continue  # headers/comments in a pasted list
+            ln = ln.lstrip("-* \t").strip()  # markdown list markers
+            if ln:
+                lines.append(ln)
+
+        items: list[tuple[str, str | None]] = []  # (url, pasted html or None)
+        i = 0
+        while i < len(lines):
+            ln = lines[i]
+            if not ln:
+                i += 1
+                continue
+            if is_url(ln):
+                if i + 1 < len(lines) and lines[i + 1] and not is_url(lines[i + 1]):
+                    # the URL heads its own pasted page source/JSON-LD
+                    block = []
+                    j = i + 1
+                    while j < len(lines) and lines[j] and not is_url(lines[j]):
+                        block.append(lines[j])
+                        j += 1
+                    items.append((ln, normalize_pasted_page("\n".join(block))))
+                    i = j
+                else:
+                    items.append((ln, None))
+                    i += 1
+            else:  # a pasted block: until the next blank line or URL
+                block = []
+                while i < len(lines) and lines[i] and not is_url(lines[i]):
+                    block.append(lines[i])
+                    i += 1
+                items.append(("", normalize_pasted_page("\n".join(block))))
+
+        results: list[dict] = []
+        for source, html_block in items[:50]:  # hard cap: one request must stay finite
+            label = source or "(geplakte bron)"
+            if "://" not in source and source:
+                source = f"https://{source}"
+            try:
+                if html_block:
+                    _recipe, parsed = extract_from_url(source or PASTE_DEFAULT_URL, html=html_block)
+                else:
+                    _recipe, parsed = extract_from_url(source)
+                # extract seeds slug with the raw name (the editor re-slugs on
+                # save); bulk saves directly, so slug properly here
+                recipe = _recipe.model_copy(update={"slug": slugify(_recipe.name)})
+                path = data / "recipes" / f"{recipe.slug}.yaml"
+                outcome = "opgeslagen"
+                if path.exists():
+                    existing = load_recipe(path)
+                    if existing.url == recipe.url:
+                        results.append(
+                            {"url": label, "ok": True, "skipped": True, "name": existing.name}
+                        )
+                        continue
+                    # different recipe with the same name: keep both
+                    path = unique_recipe_path(recipe, data / "recipes")
+                    outcome = "opgeslagen (andere naam: dubbel)"
+                save_recipe(path, recipe)
+                stage_uid = ""
+                if getattr(parsed, "image_url", None):
+                    try:
+                        stage_uid = _stage_web_image(getattr(parsed, "image_url", "")) or ""
+                    except Exception:
+                        stage_uid = ""
+                if stage_uid:
+                    _retire_ocr_card(stage_uid, recipe.slug, keep=True)
+                results.append(
+                    {
+                        "url": label,
+                        "ok": True,
+                        "name": recipe.name,
+                        "slug": recipe.slug,
+                        "outcome": outcome,
+                        "image": bool(stage_uid),
+                    }
+                )
+            except Exception as exc:
+                results.append({"url": label, "ok": False, "error": str(exc)[:200]})
+        ok = sum(1 for r in results if r["ok"] and not r.get("skipped"))
+        skipped = sum(1 for r in results if r.get("skipped"))
+        return render(
+            request,
+            "import_urls.html",
+            results=results,
+            ok=ok,
+            skipped=skipped,
+            failed=len(results) - ok - skipped,
+            urls_value=urls,
         )
 
     async def _temp_upload(upload: UploadFile) -> Path:

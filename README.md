@@ -16,7 +16,10 @@ Flow:
 
 1. **Instellingen** — weekschema (per avond: kok, minuten, restjes oké?),
    familieleden, basisvoorraad (nooit bestellen), verpakkingen (zie stap 5).
-2. **Recepten importeren** — foto van print (OCR), geplakte tekst of URL;
+2. **Recepten importeren** — foto van print (OCR), geplakte tekst, paginabron/JSON-LD
+   (handig voor ah.nl, dat automatische imports blokkeert; er is ook een
+   bookmarkletje) of URL; meerdere URL's tegelijk via
+   [Recepten bulk importeren](http://localhost:8901/recipes/import-urls);
    controleren, opslaan. Vink per recept per persoon love/ok/dislike/never aan.
 3. **Gerechten** — een gerecht dat je zelf samenstelt (`aardappel-groente-vlees`):
    per onderdeel een lijstje recepten waaruit dat onderdeel gekozen wordt. Ook

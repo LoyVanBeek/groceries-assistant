@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Recepten bulk importeren{% endblock %}
+{% block content %}
+<h1>Recepten importeren van een lijst URL's</h1>
+<p class="muted">E&eacute;n URL per regel (of een lijstje, `-` of `*` eraf mag). Elk recept wordt
+   uitgelezen en <em>direct opgeslagen</em>; daarna gewoon te bewerken via Recepten.
+   Bestaat een recept al (zelfde URL), dan wordt het overgeslagen. Dit kan even duren:
+   ah.nl-recepten lopen soms via de browser en kosten dan ~20 s per stuk.</p>
+<p class="muted">Voor ah.nl (bot-bescherming): klik het bookmarkletje van de
+   <a href="/recipes/import">importpagina</a> op de receptpagina &mdash; URL + recept-JSON
+   belanden op je klembord. Plak ze hier (URL bovenaan, JSON eronder, per recept een lege
+   regel ertussen) en er wordt niets meer gefetcht.</p>
+{% if results is defined %}
+  <p>{% if ok %}<strong>{{ ok }} opgeslagen</strong>{% endif %}
+     {% if skipped %}<strong>{{ skipped }} overgeslagen</strong>{% endif %}
+     {% if failed %}<strong class="warnings">{{ failed }} mislukt</strong>{% endif %}</p>
+  <table>
+    <tr><th>URL</th><th>Uitkomst</th></tr>
+    {% for r in results %}
+    <tr>
+      <td class="muted" style="max-width: 26em; overflow-wrap: anywhere">{{ r.url }}</td>
+      <td>
+        {% if r.ok %}
+          {% if r.skipped %}overgeslagen &mdash; {{ r.name }} bestond al
+          {% else %}<a href="/recipes/{{ r.slug }}">{{ r.name }}</a>
+            &mdash; {{ r.outcome }}{% if r.image %}, met foto{% endif %}{% endif %}
+        {% else %}<span class="warnings">{{ r.error }}</span>{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  <p><a href="/recipes">Naar de recepten &rarr;</a></p>
+{% endif %}
+<form method="post" action="/recipes/import-urls">
+  <p><textarea name="urls" rows="12" cols="70" placeholder="https://www.ah.nl/allerhande/recept/...&#10;https://www.leukerecepten.nl/recepten/..."></textarea></p>
+  <p><button type="submit" class="primary">Alles importeren &rarr;</button></p>
+</form>
+{% endblock %}

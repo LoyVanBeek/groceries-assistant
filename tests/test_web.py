@@ -46,6 +46,65 @@ def test_pages_render(tmp_path):
         assert client.get("/recipes/import").status_code == 200
 
 
+def test_import_page_shows_bookmarklet(tmp_path):
+    """The bookmarklet copies the recipe URL plus its JSON-LD for the bulk box."""
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        page = client.get("/recipes/import")
+        assert page.status_code == 200
+        assert "javascript:" in page.text
+        assert "location.href" in page.text  # falls back to the current URL
+        assert "canonical" in page.text  # prefers the canonical URL
+        assert "recipeIngredient" in page.text  # finds the recipe JSON-LD
+        assert "clipboard.writeText" in page.text
+        assert "/recipes/import-urls" in page.text  # points at the bulk page
+
+
+def test_bookmarklet_is_valid_javascript(tmp_path):
+    """A syntax error in the hand-written bookmarklet JS makes the whole
+    javascript: link silently do nothing -- parse it to catch that."""
+    import html as html_module
+
+    import esprima
+
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        page = client.get("/recipes/import")
+    match = re.search(r'href="javascript:([^"]+)"', page.text)
+    assert match is not None, "bookmarklet link missing from the import page"
+    js = html_module.unescape(match.group(1))
+    esprima.parseScript(js)  # raises SyntaxError on broken JS
+
+
+def test_import_paste_with_leading_url_uses_it_as_source(tmp_path, monkeypatch):
+    """Bookmarklet output (URL line followed by the JSON) pasted into the
+    bronveld: the URL becomes the source link, the JSON is parsed."""
+    import groceries_assistant.web.app as app_module
+    from groceries_assistant.recipes.urlimport import UrlParseResult
+
+    seen: dict = {}
+
+    def fake_extract(url: str, html: str | None = None):
+        seen["url"], seen["html"] = url, html
+        parsed = UrlParseResult(source_url=url)
+        parsed.name = "Pasta pesto"
+        return None, parsed
+
+    monkeypatch.setattr(app_module, "extract_from_url", fake_extract)
+    paste = (
+        "https://www.ah.nl/allerhande/recept/x\n"
+        '<script type="application/ld+json">{"@type":"Recipe"}</script>'
+    )
+
+    with make_client(tmp_path) as client:
+        editor = client.post("/recipes/import", data={"page_html": paste})
+        assert editor.status_code == 200
+        assert 'value="Pasta pesto"' in editor.text
+        assert 'value="https://www.ah.nl/allerhande/recept/x"' in editor.text
+    assert seen["url"] == "https://www.ah.nl/allerhande/recept/x"
+    assert seen["html"].startswith('<script type="application/ld+json">')
+
+
 def test_configured_week_start_anchors_a_new_proposal(tmp_path):
     seed_recipe(tmp_path)
     with make_client(tmp_path) as client:
@@ -572,6 +631,204 @@ def test_import_from_url_prefills_source_url(tmp_path, monkeypatch):
         editor = client.post("/recipes/import", data={"url": "https://example.com/pasta-pesto"})
         assert editor.status_code == 200
         assert 'value="https://example.com/pasta-pesto"' in editor.text
+
+
+def test_import_pasted_page_html_prefills_editor(tmp_path, monkeypatch):
+    """Pasting page source/JSON-LD parses offline; the URL field stays as typed."""
+    import groceries_assistant.web.app as app_module
+    from groceries_assistant.recipes.urlimport import UrlParseResult
+
+    seen: dict = {}
+
+    def fake_extract(url: str, html: str | None = None):
+        seen["url"], seen["html"] = url, html
+        parsed = UrlParseResult(source_url=url)
+        parsed.name = "Pasta pesto"
+        parsed.servings = 4
+        parsed.steps = ["Kook de pasta."]
+        return None, parsed
+
+    monkeypatch.setattr(app_module, "extract_from_url", fake_extract)
+    paste = '<script type="application/ld+json">{"@type":"Recipe"}</script>'
+
+    with make_client(tmp_path) as client:
+        editor = client.post(
+            "/recipes/import",
+            data={"page_html": paste, "url": "https://www.ah.nl/allerhande/recept/x"},
+        )
+        assert editor.status_code == 200
+        assert 'value="Pasta pesto"' in editor.text
+        assert 'value="https://www.ah.nl/allerhande/recept/x"' in editor.text
+    assert seen["html"] == paste  # verbatim: no fetching, no reparse
+    assert seen["url"] == "https://www.ah.nl/allerhande/recept/x"
+
+
+def test_import_pasted_page_without_url_still_parses(tmp_path, monkeypatch):
+    """A paste without URL imports too (default org URL for scraper matching)."""
+    import groceries_assistant.web.app as app_module
+    from groceries_assistant.recipes.urlimport import PASTE_DEFAULT_URL, UrlParseResult
+
+    seen: dict = {}
+
+    def fake_extract(url: str, html: str | None = None):
+        seen["url"], seen["html"] = url, html
+        parsed = UrlParseResult(source_url=url)
+        parsed.name = "Pasta pesto"
+        return None, parsed
+
+    monkeypatch.setattr(app_module, "extract_from_url", fake_extract)
+
+    with make_client(tmp_path) as client:
+        editor = client.post("/recipes/import", data={"page_html": "<html><body>x</body></html>"})
+        assert editor.status_code == 200
+        assert 'value="Pasta pesto"' in editor.text
+    assert seen["url"] == PASTE_DEFAULT_URL
+
+
+def test_bulk_url_import_saves_skips_and_reports(tmp_path, monkeypatch):
+    """One URL per line: parsed, saved directly, reruns skip existing ones."""
+    import groceries_assistant.web.app as app_module
+    from groceries_assistant.models import Recipe
+    from groceries_assistant.recipes.urlimport import UrlParseResult
+
+    def fake_extract(url: str):
+        if "kapot" in url:
+            raise ValueError("geen recept")
+        if "pasta" in url:
+            # extract seeds the slug with the raw name; bulk must re-slug
+            name, slug = "Pasta pesto!", "Pasta pesto!"
+        else:
+            name, slug = "Tomatensoep", "Tomatensoep"
+        recipe = Recipe(
+            slug=slug,
+            name=name,
+            servings=4,
+            steps=["Kook."],
+            ingredients=[{"product": "pasta", "amount": 400, "unit": "g"}],
+            url=url,
+        )
+        return recipe, UrlParseResult(source_url=url, name=name)
+
+    monkeypatch.setattr(app_module, "extract_from_url", fake_extract)
+    urls = "- https://example.com/pasta\n# comment\n* https://example.com/soep\nhttps://kapot.example.com/x"
+
+    with make_client(tmp_path) as client:
+        page = client.post("/recipes/import-urls", data={"urls": urls})
+        assert page.status_code == 200
+        assert "2 opgeslagen" in page.text
+        assert "1 mislukt" in page.text
+        assert "geen recept" in page.text
+        assert (tmp_path / "recipes" / "pasta-pesto.yaml").exists()
+        assert (tmp_path / "recipes" / "tomatensoep.yaml").exists()
+
+        # rerun: the two saved ones are skipped by URL, the broken one fails again
+        rerun = client.post("/recipes/import-urls", data={"urls": urls})
+        assert rerun.status_code == 200
+        assert "opgeslagen</strong>" not in rerun.text
+        assert "2 overgeslagen" in rerun.text
+        assert "1 mislukt" in rerun.text
+
+
+def test_bulk_url_import_renames_on_name_clash(tmp_path, monkeypatch):
+    """A different recipe with the same name lands under a unique slug."""
+    import groceries_assistant.web.app as app_module
+    from groceries_assistant.models import Recipe
+    from groceries_assistant.recipes.urlimport import UrlParseResult
+
+    calls = iter(["https://example.com/1", "https://example.com/2"])
+
+    def fake_extract(url: str):
+        next(calls)
+        recipe = Recipe(
+            slug="pasta-pesto",
+            name="Pasta pesto",
+            servings=4,
+            steps=["Kook."],
+            ingredients=[{"product": "pasta", "amount": 400, "unit": "g"}],
+            url=url,
+        )
+        return recipe, UrlParseResult(source_url=url, name="Pasta pesto")
+
+    monkeypatch.setattr(app_module, "extract_from_url", fake_extract)
+
+    with make_client(tmp_path) as client:
+        page = client.post(
+            "/recipes/import-urls", data={"urls": "https://example.com/1\nhttps://example.com/2"}
+        )
+        assert page.status_code == 200
+        assert "andere naam: dubbel" in page.text
+        assert (tmp_path / "recipes" / "pasta-pesto.yaml").exists()
+        assert (tmp_path / "recipes" / "pasta-pesto-2.yaml").exists()
+
+
+JSONLD_PASTE = '<script type="application/ld+json">{"@type":"Recipe","name":"Pasta pesto"}</script>'
+
+
+def test_bulk_url_import_accepts_url_plus_pasted_jsonld(tmp_path, monkeypatch):
+    """The bookmarklet flow: URL line followed by the pasted recipe JSON is
+    parsed offline (nothing fetched), like a plain URL is fetched."""
+    import groceries_assistant.web.app as app_module
+    from groceries_assistant.models import Recipe
+    from groceries_assistant.recipes.urlimport import UrlParseResult
+
+    seen: dict = {}
+
+    def fake_extract(url: str, html: str | None = None):
+        seen["url"], seen["html"] = url, html
+        recipe = Recipe(
+            slug="pasta-pesto",
+            name="Pasta pesto",
+            servings=4,
+            steps=["Kook."],
+            ingredients=[{"product": "pasta", "amount": 400, "unit": "g"}],
+            url=url,
+        )
+        return recipe, UrlParseResult(source_url=url, name="Pasta pesto")
+
+    monkeypatch.setattr(app_module, "extract_from_url", fake_extract)
+    urls = "https://www.ah.nl/allerhande/recept/x\n" + JSONLD_PASTE
+
+    with make_client(tmp_path) as client:
+        page = client.post("/recipes/import-urls", data={"urls": urls})
+        assert page.status_code == 200
+        assert "1 opgeslagen" in page.text
+        assert 'href="/recipes/pasta-pesto"' in page.text
+    assert seen["url"] == "https://www.ah.nl/allerhande/recept/x"  # org for scraper matching
+    assert seen["html"] == JSONLD_PASTE  # verbatim, nothing was fetched
+
+
+def test_bulk_url_import_accepts_bare_jsonld_block(tmp_path, monkeypatch):
+    """A pasted block without URL imports too; labels as '(geplakte bron)'."""
+    import groceries_assistant.web.app as app_module
+    from groceries_assistant.models import Recipe
+    from groceries_assistant.recipes.urlimport import UrlParseResult
+
+    seen: list = []
+
+    def fake_extract(url: str, html: str | None = None):
+        seen.append((url, html))
+        recipe = Recipe(
+            slug="pasta-pesto",
+            name="Pasta pesto",
+            servings=4,
+            steps=["Kook."],
+            ingredients=[{"product": "pasta", "amount": 400, "unit": "g"}],
+            url=url,
+        )
+        return recipe, UrlParseResult(source_url=url, name="Pasta pesto")
+
+    monkeypatch.setattr(app_module, "extract_from_url", fake_extract)
+
+    with make_client(tmp_path) as client:
+        page = client.post(
+            "/recipes/import-urls",
+            data={"urls": JSONLD_PASTE + "\n\nhttps://example.com/next\n"},
+        )
+        assert page.status_code == 200
+        assert "2 opgeslagen" in page.text
+        assert "(geplakte bron)" in page.text
+    assert seen[0][1].startswith('<script type="application/ld+json">')  # paste parsed offline
+    assert seen[1] == ("https://example.com/next", None)  # plain URL fetched
 
 
 def _fake_ocr():

@@ -91,4 +91,15 @@
 - [x] Recency of use when picking a dish
       (on the same surface a 'Laatst gepland' badge colours each recipe:
       deze week red, 2-3 weken orange, langer geleden green, nog nooit grey)
-- [ ] Import recipes from Albert Heijn's Allerhande. 
+- [x] Import recipes from Albert Heijn's Allerhande.
+      (ah.nl sits behind Akamai bot protection; recipe URLs fetch the ah.be twin
+      first via curl_cffi with a browser TLS fingerprint, then a real headed
+      browser. Failing that: paste the page source or JSON-LD in the import form,
+      or use the bookmarklet that copies the recipe JSON from the AH page)
+- [x] Bulk import from a list of URLs (`/recipes/import-urls`: one URL per line,
+      parsed and saved directly, each outcome in a table; already-imported URLs are
+      skipped, same-name recipes get -2. Also accepts pasted JSON-LD/page-source
+      blocks -- optionally each preceded by its URL -- for the AH recipes where
+      fetching is hopeless and the bookmarklet provides the JSON)
+- [ ] Drag and drop to re-order week menu
+- [ ] Tags for recipes, filter on tags in search
