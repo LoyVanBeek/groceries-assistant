@@ -1,8 +1,10 @@
 """Import recipes from recipe websites via recipe-scrapers.
 
-We fetch the HTML ourselves (httpx, browser UA, timeout control) and hand it
-to recipe-scrapers' offline parser, then run every ingredient string through
-the Dutch line parser to split amount/unit/product.
+We fetch the HTML ourselves -- httpx with HTTP/2 and browser headers for most
+sites, curl_cffi with a browser TLS fingerprint for ah.nl (via its loosely
+protected ah.be twin), and a real headed browser as the last resort -- and
+hand it to recipe-scrapers' offline parser, then run every ingredient string
+through the Dutch line parser to split amount/unit/product.
 """
 
 from __future__ import annotations
@@ -10,6 +12,7 @@ from __future__ import annotations
 import concurrent.futures
 import os
 from dataclasses import dataclass
+from urllib.parse import urlparse, urlunparse
 
 import httpx
 from recipe_scrapers import scrape_html
@@ -35,6 +38,88 @@ BROWSER_HEADERS = {
     "Upgrade-Insecure-Requests": "1",
 }
 
+# ah.nl recipe pages sit behind Akamai Bot Manager: TLS fingerprinting plus a
+# JavaScript challenge, so no header or HTTP trick passes (only a real browser
+# does; see fetch_html_browser). The Belgian twin ah.be serves the same
+# Allerhande recipes (identical /allerhande/recept/<id>/<slug> paths) behind a
+# looser Akamai config: a curl_cffi request with a browser TLS fingerprint
+# gets in where httpx is refused. Not every fingerprint passes, and some are
+# served a small HTTP-200 challenge page -- so a response only counts when the
+# recipe markup is really in it.
+AH_HOSTS = ("ah.nl", "www.ah.nl", "ah.be", "www.ah.be")
+AH_RECIPE_PREFIX = "/allerhande/recept/"
+# safari first: the one fingerprint that passes on ah.be today; the others are
+# there in case AH's config shifts to a different browser profile
+IMPERSONATE_TARGETS = ("safari184", "chrome150", "firefox155")
+PASTE_DEFAULT_URL = "https://www.ah.nl/"
+# neutral org_url for the pure-schema recipe-scrapers run: matches no dedicated
+# scraper class, so a stale site scraper can't shadow working JSON-LD
+SCHEMA_FALLBACK_URL = "https://schema-fallback.invalid/"
+
+
+def _is_ah_host(url: str) -> bool:
+    try:
+        return (urlparse(url).hostname or "").lower() in AH_HOSTS
+    except ValueError:
+        return False
+
+
+def ah_be_url(url: str) -> str | None:
+    """The ah.be twin of an ah.nl Allerhande recipe URL, else None."""
+    try:
+        parts = urlparse(url)
+    except ValueError:
+        return None
+    if (parts.hostname or "").lower() not in ("ah.nl", "www.ah.nl"):
+        return None
+    if not parts.path.startswith(AH_RECIPE_PREFIX):
+        return None
+    return urlunparse(parts._replace(scheme="https", netloc="ah.be"))
+
+
+def looks_like_recipe_html(html: str) -> bool:
+    """Heuristic: does this HTML actually contain recipe markup?
+
+    Akamai serves some fingerprints a small HTTP-200 challenge page, so the
+    status code alone proves nothing.
+    """
+    return "application/ld+json" in html or "recipeIngredient" in html
+
+
+def fetch_html_impersonated(
+    url: str, timeout: float = 20.0, require_recipe_markup: bool = True
+) -> str:
+    """Fetch with a browser TLS fingerprint (curl_cffi).
+
+    Sites that only run the TLS check refuse httpx's Python fingerprint but
+    let real-browser ones through. Tries several fingerprints; returns "" when
+    none of them works. With ``require_recipe_markup`` a response only counts
+    when recipe markup is really in it -- Akamai serves some fingerprints a
+    small HTTP-200 challenge page, so the status code alone proves nothing.
+    """
+    try:
+        from curl_cffi import requests as curl_requests
+    except ImportError:
+        return ""
+    for target in IMPERSONATE_TARGETS:
+        try:
+            response = curl_requests.get(url, impersonate=target, timeout=timeout)
+        except Exception:
+            continue
+        if response.status_code == 200 and (
+            looks_like_recipe_html(response.text) or not require_recipe_markup
+        ):
+            return response.text
+    return ""
+
+
+def normalize_pasted_page(text: str) -> str:
+    """Accept a bare JSON-LD paste (no tags) by wrapping it in a script element."""
+    stripped = text.strip()
+    if stripped.startswith(("{", "[")) and "application/ld+json" not in stripped:
+        return f'<script type="application/ld+json">{stripped}</script>'
+    return text
+
 
 @dataclass
 class UrlParseResult(ParseResult):
@@ -43,12 +128,42 @@ class UrlParseResult(ParseResult):
 
 
 def fetch_html(url: str, timeout: float = 20.0) -> str:
-    """Fetch a recipe page, preferring HTTP/2 for bot-blocked sites (Akamai)."""
+    """Fetch a recipe page.
+
+    AH recipe URLs go to the ah.be twin first (see fetch_html_impersonated);
+    when that fails we raise so the caller falls back to a real browser --
+    plain httpx on ah.nl is refused no matter what. Everything else keeps the
+    HTTP/2 + browser-headers fetch that works for most recipe sites.
+    """
+    mirror = ah_be_url(url)
+    if mirror is not None:
+        html = fetch_html_impersonated(mirror, timeout)
+        if html:
+            return html
+        raise ExtractionError(
+            "ah.nl blokkeert automatische imports (bot-bescherming) en de "
+            "ah.be-spiegel deed het ook niet."
+        )
+    if _is_ah_host(url):  # ah.be URL pasted directly
+        html = fetch_html_impersonated(url, timeout)
+        if html:
+            return html
+        raise ExtractionError(
+            "ah.be liet deze import niet door; probeer de ah.nl-URL of plak "
+            "de paginabron in de import."
+        )
     try:
         with httpx.Client(http2=True, timeout=timeout, follow_redirects=True) as client:
             response = client.get(url, headers=BROWSER_HEADERS)
             response.raise_for_status()
     except httpx.HTTPError as exc:
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        if status in (403, 406, 429, 503):
+            # TLS-gated (Cloudflare & co refuse the Python fingerprint with
+            # 403): a browser TLS fingerprint may still get in
+            html = fetch_html_impersonated(url, timeout, require_recipe_markup=False)
+            if html:
+                return html
         raise ExtractionError(f"Kon de pagina niet laden: {exc}") from exc
     return response.text
 
@@ -114,10 +229,10 @@ def fetch_html_browser(url: str, timeout_s: float = 60.0) -> str:
     except Exception as exc:
         raise ExtractionError(f"Kon de pagina niet laden (browser): {exc}") from exc
 
-    if "application/ld+json" not in html and "recipeIngredient" not in html:
+    if not looks_like_recipe_html(html):
         raise ExtractionError(
             "De pagina liet zich niet uitlezen (bot-bescherming bleef in de weg); "
-            "plak de recepttekst handmatig in de tekst-import."
+            "plak de recepttekst, of de paginabron/JSON-LD, handmatig in de import."
         )
     return html
 
@@ -126,11 +241,27 @@ def extract_from_url(url: str, html: str | None = None) -> tuple[Recipe, UrlPars
     """Scrape a recipe URL into a Recipe plus the parse details.
 
     Tries, in order:
-    1. recipe-scrapers (schema.org / site-specific).
-    2. A dedicated site parser (for sites without schema markup).
-    3. A generic text-heuristic fallback (bullet ingredients + numbered steps).
+    1. recipe-scrapers: the site's dedicated scraper when it exists, then the
+       schema.org extraction (some dedicated scrapers are stale and miss
+       elements the site still serves in its JSON-LD).
+    2. A dedicated site parser of our own (sites.py).
+    3. A Dutch label scan ('Ingrediënten:' ... 'Bereiding:' free text).
+    4. A generic text-heuristic fallback (bullet ingredients + numbered steps).
+
+    An empty step-1 result (schema present, ingredients unreadable) falls
+    through to the later steps; the Recipe model demands at least one
+    ingredient, so a hollow parse is never returned.
+
+    With ``html`` given (pasted page source or JSON-LD) nothing is fetched.
     """
-    from groceries_assistant.recipes.sites import RECIPE_SITES, generic_text_fallback
+    url = url.strip()
+    if "://" not in url:  # tolerate 'www.ah.nl/...' pastes
+        url = f"https://{url}"
+    from groceries_assistant.recipes.sites import (
+        RECIPE_SITES,
+        dutch_label_fallback,
+        generic_text_fallback,
+    )
 
     if html is None:
         try:
@@ -139,22 +270,20 @@ def extract_from_url(url: str, html: str | None = None) -> tuple[Recipe, UrlPars
             # blocked (Akamai etc.): try a real browser before giving up
             html = fetch_html_browser(url)
 
-    # --- step 1: recipe-scrapers -------------------------------------------
-    try:
-        scraper = scrape_html(html, org_url=url, wild_mode=True)
-    except Exception:
-        scraper = None
-
-    if scraper is not None:
+    # --- step 1: recipe-scrapers, dedicated site class then pure schema -----
+    for org_url in (url, SCHEMA_FALLBACK_URL):
+        try:
+            scraper = scrape_html(html, org_url=org_url, wild_mode=True)
+        except Exception:
+            continue
         try:
             recipe, result = _build_from_scraper(scraper, url, html)
-            return recipe, result
         except Exception:
-            pass  # fall through to the next step
+            continue
+        if result.ingredients:
+            return recipe, result
 
     # --- step 2: site-specific parser ---------------------------------------
-    from urllib.parse import urlparse
-
     host = urlparse(url).hostname or ""
     site_cls = RECIPE_SITES.get(host.lower())
     if site_cls is not None:
@@ -166,7 +295,16 @@ def extract_from_url(url: str, html: str | None = None) -> tuple[Recipe, UrlPars
         except Exception:
             pass
 
-    # --- step 3: generic fallback -------------------------------------------
+    # --- step 3: Dutch label scan -------------------------------------------
+    try:
+        result = dutch_label_fallback(html, url)
+        if result is not None and result.ingredients:
+            recipe = _build_result_to_recipe(result)
+            return recipe, result
+    except Exception:
+        pass
+
+    # --- step 4: generic fallback -------------------------------------------
     try:
         result = generic_text_fallback(html, url)
         if result is not None and result.ingredients:
@@ -176,7 +314,8 @@ def extract_from_url(url: str, html: str | None = None) -> tuple[Recipe, UrlPars
         pass
 
     raise ExtractionError(
-        f"Geen recept gevonden op {url}. Kopieer de tekst handmatig en gebruik de tekst-import."
+        f"Geen recept gevonden op {url}. "
+        "Plak de recepttekst, of de paginabron/JSON-LD, handmatig in de import."
     )
 
 

@@ -8,6 +8,7 @@ dependencies = [
     "uvicorn[standard]>=0.32",
     "jinja2>=3.1",
     "httpx[http2]>=0.27",
+    "curl-cffi>=0.17",
     "pydantic>=2.7",
     "pyyaml>=6.0",
     "typer>=0.12",
@@ -26,6 +27,7 @@ dev = [
     "pytest-cov>=5.0",
     "ty>=0.0.84",
     "pre-commit>=4.6.2",
+    "esprima>=4.0",
 ]
 
 [build-system]
