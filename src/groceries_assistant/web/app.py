@@ -790,6 +790,12 @@ def create_app(
             store().save_proposal(start, plan_to_rows(plan), plan_to_picks(plan, dishes))
         return RedirectResponse("/plan", status_code=303)
 
+    @app.post("/plan/clear")
+    def plan_clear():
+        """Wipe this week and every planned-ahead week; past weeks stay."""
+        cleared = store().clear_future_plans(date.today())
+        return RedirectResponse(f"/plan?cleared={cleared}", status_code=303)
+
     @app.get("/plan/select", response_class=HTMLResponse)
     def plan_select(
         request: Request, day: str = "", q: str = "", sort: str = "score", tag: str = ""

@@ -461,6 +461,20 @@ class Store:
         plan_id = row["id"]
         return plan_id, date.fromisoformat(row["start_date"]), self.plan_entries(plan_id)
 
+    def clear_future_plans(self, today: date) -> int:
+        """Delete every plan covering `today` or starting later.
+
+        This week and all planned-ahead weeks are wiped (entries, picks,
+        approvals, ordered days and order items cascade along); plans that
+        ended before today keep the history intact.
+        """
+        cutoff = (today - timedelta(days=6)).isoformat()
+        cur = self.conn.cursor()
+        cur.execute("DELETE FROM plans WHERE start_date >= ?", (cutoff,))
+        deleted = cur.rowcount
+        self.conn.commit()
+        return deleted
+
     def approve_proposal(self, plan_id: int) -> None:
         self.conn.execute("UPDATE plans SET status = 'approved' WHERE id = ?", (plan_id,))
         self.conn.commit()

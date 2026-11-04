@@ -89,6 +89,32 @@ def test_plan_only_fills_on_button_press(tmp_path):
         assert "Pasta" in page
 
 
+def test_clear_weeks_brings_back_the_fill_button(tmp_path):
+    """'Week(en) leegmaken' wipes this week + planned-ahead weeks, past stays."""
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        seed_plan(client)
+        client.post("/plan/advance", follow_redirects=False)  # 14-day proposal
+        store = Store(tmp_path / "state.db")
+        plan_id, _start, _ = store.load_proposal()
+        day = store.plan_entries(plan_id)[0].day
+        client.post("/plan/approve", data={"day": day.isoformat()}, follow_redirects=False)
+        client.post("/plan/order", follow_redirects=False)
+        client.post("/order/confirm", follow_redirects=False)
+        assert len(store.plan_entries(plan_id)) == 14
+
+        resp = client.post("/plan/clear", follow_redirects=False)
+        assert resp.status_code == 303
+        assert resp.headers["location"].startswith("/plan?cleared=")
+
+        store = Store(tmp_path / "state.db")
+        assert store.load_proposal() is None
+        assert store.plan_entries(plan_id) == []  # cascade wiped the entries
+        page = client.get(resp.headers["location"]).text
+        assert "Vul de week in" in page
+        assert "leeggemaakt" in page
+
+
 def test_import_page_shows_bookmarklet(tmp_path):
     """The bookmarklet copies the recipe URL plus its JSON-LD for the bulk box."""
     seed_recipe(tmp_path)

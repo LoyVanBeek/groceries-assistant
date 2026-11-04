@@ -7,6 +7,9 @@
 {% if request.query_params.error == 'goedkeuring' %}
 <p class="warnings">Deze dag staat goedgekeurd: trek de goedkeuring eerst in om het gerecht te wisselen.</p>
 {% endif %}
+{% if request.query_params.cleared %}
+<p class="warnings">Week(en) leeggemaakt, de kogel is terug.</p>
+{% endif %}
 <h1>Week van {{ start | dutch_date }}</h1>
 {% if errors %}
 <p class="warnings">Ongeldige receptbestanden: {{ errors|join('; ') }}</p>
@@ -226,6 +229,10 @@
 </form>
 <form method="post" action="/plan/advance">
   <p><button type="submit">Plan de volgende week ({{ next_start | dutch_date }})</button></p>
+</form>
+<form method="post" action="/plan/clear"
+  onsubmit="return confirm('Week(en) leegmaken? Het voorstel, alle goedkeuringen en bestellingen van deze week en later worden gewist; het verleden blijft staan.')">
+  <p><button type="submit" class="link">Week(en) leegmaken</button></p>
 </form>
 {% endif %}
 {% endblock %}
