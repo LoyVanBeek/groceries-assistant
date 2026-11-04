@@ -17,11 +17,12 @@ Docker te hebben, tesseract/xvfb/chromium zitten in de image):
 
 ```bash
 sudo ./deploy/setup.sh     # eenmalig: bouwt image, installeert + start de unit
-journalctl -u groceries-assistant.service -f
-systemctl stop groceries-assistant.service
+sudo journalctl -u groceries-assistant.service -f
+sudo systemctl stop groceries-assistant.service
 ```
 
-De unit draait als je eigen user in deze checkout (`data/` blijft `data/`).
+De unit draait als root vanuit deze checkout (`data/` blijft `data/`): docker
+vraagt op de server sowieso om sudo, en de container draait toch al als root.
 Zodra de unit actief is: geen `docker compose up -d` meer met de hand, die
 vecht met de service om dezelfde containers; stop/start gaat via `systemctl`.
 
