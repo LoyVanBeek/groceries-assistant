@@ -962,6 +962,35 @@ def create_app(
         )
         return RedirectResponse("/plan", status_code=303)
 
+    @app.post("/plan/move-day")
+    def plan_move_day(day: str = Form(...), to: str = Form(...)):
+        """Move one evening to another position; the days in between shift.
+
+        The drag & drop handle posts here. An approved or ordered evening in
+        the moved segment blocks the move: intrekken (or ruil dag for
+        bestelde dagen) comes first, like for any other dish change.
+        """
+        proposal = store().load_proposal()
+        if proposal is None:
+            raise HTTPException(404, "Geen voorstel")
+        plan_id = proposal[0]
+        source = date.fromisoformat(day)
+        target = date.fromisoformat(to)
+        if source == target:
+            return RedirectResponse("/plan", status_code=303)
+        lo, hi = sorted((source, target))
+        span_days = [r.day for r in store().plan_entries(plan_id) if lo <= r.day <= hi]
+        if source not in span_days or target not in span_days:
+            raise HTTPException(400, "Onbekende dag")
+        locked = store().plan_approvals(plan_id) | store().plan_ordered(plan_id)
+        if any(d in locked for d in span_days):
+            return RedirectResponse("/plan?error=goedkeuring", status_code=303)
+        store().move_day(plan_id, source, target)
+        store().update_proposal_rows(
+            plan_id, _repoint_leftovers(plan_id, store().plan_entries(plan_id))
+        )
+        return RedirectResponse("/plan", status_code=303)
+
     def _row_dish_slug(rows: list[PlanEntryRow], day: date) -> str:
         """The composed dish (if any) an evening had before the swap."""
         row = next((r for r in rows if r.day == day), None)

@@ -305,6 +305,17 @@ table.order-links td.col-confirm { white-space: nowrap; }
   border: 1px solid var(--rule);
 }
 
+.drag-handle {
+  cursor: grab;
+  margin-right: 0.35em;
+  color: var(--muted);
+  user-select: none;
+}
+
+tr.drop-target td {
+  background: var(--accent-soft);
+}
+
 .big-link {
   display: inline-block;
   margin: 0.75rem 0.75rem 0.75rem 0;

@@ -169,6 +169,66 @@ def test_swap_days_rejects_unknown_days(store):
     assert len(store.plan_entries(plan_id)) == 7
 
 
+def test_move_day_shifts_the_evenings_in_between(store):
+    """Drag & drop: the moved evening lands on the target day, the evenings
+    in between shift by one, and picks/approvals ride along with the dish."""
+    start = date(2026, 10, 6)
+    a = start + timedelta(days=1)
+    b = start + timedelta(days=3)
+    plan_id = store.save_proposal(
+        start,
+        [
+            PlanEntryRow(day=start),
+            PlanEntryRow(day=a, kind="cook", recipe_slug="pasta", people=4),
+            PlanEntryRow(day=start + timedelta(days=2)),
+            PlanEntryRow(day=b, kind="no_cook", people=0),
+            PlanEntryRow(day=start + timedelta(days=4)),
+            PlanEntryRow(day=start + timedelta(days=5)),
+            PlanEntryRow(day=start + timedelta(days=6)),
+        ],
+        picks={a: {"groente": "brocolli"}},
+    )
+    store.set_day_approved(plan_id, a, True)
+    store.set_day_ordered(plan_id, a, True)
+    # drag a (pasta) onto b: a's content lands on b, b and the day before
+    # it shift one day earlier
+    store.move_day(plan_id, a, b)
+    by_day = {e.day: e for e in store.plan_entries(plan_id)}
+    assert by_day[b].recipe_slug == "pasta"
+    assert by_day[a].kind == "cook" and by_day[a].recipe_slug is None
+    assert by_day[start + timedelta(days=2)].kind == "no_cook"
+    assert by_day[start + timedelta(days=2)].people == 0
+    # the picks and the confirmed/approved flags rode along with the recipe
+    assert store.plan_picks(plan_id) == {b: {"groente": "brocolli"}}
+    assert store.plan_approvals(plan_id) == {b}
+    assert store.plan_ordered(plan_id) == {b}
+    # dragging back restores the original arrangement
+    store.move_day(plan_id, b, a)
+    by_day = {e.day: e for e in store.plan_entries(plan_id)}
+    assert by_day[a].recipe_slug == "pasta"
+    assert by_day[b].kind == "no_cook"
+    assert store.plan_picks(plan_id) == {a: {"groente": "brocolli"}}
+    assert store.plan_approvals(plan_id) == {a}
+    assert store.plan_ordered(plan_id) == {a}
+
+
+def test_move_day_rejects_unknown_days(store):
+    start = date(2026, 10, 6)
+    plan_id = store.save_proposal(
+        start, [PlanEntryRow(day=start + timedelta(days=i)) for i in range(7)]
+    )
+    stranger = start + timedelta(days=50)
+    try:
+        store.move_day(plan_id, start, stranger)
+    except KeyError:
+        pass
+    else:
+        raise AssertionError("move_day should reject a day outside the plan")
+    # a same-day move is a harmless no-op
+    store.move_day(plan_id, start, start)
+    assert len(store.plan_entries(plan_id)) == 7
+
+
 def test_save_order_items_keeps_in_huis_ticks_for_staying_products(store):
     start = date(2026, 10, 6)
     plan_id = store.save_proposal(
