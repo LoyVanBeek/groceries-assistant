@@ -1412,6 +1412,37 @@ def create_app(
         )
         return incomplete_dish_warnings(entries)
 
+    @app.post("/order/scan-add")
+    def order_scan_add(ean: str = Form(...), back: str = Form("/plan")):
+        """The scan button: a scanned package joins this week's shopping list.
+
+        The barcode must be known — scanning an unknown package teaches it the
+        product name first (the widget asks once). The item lands on the
+        current plan's list as one piece, and rides the AH link like any
+        other item.
+        """
+        if not back.startswith(("/plan", "/order")):
+            back = "/plan"  # no open redirects
+        separator = "&" if "?" in back else "?"
+
+        def _scan_notice(message: str) -> RedirectResponse:
+            return RedirectResponse(
+                f"{back}{separator}error=scan:{quote(message)}", status_code=303
+            )
+
+        ean = ean.strip()
+        if not valid_ean(ean):
+            return _scan_notice("ongeldige EAN")
+        proposal = store().load_proposal()
+        if proposal is None:
+            return _scan_notice("geen actieve week")
+        title = barcodes().get(ean)
+        if title is None:
+            return _scan_notice(f"onbekende barcode {ean}")
+        if not store().add_order_item(proposal[0], title):
+            return _scan_notice(f"'{title}' staat al op de lijst")
+        return RedirectResponse(f"{back}{separator}scanadded={quote(title)}", status_code=303)
+
     @app.post("/order/have")
     def order_have(product: str = Form(...), unit: str = Form(...), have: str = Form("")):
         latest = store().latest_plan()

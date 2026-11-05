@@ -164,6 +164,56 @@ def test_barcode_lookup_and_remember(tmp_path):
         assert client.post("/barcode/8710600988068", data={"title": "  "}).status_code == 400
 
 
+def test_scan_add_puts_a_scanned_package_on_the_list(tmp_path):
+    """The scan button's endpoint: a remembered barcode adds one item to the
+    current plan's list; duplicates and unknown barcodes give a notice."""
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        seed_plan(client)
+        client.post("/barcode/8710600988068", data={"title": "Hak Tomatenblokjes"})
+
+        # the scan button lives on the main page and on the list itself
+        assert "data-barcode-add=" in client.get("/plan").text
+        assert "data-barcode-add=" in client.get("/order").text
+
+        resp = client.post(
+            "/order/scan-add",
+            data={"ean": "8710600988068", "back": "/plan"},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        assert resp.headers["location"].startswith("/plan?scanadded=")
+
+        store = Store(tmp_path / "state.db")
+        plan_id = store.load_proposal()[0]
+        item = next(i for i in store.order_items(plan_id) if i["product"] == "Hak Tomatenblokjes")
+        assert item["amount"] == 1 and item["unit"] == "stuk"
+        assert "Hak Tomatenblokjes" in client.get("/order").text  # on the list
+
+        # the notice shows on the page you scanned from
+        page = client.get(resp.headers["location"]).text
+        assert "staat op de boodschappenlijst" in page
+
+        # a second scan of the same package: a notice, not a duplicate row
+        resp = client.post(
+            "/order/scan-add",
+            data={"ean": "8710600988068", "back": "/order"},
+            follow_redirects=False,
+        )
+        assert resp.headers["location"].startswith("/order?error=scan:")
+        page = client.get(resp.headers["location"]).text
+        assert "staat al op de lijst" in page
+
+        # an unknown barcode is refused with a notice
+        resp = client.post(
+            "/order/scan-add",
+            data={"ean": "8718951001305", "back": "/order"},
+            follow_redirects=False,
+        )
+        page = client.get(resp.headers["location"]).text
+        assert "onbekende barcode 8718951001305" in page
+
+
 def test_settings_page_has_the_scanner(tmp_path):
     seed_recipe(tmp_path)
     with make_client(tmp_path) as client:

@@ -13,6 +13,12 @@
 {% if request.query_params.error and request.query_params.error.startswith('bonus:') %}
 <p class="warnings">Bonus ophalen mislukt: {{ request.query_params.error | replace('bonus:', '') }}</p>
 {% endif %}
+{% if request.query_params.error and request.query_params.error.startswith('scan:') %}
+<p class="warnings">Scan: {{ request.query_params.error | replace('scan:', '') }}</p>
+{% endif %}
+{% if request.query_params.scanadded %}
+<p class="budget">{{ request.query_params.scanadded }} staat op de boodschappenlijst.</p>
+{% endif %}
 <h1>Week van {{ start | dutch_date }}</h1>
 {% if week_empty %}
 <form method="post" action="/plan/fill">
@@ -28,6 +34,13 @@
       <span class="muted">aanbiedingen wegen mee in de voorstellen en de scores op &lsquo;kiezen&rsquo;</span></p>
   </form>
 </details>
+<form id="scan-add-form" method="post" action="/order/scan-add" hidden>
+  <input type="hidden" name="ean">
+  <input type="hidden" name="back" value="/plan">
+</form>
+<p><button type="button" class="btn-small" data-barcode-add="scan-add-form"
+   title="Scan een verpakking; hem komt &eacute;&eacute;n keer op de boodschappenlijst">&#9635; scan &mdash; op de lijst</button>
+  <span class="muted">een verpakking scannen voegt &eacute;&eacute;n stuk toe aan de boodschappenlijst</span></p>
 {% if errors %}
 <p class="warnings">Ongeldige receptbestanden: {{ errors|join('; ') }}</p>
 {% endif %}
@@ -259,4 +272,7 @@
   <p><button type="submit" class="link">Week(en) leegmaken</button></p>
 </form>
 {% endif %}
+{% endblock %}
+{% block scripts %}
+<script src="/static/barcode.js" defer></script>
 {% endblock %}

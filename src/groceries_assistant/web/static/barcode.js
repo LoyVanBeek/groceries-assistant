@@ -65,4 +65,30 @@
       }
     });
   }
+
+  // Add-mode (the scan button on /plan and /order): scan, teach the name if
+  // needed, then submit the hidden form so the server adds the package to
+  // the week's shopping list and reloads the page with the result.
+  for (const button of document.querySelectorAll("[data-barcode-add]")) {
+    button.addEventListener("click", async () => {
+      const form = document.getElementById(button.dataset.barcodeAdd);
+      if (!form) return;
+      try {
+        const ean = (await scanCamera() || "").trim();
+        if (!ean) return; // cancelled
+        const known = await lookup(ean);
+        if (!known) {
+          const title = window.prompt(
+            "Onbekende barcode " + ean + " — welke productnaam is dit?"
+          );
+          if (!title) return;
+          await remember(ean, title);
+        }
+        form.ean.value = ean;
+        form.submit();
+      } catch (error) {
+        alert("Scannen mislukt: " + error.message);
+      }
+    });
+  }
 })();

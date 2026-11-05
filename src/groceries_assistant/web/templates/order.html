@@ -3,6 +3,18 @@
 {% block content %}
 <h1>Controle &mdash; week van {{ start }}</h1>
 <p>Vink wat je al in huis hebt; dit komt niet op de lijst.</p>
+{% if request.query_params.error and request.query_params.error.startswith('scan:') %}
+<p class="warnings">Scan: {{ request.query_params.error | replace('scan:', '') }}</p>
+{% endif %}
+{% if request.query_params.scanadded %}
+<p class="budget">{{ request.query_params.scanadded }} staat op de lijst.</p>
+{% endif %}
+<form id="scan-add-form" method="post" action="/order/scan-add" hidden>
+  <input type="hidden" name="ean">
+  <input type="hidden" name="back" value="/order">
+</form>
+<p><button type="button" class="btn-small" data-barcode-add="scan-add-form"
+   title="Scan een verpakking; hem komt &eacute;&eacute;n keer op de lijst">&#9635; scan &mdash; op de lijst</button></p>
 {% if warnings %}
 <ul class="plain warnings">
   {% for w in warnings %}<li>{{ w }}</li>{% endfor %}
@@ -43,4 +55,7 @@
   <a class="big-link" href="/order/match">AH-artikelen koppelen</a>
 </p>
 <p class="muted">Besteld bij AH? Zet de goedgekeurde dagen vast op de <a href="/order/link">linkpagina</a>.</p>
+{% endblock %}
+{% block scripts %}
+<script src="/static/barcode.js" defer></script>
 {% endblock %}

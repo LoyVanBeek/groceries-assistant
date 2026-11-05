@@ -918,6 +918,24 @@ class Store:
             )
         self.conn.commit()
 
+    def add_order_item(
+        self, plan_id: int, product: str, unit: str = "stuk", amount: float = 1.0
+    ) -> bool:
+        """One extra item on the plan's list (a scanned package); False when
+        that product+unit was already on it.
+
+        Note: a rebuild of the list (approve/order/next week) does not carry
+        extras along — scan them again for the new week.
+        """
+        cur = self.conn.cursor()
+        cur.execute(
+            "INSERT INTO order_items (plan_id, product, unit, amount)"
+            " VALUES (?,?,?,?) ON CONFLICT(plan_id, product, unit) DO NOTHING",
+            (plan_id, product.strip(), unit, amount),
+        )
+        self.conn.commit()
+        return cur.rowcount > 0
+
     def order_items(self, plan_id: int) -> list[dict]:
         rows = self.conn.execute(
             "SELECT product, unit, amount, webshop_id, have, pack_count, pack_unit, note"
