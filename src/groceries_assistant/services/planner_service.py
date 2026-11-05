@@ -6,10 +6,11 @@ SQLite store; no HTTP concerns live here.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
 
+from groceries_assistant.ah.bonus import BonusStore, bonus_points
 from groceries_assistant.ah.matching import AHMapping, AHMappingStore, suggest_match
 from groceries_assistant.models import ComposedDish, ProductFact, Recipe
 from groceries_assistant.planner.availability import EveningAvailability
@@ -92,11 +93,13 @@ def propose(
     repeat_window_days: int = DEFAULT_REPEAT_WINDOW_DAYS,
     dishes: Sequence[ComposedDish] = (),
     components: list[Recipe] | None = None,
+    bonus: Mapping[str, float] | None = None,
 ) -> WeeklyPlan:
     """Run the planner for the week starting at `start`.
 
     Pass `components` (as Recipe-shaped objects) alongside `recipes` so the
     engine can resolve dish part options that reference component slugs.
+    `bonus` maps recipe slug -> extra points for ingredients in the AH bonus.
     """
     return plan_week(
         recipes,
@@ -106,7 +109,21 @@ def propose(
         repeat_window_days=repeat_window_days,
         dishes=dishes,
         components=components,
+        bonus=bonus,
     )
+
+
+def bonus_counts(recipes: list[Recipe], bonus: BonusStore) -> dict[str, int]:
+    """slug -> how many of the recipe's ingredients are in the bonus."""
+    return {r.slug: bonus.count_for(r.slug, r.ingredients) for r in recipes}
+
+
+def bonus_score_map(recipes: list[Recipe], bonus: BonusStore) -> dict[str, float]:
+    """slug -> planner points for the recipe's bonus ingredients; recipes
+    without bonus ingredients are left out entirely."""
+    return {
+        slug: bonus_points(count) for slug, count in bonus_counts(recipes, bonus).items() if count
+    }
 
 
 def _portions(entry: PlanEntry, servings: int) -> int:

@@ -38,6 +38,22 @@ def _prefs(verdicts=None, people=None):
     )
 
 
+def test_bonus_tips_a_tied_evening():
+    """Ingredients in the AH bonus give a recipe a small nudge: with equal
+    verdicts the bonus recipe wins the evening."""
+    recipes = [_recipe("pasta"), _recipe("rijst")]
+    prefs = _prefs()
+    evenings = [_evening(D1, 120), _evening(D2, 120)]
+    # without bonus the alphabetical slug breaks the 0-0 tie
+    plain = plan_week(recipes, prefs, evenings)
+    without_bonus = [entry.recipe.slug for entry in plain.entries if entry.recipe]
+    assert without_bonus == ["pasta", "rijst"]
+
+    planned = plan_week(recipes, prefs, evenings, bonus={"rijst": 0.5})
+    with_bonus = [entry.recipe.slug for entry in planned.entries if entry.recipe]
+    assert with_bonus == ["rijst", "pasta"]  # the bonus recipe gets the first evening
+
+
 def test_picks_higher_scored_recipe_first():
     recipes = [_recipe("pasta"), _recipe("spruitjes", minutes=60)]
     prefs = _prefs(

@@ -10,6 +10,9 @@
 {% if request.query_params.cleared %}
 <p class="warnings">Week(en) leeggemaakt, de kogel is terug.</p>
 {% endif %}
+{% if request.query_params.error and request.query_params.error.startswith('bonus:') %}
+<p class="warnings">Bonus ophalen mislukt: {{ request.query_params.error | replace('bonus:', '') }}</p>
+{% endif %}
 <h1>Week van {{ start | dutch_date }}</h1>
 {% if week_empty %}
 <form method="post" action="/plan/fill">
@@ -17,6 +20,13 @@
     <span class="muted">de week staat leeg; zelf invullen kan per dag via &lsquo;gerecht kiezen&rsquo;</span></p>
 </form>
 {% endif %}
+<details class="muted">
+  <summary>Bonus{% if bonus_count %}: {{ bonus_count }} producten (opgehaald {{ bonus_fetched | dutch_date }}){% endif %}</summary>
+  <form method="post" action="/plan/bonus/refresh">
+    <p><button class="link">Bonuslijst (opnieuw) ophalen</button>
+      <span class="muted">aanbiedingen wegen mee in de voorstellen en de scores op &lsquo;kiezen&rsquo;</span></p>
+  </form>
+</details>
 {% if errors %}
 <p class="warnings">Ongeldige receptbestanden: {{ errors|join('; ') }}</p>
 {% endif %}
@@ -102,6 +112,9 @@
       {% endif %}
       {% if not e.is_approved %}
       <div><a class="btn-small" href="/plan/select?day={{ e.day_iso }}" aria-label="Gerecht kiezen voor {{ e.label }}">gerecht kiezen</a></div>
+      {% endif %}
+      {% if e.bonus_ingredients %}
+      <div><span class="bonus-tag" title="Ingredi&euml;nten van dit recept staan in de bonus">{{ e.bonus_ingredients }} in de bonus</span></div>
       {% endif %}
       {% endif %}
       {% if not e.is_ordered and not e.is_approved and e.is_dish and e.editable_parts and e.part_options %}

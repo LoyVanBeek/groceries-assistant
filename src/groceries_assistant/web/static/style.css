@@ -689,3 +689,12 @@ table.option-rows input { width: 100%; }
 table.option-rows input.number { text-align: right; }
 table.option-rows button { padding: 0.1rem 0.4rem; }
 
+
+.bonus-tag {
+  display: inline-block;
+  padding: 0.05em 0.5em;
+  border-radius: 999px;
+  font-size: 0.8em;
+  background: var(--accent-soft);
+  color: var(--accent);
+}

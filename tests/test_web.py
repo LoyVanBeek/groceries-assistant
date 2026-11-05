@@ -68,6 +68,39 @@ def test_pages_render(tmp_path):
         assert client.get("/recipes/import").status_code == 200
 
 
+def test_plan_shows_bonus_annotation_and_refresh(tmp_path, monkeypatch):
+    """The bonus block lists the fetched products; rows with bonus ingredients
+    carry the annotation; the refresh button refetches via the AH client."""
+    import groceries_assistant.web.app as app_module
+    from groceries_assistant.ah.client import AHProduct
+
+    class FakeAH:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc_info):
+            return False
+
+        def all_bonus_products(self, day):
+            return [AHProduct(webshop_id=5, title="AH Spaghetti 500 g")]
+
+    monkeypatch.setattr(app_module, "AHClient", FakeAH)
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        page = client.get("/plan").text
+        assert "Bonuslijst (opnieuw) ophalen" in page
+        assert "in de bonus" not in page  # nothing fetched yet
+
+        client.post("/plan/bonus/refresh", follow_redirects=False)
+        page = client.get("/plan").text
+        assert "1 producten (opgehaald" in page
+        assert (tmp_path / "bonus.yaml").is_file()  # cached, hand-editable
+
+        seed_plan(client)  # the planner now weighs the bonus...
+        page = client.get("/plan").text
+        assert "in de bonus" in page  # ...and a row shows the annotation
+
+
 def test_plan_starts_empty_and_fills_on_button_press(tmp_path):
     """A fresh week shows all seven days with nothing selected; 'Vul de week
     in' replaces it with the planner's proposal, and only then."""

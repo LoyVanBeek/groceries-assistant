@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from groceries_assistant.models import ComposedDish, Recipe
@@ -40,6 +40,7 @@ def alternatives(
     dishes: Sequence[ComposedDish] = (),
     *,
     by_slug: dict[str, Recipe] | None = None,
+    bonus: Mapping[str, float] | None = None,
 ) -> list[Alternative]:
     """Dishes and recipes that fit the evening's time budget, best first.
 
@@ -58,7 +59,7 @@ def alternatives(
     for dish in dishes:
         if dish.slug == exclude_slug:
             continue
-        choice = fill_dish(dish, by_slug, prefs, evening)
+        choice = fill_dish(dish, by_slug, prefs, evening, bonus=bonus)
         problem = "" if choice is not None else why_not(dish, by_slug, prefs, evening) or ""
         dish_rows.append(
             Alternative(
@@ -91,7 +92,7 @@ def alternatives(
             Alternative(
                 slug=recipe.slug,
                 name=recipe.name,
-                score=prefs.recipe_score(recipe.slug),
+                score=prefs.recipe_score(recipe.slug) + (bonus or {}).get(recipe.slug, 0.0),
                 minutes=minutes,
                 problem=problem,
             )

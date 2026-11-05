@@ -107,6 +107,7 @@ def plan_view(
     today: date | None = None,
     approved_days: set[date] | None = None,
     ordered_days: set[date] | None = None,
+    bonus: Mapping[str, int] | None = None,
 ) -> list[dict]:
     """Per-evening view model: label, dish, cook, joiners, swap options.
 
@@ -209,6 +210,7 @@ def plan_view(
                 ),
                 "members": members,
                 "cooking": cooking,
+                "bonus_ingredients": (bonus or {}).get(row.recipe_slug or row.source_slug or "", 0),
                 "can_leftovers": (row.kind in ("cook", "no_cook") and last_cook_slug is not None),
                 "over_budget": row.kind == "cook" and minutes > budget,
                 "is_today": row.day == today,
@@ -278,6 +280,7 @@ def select_options(
     sort: str = "score",
     tags_by_slug: Mapping[str, Sequence[str]] | None = None,
     tag: str = "",
+    bonus: Mapping[str, float] | None = None,
 ) -> list[SelectOption]:
     """Full option list for the /plan/select page, indicators included.
 
@@ -288,7 +291,13 @@ def select_options(
     """
     rows: list[SelectOption] = []
     for row in alternatives(
-        recipes, prefs, evening, exclude_slug=exclude_slug, dishes=dishes, by_slug=by_slug
+        recipes,
+        prefs,
+        evening,
+        exclude_slug=exclude_slug,
+        dishes=dishes,
+        by_slug=by_slug,
+        bonus=bonus,
     ):
         verdicts = verdicts_by_slug.get(row.slug, {})
         pop = popularity(verdicts)

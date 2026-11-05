@@ -8,6 +8,7 @@ go through the `appie` CLI (see appie_cli.py) which handles the OAuth login.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 
 import httpx
 
@@ -98,17 +99,96 @@ class AHClient:
 
         products: list[AHProduct] = []
         for item in response.json().get("products", [])[:limit]:
-            price = (item.get("price") or {}).get("now")
-            images = item.get("images") or []
-            image_url = images[0].get("url") if images else None
-            products.append(
-                AHProduct(
-                    webshop_id=int(item["webshopId"]),
-                    title=str(item["title"]),
-                    brand=item.get("brand"),
-                    price_now=float(price) if price is not None else None,
-                    unit_size=item.get("salesUnitSize"),
-                    image_url=image_url,
-                )
+            products.append(self._product_from(item))
+        return products
+
+    def _product_from(self, item: dict) -> AHProduct:
+        """One AH API product dict -> AHProduct."""
+        price = (item.get("price") or {}).get("now")
+        images = item.get("images") or []
+        image_url = images[0].get("url") if images else None
+        return AHProduct(
+            webshop_id=int(item["webshopId"]),
+            title=str(item["title"]),
+            brand=item.get("brand"),
+            price_now=float(price) if price is not None else None,
+            unit_size=item.get("salesUnitSize"),
+            image_url=image_url,
+        )
+
+    def bonus_metadata(self) -> list[dict]:
+        """The active bonus periods, each with the section URLs to walk."""
+        token = self._ensure_token()
+        try:
+            response = self._client.get(
+                f"{BASE_URL}/mobile-services/bonuspage/v1/metadata",
+                headers={**self._headers(), "Authorization": f"Bearer {token}"},
             )
+        except httpx.HTTPError as exc:
+            raise AHConnectionError(f"Cannot reach ah.nl: {exc}") from exc
+        if response.is_error:
+            raise AHApiError(f"AH bonus metadata failed: HTTP {response.status_code}")
+        return response.json().get("periods", [])
+
+    def bonus_section(self, path: str) -> list[dict]:
+        """One bonus section: loose products and bonus groups (`url` from the
+        period's urlMetadataList)."""
+        token = self._ensure_token()
+        try:
+            response = self._client.get(
+                f"{BASE_URL}/mobile-services/{path.lstrip('/')}",
+                headers={**self._headers(), "Authorization": f"Bearer {token}"},
+            )
+        except httpx.HTTPError as exc:
+            raise AHConnectionError(f"Cannot reach ah.nl: {exc}") from exc
+        if response.is_error:
+            raise AHApiError(f"AH bonus section failed: HTTP {response.status_code}")
+        return response.json().get("bonusGroupOrProducts", [])
+
+    def bonus_segment_products(self, segment_id: str, day: date) -> list[dict]:
+        """The products behind one bonus group."""
+        token = self._ensure_token()
+        try:
+            response = self._client.get(
+                f"{BASE_URL}/mobile-services/bonuspage/v1/segment",
+                params={
+                    "date": day.isoformat(),
+                    "segmentId": segment_id,
+                    "includeActivatableDiscount": "false",
+                },
+                headers={**self._headers(), "Authorization": f"Bearer {token}"},
+            )
+        except httpx.HTTPError as exc:
+            raise AHConnectionError(f"Cannot reach ah.nl: {exc}") from exc
+        if response.is_error:
+            raise AHApiError(f"AH bonus segment failed: HTTP {response.status_code}")
+        return response.json().get("products", [])
+
+    def all_bonus_products(self, day: date) -> list[AHProduct]:
+        """Every product in the bonus on `day`: the sections' loose products
+        plus the products of each bonus group (deduplicated by webshop id)."""
+        products: list[AHProduct] = []
+        seen: set[int] = set()
+        for period in self.bonus_metadata():
+            start = str(period.get("bonusStartDate", ""))
+            end = str(period.get("bonusEndDate", ""))
+            if start and end and not start <= day.isoformat() <= end:
+                continue
+            for meta in period.get("urlMetadataList", []):
+                url = meta.get("url") if isinstance(meta, dict) else None
+                if not url:
+                    continue
+                for item in self.bonus_section(url):
+                    if item.get("product"):
+                        product = self._product_from(item["product"])
+                        if product.webshop_id not in seen:
+                            seen.add(product.webshop_id)
+                            products.append(product)
+                    group = item.get("bonusGroup") or {}
+                    if group.get("id"):
+                        for raw in self.bonus_segment_products(str(group["id"]), day):
+                            product = self._product_from(raw)
+                            if product.webshop_id not in seen:
+                                seen.add(product.webshop_id)
+                                products.append(product)
         return products

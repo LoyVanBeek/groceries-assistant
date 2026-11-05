@@ -19,7 +19,8 @@ from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 from starlette.datastructures import FormData
 
-from groceries_assistant.ah.client import AHClient
+from groceries_assistant.ah.bonus import BonusStore
+from groceries_assistant.ah.client import AHClient, AHError
 from groceries_assistant.ah.deeplink import (
     build_add_multiple_url,
     chunk_items,
@@ -74,6 +75,8 @@ from groceries_assistant.recipes.urlimport import (
 )
 from groceries_assistant.services.planner_service import (
     apply_absences,
+    bonus_counts,
+    bonus_score_map,
     build_order,
     evenings_for,
     incomplete_dish_warnings,
@@ -616,11 +619,20 @@ def create_app(
         return holder[0]
 
     _mappings_cache: list[AHMappingStore] = []
+    _bonus_cache: list[BonusStore] = []
 
     def mappings() -> AHMappingStore:
         if not _mappings_cache:
             _mappings_cache.append(AHMappingStore(data / "ah_mappings.yaml"))
         return _mappings_cache[0]
+
+    def bonus_store() -> BonusStore:
+        """The bonus list singleton: load once, refreshed by the button."""
+        if not _bonus_cache:
+            store_instance = BonusStore(data / "bonus.yaml")
+            store_instance.load()
+            _bonus_cache.append(store_instance)
+        return _bonus_cache[0]
 
     def load_all() -> tuple[list[Recipe], list[str]]:
         return load_recipes_with_errors(data / "recipes")
@@ -753,6 +765,7 @@ def create_app(
             dishes=list(dishes_by_slug().values()),
             approved_days=approved_days,
             ordered_days=ordered_days,
+            bonus=bonus_counts(all_recipes, bonus_store()),
         )
         last_day = max(e["day_iso"] for e in evenings) if evenings else None
         next_start = date.fromisoformat(last_day) + timedelta(days=1) if last_day else start
@@ -760,6 +773,7 @@ def create_app(
         week_empty = all(
             r.kind == "cook" and r.recipe_slug is None for r in store().plan_entries(plan_id)
         )
+        bonus_products = bonus_store().products
         return render(
             request,
             "plan.html",
@@ -767,6 +781,8 @@ def create_app(
             start=start,
             next_start=next_start,
             week_empty=week_empty,
+            bonus_count=len(bonus_products),
+            bonus_fetched=bonus_store().fetched_at,
             order_open=bool(pending),
             order_from=pending[0] if pending else None,
             order_to=pending[-1] if pending else None,
@@ -792,6 +808,7 @@ def create_app(
                 start,
                 dishes=list(dishes.values()),
                 components=list(all_known().values()),
+                bonus=bonus_score_map(all_recipes, bonus_store()),
             )
             store().save_proposal(start, plan_to_rows(plan), plan_to_picks(plan, dishes))
         return RedirectResponse("/plan", status_code=303)
@@ -801,6 +818,17 @@ def create_app(
         """Wipe this week and every planned-ahead week; past weeks stay."""
         cleared = store().clear_future_plans(date.today())
         return RedirectResponse(f"/plan?cleared={cleared}", status_code=303)
+
+    @app.post("/plan/bonus/refresh")
+    def bonus_refresh():
+        """Fetch the current AH bonus list into data/bonus.yaml."""
+        try:
+            with AHClient() as client:
+                products = client.all_bonus_products(date.today())
+        except AHError as exc:
+            return RedirectResponse(f"/plan?error=bonus:{quote(str(exc))}", status_code=303)
+        bonus_store().save([(p.webshop_id, p.title) for p in products], date.today())
+        return RedirectResponse("/plan", status_code=303)
 
     @app.get("/plan/select", response_class=HTMLResponse)
     def plan_select(
@@ -855,6 +883,7 @@ def create_app(
             sort=sort,
             tags_by_slug=tags_by_slug,
             tag=tag,
+            bonus=bonus_score_map(all_recipes, bonus_store()),
         )
         return render(
             request,
@@ -1248,6 +1277,7 @@ def create_app(
             start,
             dishes=list(dishes.values()),
             components=components,
+            bonus=bonus_score_map(all_recipes, bonus_store()),
         )
         store().extend_proposal(plan_id, plan_to_rows(plan), plan_to_picks(plan, dishes))
         return RedirectResponse("/plan", status_code=303)

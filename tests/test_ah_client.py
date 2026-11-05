@@ -1,3 +1,5 @@
+from datetime import date
+
 import respx
 
 from groceries_assistant.ah.client import BASE_URL, USER_AGENT, AHClient
@@ -47,6 +49,70 @@ def test_search_parses_products():
     assert products[0].title == "AH Pesto rosso"
     assert products[0].price_now == 2.19
     assert products[1].price_now is None  # missing price handled
+
+
+def test_all_bonus_products_walks_periods_sections_and_groups():
+    with respx.mock(assert_all_called=False) as mock:
+        mock.post(TOKEN_URL).respond(json={"access_token": "tok123", "refresh_token": "r"})
+        mock.get(f"{BASE_URL}/mobile-services/bonuspage/v1/metadata").respond(
+            json={
+                "periods": [
+                    {
+                        "bonusStartDate": "2026-11-02",
+                        "bonusEndDate": "2026-11-08",
+                        "urlMetadataList": [{"url": "bonuspage/v1/section/actueel"}],
+                    }
+                ]
+            }
+        )
+        section = mock.get(f"{BASE_URL}/mobile-services/bonuspage/v1/section/actueel").respond(
+            json={
+                "bonusGroupOrProducts": [
+                    {
+                        "product": {
+                            "webshopId": 1,
+                            "title": "Hak tomatenblokjes",
+                            "price": {"now": 1.09},
+                        }
+                    },
+                    {"product": {"webshopId": 1, "title": "dubbel, wordt gededupliceerd"}},
+                    {"bonusGroup": {"id": "99"}},
+                ]
+            }
+        )
+        segment = mock.get(f"{BASE_URL}/mobile-services/bonuspage/v1/segment").respond(
+            json={
+                "products": [
+                    {"webshopId": 2, "title": "AH Spaghetti 500 g", "price": {"now": 0.89}}
+                ]
+            }
+        )
+
+        with AHClient() as client:
+            products = client.all_bonus_products(date(2026, 11, 5))
+
+    assert [p.webshop_id for p in products] == [1, 2]  # deduplicated, group products included
+    assert products[1].title == "AH Spaghetti 500 g"
+    assert segment.calls.last.request.url.params["date"] == "2026-11-05"
+    assert segment.calls.last.request.url.params["segmentId"] == "99"
+    assert section.called
+
+    # a day outside the bonus period fetches nothing
+    with respx.mock(assert_all_called=False) as empty:
+        empty.post(TOKEN_URL).respond(json={"access_token": "tok123", "refresh_token": "r"})
+        empty.get(f"{BASE_URL}/mobile-services/bonuspage/v1/metadata").respond(
+            json={
+                "periods": [
+                    {
+                        "bonusStartDate": "2026-11-02",
+                        "bonusEndDate": "2026-11-08",
+                        "urlMetadataList": [{"url": "bonuspage/v1/section/actueel"}],
+                    }
+                ]
+            }
+        )
+        with AHClient() as client:
+            assert client.all_bonus_products(date(2026, 12, 24)) == []
 
 
 def test_search_parses_product_image_url():

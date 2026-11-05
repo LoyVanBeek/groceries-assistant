@@ -20,7 +20,7 @@ Every pick carries a human-readable reason string.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Literal
@@ -116,6 +116,7 @@ def plan_week(
     repeat_window_days: int = DEFAULT_REPEAT_WINDOW_DAYS,
     dishes: Sequence[ComposedDish] = (),
     components: list[Recipe] | None = None,
+    bonus: Mapping[str, float] | None = None,
 ) -> WeeklyPlan:
     """Pick a dish per evening, honouring time, verdicts and variety.
 
@@ -126,6 +127,8 @@ def plan_week(
 
     Pass `components` (as Recipe-shaped objects) alongside `recipes` so the
     engine can resolve dish part options that reference component slugs.
+    `bonus` maps recipe slug -> extra points (ingredients in the AH bonus); a
+    dish inherits it through its parts' scores.
     """
     history = history or {}
     recipes_by_slug = {recipe.slug: recipe for recipe in recipes}
@@ -153,6 +156,7 @@ def plan_week(
             repeat_window_days,
             prep_capacity,
             _previous_recipe(entries),
+            bonus=bonus,
         )
         if pick is None:
             pick = _pick(
@@ -169,6 +173,7 @@ def plan_week(
                 prep_capacity,
                 _previous_recipe(entries),
                 allow_reuse=True,
+                bonus=bonus,
             )
         if pick is None:
             # Nothing fits the time budget at all: plan the shortest recipe
@@ -249,12 +254,14 @@ def score_option(
     prep_capacity: int = 0,
     previous_recipe: Recipe | None = None,
     allow_reuse: bool = False,
+    bonus: Mapping[str, float] | None = None,
 ) -> Option | None:
     """Score one dish for one evening; None when it cannot be served then.
 
     This is the single scoring rule of the planner: verdicts, repetition,
     protein, prep-ahead and the time budget. A plain recipe is one option; each
-    part of a composed dish is one too, scored the same way.
+    part of a composed dish is one too, scored the same way. `bonus` maps
+    recipe slug -> extra points (AH bonus ingredients), a gentle nudge on top.
     """
     history = history or {}
     points = prefs.recipe_score(recipe.slug, evening.joiners)
@@ -291,7 +298,7 @@ def score_option(
         penalty += PROTEIN_REPEAT_PENALTY
     return Option(
         recipe=recipe,
-        score=points - penalty,
+        score=points - penalty + (bonus or {}).get(recipe.slug, 0.0),
         minutes=minutes,
         warnings=warnings,
         prep_ahead_used=prep_ahead_used,
@@ -326,6 +333,7 @@ def _pick(
     prep_capacity: int,
     previous_recipe: Recipe | None,
     allow_reuse: bool = False,
+    bonus: Mapping[str, float] | None = None,
 ) -> _Pick | None:
     """Score every recipe and every dish, and take the best that fits tonight."""
     candidates: list[_Candidate] = []
@@ -343,6 +351,7 @@ def _pick(
             prep_capacity=prep_capacity,
             previous_recipe=previous_recipe,
             allow_reuse=allow_reuse,
+            bonus=bonus,
         )
         if option is None:
             continue
@@ -381,6 +390,7 @@ def _pick(
             prep_capacity=prep_capacity,
             previous_recipe=previous_recipe,
             allow_reuse=allow_reuse,
+            bonus=bonus,
         )
         if choice is None:
             continue
@@ -474,6 +484,7 @@ def fill_dish(
     prep_capacity: int = 0,
     previous_recipe: Recipe | None = None,
     allow_reuse: bool = False,
+    bonus: Mapping[str, float] | None = None,
 ) -> DishChoice | None:
     """Fill every part of a dish with the best option that evening allows.
 
@@ -505,6 +516,7 @@ def fill_dish(
         prep_capacity=prep_capacity,
         previous_recipe=previous_recipe,
         allow_reuse=allow_reuse,
+        bonus=bonus,
     )[0]
 
 
@@ -537,6 +549,7 @@ def _fill_dish(
     prep_capacity: int = 0,
     previous_recipe: Recipe | None = None,
     allow_reuse: bool = False,
+    bonus: Mapping[str, float] | None = None,
 ) -> tuple[DishChoice | None, str]:
     """The fill, plus the reason there is none. See `fill_dish`."""
     if prefs.never_by(dish.slug, evening.joiners):
@@ -569,6 +582,7 @@ def _fill_dish(
                 prep_capacity=prep_capacity,
                 previous_recipe=previous_recipe,
                 allow_reuse=allow_reuse,
+                bonus=bonus,
             )
             if option is not None:
                 options.append(option)
