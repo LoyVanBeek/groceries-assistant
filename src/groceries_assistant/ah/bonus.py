@@ -17,18 +17,6 @@ import yaml
 
 from groceries_assistant.ah.matching import normalize
 
-BONUS_SCORE_PER_INGREDIENT = 0.5
-BONUS_MAX_INGREDIENTS = 3
-
-
-def bonus_points(count: int) -> float:
-    """Planner points for a recipe with `count` ingredients in the bonus.
-
-    A gentle nudge: ok=1.0, love=3.0, so one bonus ingredient is worth about
-    half a 'kiezen' step; capped so a big recipe cannot drown a real verdict.
-    """
-    return min(count, BONUS_MAX_INGREDIENTS) * BONUS_SCORE_PER_INGREDIENT
-
 
 class BonusStore:
     """The bonus list in data/bonus.yaml, fetched on demand, hand-editable."""

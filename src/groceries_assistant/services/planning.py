@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 from groceries_assistant.models import ComposedDish, Recipe
 from groceries_assistant.planner.availability import EveningAvailability
-from groceries_assistant.planner.engine import fill_dish, why_not
+from groceries_assistant.planner.engine import bonus_score, fill_dish, why_not
 from groceries_assistant.preferences import Preferences
 
 
@@ -29,6 +29,8 @@ class Alternative:
     Only dishes get one: a dish that is off the table is still listed, greyed
     out, so a dish with a typo in it is visible instead of simply gone.
     """
+    bonus_ingredients: int = 0
+    """How many of the option's ingredients are in the AH bonus (display)."""
 
 
 def alternatives(
@@ -70,6 +72,11 @@ def alternatives(
                 is_dish=True,
                 part_labels=tuple(part.label for part in dish.parts),
                 problem=problem,
+                bonus_ingredients=(
+                    sum((bonus or {}).get(part.slug, 0) for part in choice.parts)
+                    if choice is not None
+                    else 0
+                ),
             )
         )
     dish_rows.sort(key=lambda row: (-row.score, row.slug))
@@ -92,9 +99,11 @@ def alternatives(
             Alternative(
                 slug=recipe.slug,
                 name=recipe.name,
-                score=prefs.recipe_score(recipe.slug) + (bonus or {}).get(recipe.slug, 0.0),
+                score=prefs.recipe_score(recipe.slug)
+                + bonus_score((bonus or {}).get(recipe.slug, 0)),
                 minutes=minutes,
                 problem=problem,
+                bonus_ingredients=(bonus or {}).get(recipe.slug, 0),
             )
         )
     scored.sort(key=lambda row: (-row.score, row.slug))

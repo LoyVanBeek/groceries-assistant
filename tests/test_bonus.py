@@ -4,8 +4,9 @@ from datetime import date
 
 import pytest
 
-from groceries_assistant.ah.bonus import BonusStore, bonus_points
+from groceries_assistant.ah.bonus import BonusStore
 from groceries_assistant.models import Ingredient
+from groceries_assistant.planner.engine import bonus_score
 
 
 @pytest.fixture
@@ -16,10 +17,10 @@ def store(tmp_path) -> BonusStore:
 
 
 def test_bonus_points_are_a_capped_nudge():
-    assert bonus_points(0) == 0.0
-    assert bonus_points(1) == pytest.approx(0.5)
-    assert bonus_points(2) == pytest.approx(1.0)
-    assert bonus_points(10) == pytest.approx(1.5)  # capped at 3 ingredients
+    assert bonus_score(0) == 0.0
+    assert bonus_score(1) == pytest.approx(0.5)
+    assert bonus_score(2) == pytest.approx(1.0)
+    assert bonus_score(10) == pytest.approx(1.5)  # capped at 3 ingredients
 
 
 def test_missing_cache_means_no_bonus(store):

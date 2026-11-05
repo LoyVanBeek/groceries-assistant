@@ -10,7 +10,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
 
-from groceries_assistant.ah.bonus import BonusStore, bonus_points
+from groceries_assistant.ah.bonus import BonusStore
 from groceries_assistant.ah.matching import AHMapping, AHMappingStore, suggest_match
 from groceries_assistant.models import ComposedDish, ProductFact, Recipe
 from groceries_assistant.planner.availability import EveningAvailability
@@ -114,16 +114,12 @@ def propose(
 
 
 def bonus_counts(recipes: list[Recipe], bonus: BonusStore) -> dict[str, int]:
-    """slug -> how many of the recipe's ingredients are in the bonus."""
+    """slug -> how many of the recipe's ingredients are in the bonus.
+
+    This one map is the bonus currency everywhere: the engine converts counts
+    to points (`bonus_score`), the views show them as an annotation.
+    """
     return {r.slug: bonus.count_for(r.slug, r.ingredients) for r in recipes}
-
-
-def bonus_score_map(recipes: list[Recipe], bonus: BonusStore) -> dict[str, float]:
-    """slug -> planner points for the recipe's bonus ingredients; recipes
-    without bonus ingredients are left out entirely."""
-    return {
-        slug: bonus_points(count) for slug, count in bonus_counts(recipes, bonus).items() if count
-    }
 
 
 def _portions(entry: PlanEntry, servings: int) -> int:

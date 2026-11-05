@@ -49,7 +49,7 @@ def test_bonus_tips_a_tied_evening():
     without_bonus = [entry.recipe.slug for entry in plain.entries if entry.recipe]
     assert without_bonus == ["pasta", "rijst"]
 
-    planned = plan_week(recipes, prefs, evenings, bonus={"rijst": 0.5})
+    planned = plan_week(recipes, prefs, evenings, bonus={"rijst": 1})
     with_bonus = [entry.recipe.slug for entry in planned.entries if entry.recipe]
     assert with_bonus == ["rijst", "pasta"]  # the bonus recipe gets the first evening
 

@@ -45,6 +45,17 @@ judged could never win an evening. A small bonus makes it a candidate: it
 outranks a plain recipe nobody cares about, and still loses to one person
 loving a component. Small enough that it does not outrank a real preference.
 """
+BONUS_SCORE_PER_INGREDIENT = 0.5
+BONUS_MAX_INGREDIENTS = 3
+
+
+def bonus_score(count: int) -> float:
+    """Planner points for a recipe with `count` ingredients in the AH bonus.
+
+    A gentle nudge: ok=1.0, love=3.0, so one bonus ingredient is worth about
+    half a 'kiezen' step; capped so a big recipe cannot drown a real verdict.
+    """
+    return min(count, BONUS_MAX_INGREDIENTS) * BONUS_SCORE_PER_INGREDIENT
 
 
 @dataclass(frozen=True)
@@ -261,7 +272,8 @@ def score_option(
     This is the single scoring rule of the planner: verdicts, repetition,
     protein, prep-ahead and the time budget. A plain recipe is one option; each
     part of a composed dish is one too, scored the same way. `bonus` maps
-    recipe slug -> extra points (AH bonus ingredients), a gentle nudge on top.
+    recipe slug -> how many of its ingredients are in the AH bonus; each one
+    adds `bonus_score` points, a gentle nudge on top.
     """
     history = history or {}
     points = prefs.recipe_score(recipe.slug, evening.joiners)
@@ -298,7 +310,7 @@ def score_option(
         penalty += PROTEIN_REPEAT_PENALTY
     return Option(
         recipe=recipe,
-        score=points - penalty + (bonus or {}).get(recipe.slug, 0.0),
+        score=points - penalty + bonus_score((bonus or {}).get(recipe.slug, 0)),
         minutes=minutes,
         warnings=warnings,
         prep_ahead_used=prep_ahead_used,

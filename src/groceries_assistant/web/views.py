@@ -57,6 +57,7 @@ class SelectOption(TypedDict):
     favourite: bool
     dots: list[VerdictDot]
     recency: RecencyBadge
+    bonus_ingredients: int
 
 
 def load_recipes(data_dir: Path) -> tuple[list[Recipe], list[str]]:
@@ -317,6 +318,7 @@ def select_options(
                     VerdictDot(person=p["id"], verdict=verdicts.get(p["id"], "")) for p in people
                 ],
                 "recency": recency(history.get(row.slug), today),
+                "bonus_ingredients": getattr(row, "bonus_ingredients", 0),
             }
         )
     query = q.strip().lower()

@@ -76,7 +76,6 @@ from groceries_assistant.recipes.urlimport import (
 from groceries_assistant.services.planner_service import (
     apply_absences,
     bonus_counts,
-    bonus_score_map,
     build_order,
     evenings_for,
     incomplete_dish_warnings,
@@ -808,7 +807,7 @@ def create_app(
                 start,
                 dishes=list(dishes.values()),
                 components=list(all_known().values()),
-                bonus=bonus_score_map(all_recipes, bonus_store()),
+                bonus=bonus_counts(all_recipes, bonus_store()),
             )
             store().save_proposal(start, plan_to_rows(plan), plan_to_picks(plan, dishes))
         return RedirectResponse("/plan", status_code=303)
@@ -883,7 +882,7 @@ def create_app(
             sort=sort,
             tags_by_slug=tags_by_slug,
             tag=tag,
-            bonus=bonus_score_map(all_recipes, bonus_store()),
+            bonus=bonus_counts(all_recipes, bonus_store()),
         )
         return render(
             request,
@@ -1277,7 +1276,7 @@ def create_app(
             start,
             dishes=list(dishes.values()),
             components=components,
-            bonus=bonus_score_map(all_recipes, bonus_store()),
+            bonus=bonus_counts(all_recipes, bonus_store()),
         )
         store().extend_proposal(plan_id, plan_to_rows(plan), plan_to_picks(plan, dishes))
         return RedirectResponse("/plan", status_code=303)
