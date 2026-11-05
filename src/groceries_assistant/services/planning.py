@@ -31,6 +31,10 @@ class Alternative:
     """
     bonus_ingredients: int = 0
     """How many of the option's ingredients are in the AH bonus (display)."""
+    ingredients: tuple[tuple[str, bool], ...] = ()
+    """The option's ingredients as (line, in_bonus) pairs, for the picker's
+    expandable ingredient list. Lines are 'amount unit product'; a dish lists
+    the ingredients of the parts the planner filled in for this evening."""
 
 
 def alternatives(
@@ -43,6 +47,7 @@ def alternatives(
     *,
     by_slug: dict[str, Recipe] | None = None,
     bonus: Mapping[str, int] | None = None,
+    bonus_store=None,
 ) -> list[Alternative]:
     """Dishes and recipes that fit the evening's time budget, best first.
 
@@ -57,12 +62,25 @@ def alternatives(
     """
     if by_slug is None:
         by_slug = {r.slug: r for r in recipes}
+
+    def _ingredient_lines(used: Sequence[Recipe]) -> tuple[tuple[str, bool], ...]:
+        """(line, in_bonus) per ingredient of what this evening would cook."""
+        return tuple(
+            (
+                f"{i.amount:g} {i.unit} {i.product}",
+                bonus_store.is_in_bonus(i.product) if bonus_store else False,
+            )
+            for recipe in used
+            for i in recipe.ingredients
+        )
+
     dish_rows: list[Alternative] = []
     for dish in dishes:
         if dish.slug == exclude_slug:
             continue
         choice = fill_dish(dish, by_slug, prefs, evening, bonus=bonus)
         problem = "" if choice is not None else why_not(dish, by_slug, prefs, evening) or ""
+        parts = choice.parts if choice is not None else ()
         dish_rows.append(
             Alternative(
                 slug=dish.slug,
@@ -72,11 +90,8 @@ def alternatives(
                 is_dish=True,
                 part_labels=tuple(part.label for part in dish.parts),
                 problem=problem,
-                bonus_ingredients=(
-                    sum((bonus or {}).get(part.slug, 0) for part in choice.parts)
-                    if choice is not None
-                    else 0
-                ),
+                bonus_ingredients=(sum((bonus or {}).get(part.slug, 0) for part in parts)),
+                ingredients=_ingredient_lines(parts),
             )
         )
     dish_rows.sort(key=lambda row: (-row.score, row.slug))
@@ -104,6 +119,7 @@ def alternatives(
                 minutes=minutes,
                 problem=problem,
                 bonus_ingredients=(bonus or {}).get(recipe.slug, 0),
+                ingredients=_ingredient_lines((recipe,)),
             )
         )
     scored.sort(key=lambda row: (-row.score, row.slug))

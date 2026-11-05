@@ -698,3 +698,23 @@ table.option-rows button { padding: 0.1rem 0.4rem; }
   background: var(--accent-soft);
   color: var(--accent);
 }
+
+.ingredient-details {
+  margin: 0.2rem 0 0 0;
+  font-size: 0.85rem;
+}
+.ingredient-details summary {
+  cursor: pointer;
+  color: var(--muted);
+  list-style: none;
+}
+.ingredient-details summary::before { content: "+ "; }
+.ingredient-details[open] summary::before { content: "\2212 "; }
+.ingredient-list {
+  margin: 0.25rem 0 0 0;
+  padding-left: 1.1rem;
+}
+.ingredient-list .bonus-item {
+  color: var(--accent);
+  font-weight: 600;
+}

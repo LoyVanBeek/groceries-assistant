@@ -57,16 +57,16 @@ def test_broken_cache_never_crashes(tmp_path):
 def test_ingredient_matching_is_whole_word_containment(store, tmp_path_factory):
     store.save([(1, "Hak tomatenblokjes uitgeperst 400 g")], date(2026, 11, 5))
     # containment: the ingredient is a whole word inside the bonus title
-    assert store._in_bonus("tomatenblokjes") is True
-    assert store._in_bonus("Tomatenblokjes") is True  # normalization lowercases
+    assert store.is_in_bonus("tomatenblokjes") is True
+    assert store.is_in_bonus("Tomatenblokjes") is True  # normalization lowercases
     # 'ui' is too short for containment: 'uitgeperst' must not match it
-    assert store._in_bonus("ui") is False
+    assert store.is_in_bonus("ui") is False
     # exact short names still match on normalized equality
     short = BonusStore(tmp_path_factory.mktemp("bonus") / "short.yaml")
     short.save([(2, "Ui")], date(2026, 11, 5))
-    assert short._in_bonus("ui") is True
+    assert short.is_in_bonus("ui") is True
     # and something unrelated matches nothing
-    assert store._in_bonus("chocolade") is False
+    assert store.is_in_bonus("chocolade") is False
 
 
 def test_count_for_caches_per_slug_until_the_list_changes(store):

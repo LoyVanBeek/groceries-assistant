@@ -897,6 +897,7 @@ def create_app(
             tags_by_slug=tags_by_slug,
             tag=tag,
             bonus=bonus_counts(all_recipes, bonus_store()),
+            bonus_store=bonus_store(),
         )
         return render(
             request,

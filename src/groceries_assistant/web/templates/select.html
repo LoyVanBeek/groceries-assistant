@@ -71,6 +71,16 @@
         <span class="option-name">{{ o.name }}{% if o.is_dish %} <span class="muted">({{ o.part_labels|join(' + ') }})</span>{% endif %}</span>
         {% if o.bonus_ingredients %}<span class="bonus-tag" title="Ingredi&euml;nten van dit recept staan in de bonus">{{ o.bonus_ingredients }} in de bonus</span>{% endif %}
         {% if o.problem %}<span class="muted row-problem">{{ o.problem }}</span>{% endif %}
+        {% if o.ingredients %}
+        <details class="ingredient-details">
+          <summary aria-label="Ingredi&euml;nten van {{ o.name }}">ingredi&euml;nten</summary>
+          <ul class="ingredient-list">
+            {% for line, in_bonus in o.ingredients %}
+            <li {% if in_bonus %}class="bonus-item"{% endif %}>{{ line }}{% if in_bonus %} <span class="bonus-tag">bonus</span>{% endif %}</li>
+            {% endfor %}
+          </ul>
+        </details>
+        {% endif %}
       </span>
     </td>
     <td>

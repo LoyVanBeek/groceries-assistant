@@ -112,7 +112,8 @@ def test_plan_shows_bonus_annotation_and_refresh(tmp_path, monkeypatch):
         page = client.get("/plan").text
         assert "in de bonus" in page  # ...and a row shows the annotation
 
-        # the selection page: same bonus block, chip on the matching option
+        # the selection page: same bonus block, chip on the matching option,
+        # and an expandable ingredient list with the bonus item highlighted
         store = Store(tmp_path / "state.db")
         plan_id, _start, _ = store.load_proposal()
         day = next(
@@ -123,6 +124,10 @@ def test_plan_shows_bonus_annotation_and_refresh(tmp_path, monkeypatch):
         select = client.get(f"/plan/select?day={day.isoformat()}").text
         assert "Bonuslijst (opnieuw) ophalen" in select
         assert "in de bonus" in select
+        assert "ingredient-details" in select
+        assert "500 g spaghetti" in select  # the ingredient line
+        assert 'class="bonus-item"' in select  # the bonus ingredient highlighted
+        assert "1 stuk ui" in select  # the non-bonus one, unhighlighted
 
         # refresh from the select page lands back on that same picker
         resp = client.post(

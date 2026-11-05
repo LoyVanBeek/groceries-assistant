@@ -58,6 +58,7 @@ class SelectOption(TypedDict):
     dots: list[VerdictDot]
     recency: RecencyBadge
     bonus_ingredients: int
+    ingredients: tuple[tuple[str, bool], ...]
 
 
 def load_recipes(data_dir: Path) -> tuple[list[Recipe], list[str]]:
@@ -282,6 +283,7 @@ def select_options(
     tags_by_slug: Mapping[str, Sequence[str]] | None = None,
     tag: str = "",
     bonus: Mapping[str, int] | None = None,
+    bonus_store=None,
 ) -> list[SelectOption]:
     """Full option list for the /plan/select page, indicators included.
 
@@ -299,6 +301,7 @@ def select_options(
         dishes=dishes,
         by_slug=by_slug,
         bonus=bonus,
+        bonus_store=bonus_store,
     ):
         verdicts = verdicts_by_slug.get(row.slug, {})
         pop = popularity(verdicts)
@@ -319,6 +322,7 @@ def select_options(
                 ],
                 "recency": recency(history.get(row.slug), today),
                 "bonus_ingredients": getattr(row, "bonus_ingredients", 0),
+                "ingredients": getattr(row, "ingredients", ()),
             }
         )
     query = q.strip().lower()

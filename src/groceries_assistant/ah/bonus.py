@@ -79,11 +79,11 @@ class BonusStore:
         cached per slug until the list changes."""
         if slug not in self._counts:
             self._counts[slug] = sum(
-                1 for ingredient in ingredients if self._in_bonus(ingredient.product)
+                1 for ingredient in ingredients if self.is_in_bonus(ingredient.product)
             )
         return self._counts[slug]
 
-    def _in_bonus(self, product: str) -> bool:
+    def is_in_bonus(self, product: str) -> bool:
         name = normalize(product)
         if not name or not self._normalized_titles:
             return False
