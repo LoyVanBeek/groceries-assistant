@@ -281,7 +281,7 @@ def select_options(
     sort: str = "score",
     tags_by_slug: Mapping[str, Sequence[str]] | None = None,
     tag: str = "",
-    bonus: Mapping[str, float] | None = None,
+    bonus: Mapping[str, int] | None = None,
 ) -> list[SelectOption]:
     """Full option list for the /plan/select page, indicators included.
 

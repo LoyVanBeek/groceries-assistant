@@ -20,7 +20,7 @@ from pydantic import ValidationError
 from starlette.datastructures import FormData
 
 from groceries_assistant.ah.bonus import BonusStore
-from groceries_assistant.ah.client import AHClient, AHError
+from groceries_assistant.ah.client import AHClient
 from groceries_assistant.ah.deeplink import (
     build_add_multiple_url,
     chunk_items,
@@ -819,15 +819,24 @@ def create_app(
         return RedirectResponse(f"/plan?cleared={cleared}", status_code=303)
 
     @app.post("/plan/bonus/refresh")
-    def bonus_refresh():
-        """Fetch the current AH bonus list into data/bonus.yaml."""
+    def bonus_refresh(back: str = Form("/plan")):
+        """Fetch the current AH bonus list into data/bonus.yaml.
+
+        Catches everything: a failing fetch is a notice on the page you came
+        from, never a crash.
+        """
+        if not back.startswith("/plan"):
+            back = "/plan"  # no open redirects
         try:
             with AHClient() as client:
                 products = client.all_bonus_products(date.today())
-        except AHError as exc:
-            return RedirectResponse(f"/plan?error=bonus:{quote(str(exc))}", status_code=303)
+        except Exception as exc:  # the button must never 500
+            separator = "&" if "?" in back else "?"
+            return RedirectResponse(
+                f"{back}{separator}error=bonus:{quote(str(exc))}", status_code=303
+            )
         bonus_store().save([(p.webshop_id, p.title) for p in products], date.today())
-        return RedirectResponse("/plan", status_code=303)
+        return RedirectResponse(back, status_code=303)
 
     @app.get("/plan/select", response_class=HTMLResponse)
     def plan_select(
@@ -896,6 +905,8 @@ def create_app(
             options=options,
             confirmed=target in store().plan_ordered(plan_id),
             is_no_cook=current.kind == "no_cook",
+            bonus_count=len(bonus_store().products),
+            bonus_fetched=bonus_store().fetched_at,
             can_leftovers=(
                 current.kind in ("cook", "no_cook")
                 and _previous_cook_slug(rows, target) is not None

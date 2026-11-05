@@ -93,7 +93,7 @@ def propose(
     repeat_window_days: int = DEFAULT_REPEAT_WINDOW_DAYS,
     dishes: Sequence[ComposedDish] = (),
     components: list[Recipe] | None = None,
-    bonus: Mapping[str, float] | None = None,
+    bonus: Mapping[str, int] | None = None,
 ) -> WeeklyPlan:
     """Run the planner for the week starting at `start`.
 

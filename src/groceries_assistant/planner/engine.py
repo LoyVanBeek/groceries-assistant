@@ -127,7 +127,7 @@ def plan_week(
     repeat_window_days: int = DEFAULT_REPEAT_WINDOW_DAYS,
     dishes: Sequence[ComposedDish] = (),
     components: list[Recipe] | None = None,
-    bonus: Mapping[str, float] | None = None,
+    bonus: Mapping[str, int] | None = None,
 ) -> WeeklyPlan:
     """Pick a dish per evening, honouring time, verdicts and variety.
 
@@ -265,7 +265,7 @@ def score_option(
     prep_capacity: int = 0,
     previous_recipe: Recipe | None = None,
     allow_reuse: bool = False,
-    bonus: Mapping[str, float] | None = None,
+    bonus: Mapping[str, int] | None = None,
 ) -> Option | None:
     """Score one dish for one evening; None when it cannot be served then.
 
@@ -345,7 +345,7 @@ def _pick(
     prep_capacity: int,
     previous_recipe: Recipe | None,
     allow_reuse: bool = False,
-    bonus: Mapping[str, float] | None = None,
+    bonus: Mapping[str, int] | None = None,
 ) -> _Pick | None:
     """Score every recipe and every dish, and take the best that fits tonight."""
     candidates: list[_Candidate] = []
@@ -496,7 +496,7 @@ def fill_dish(
     prep_capacity: int = 0,
     previous_recipe: Recipe | None = None,
     allow_reuse: bool = False,
-    bonus: Mapping[str, float] | None = None,
+    bonus: Mapping[str, int] | None = None,
 ) -> DishChoice | None:
     """Fill every part of a dish with the best option that evening allows.
 
@@ -561,7 +561,7 @@ def _fill_dish(
     prep_capacity: int = 0,
     previous_recipe: Recipe | None = None,
     allow_reuse: bool = False,
-    bonus: Mapping[str, float] | None = None,
+    bonus: Mapping[str, int] | None = None,
 ) -> tuple[DishChoice | None, str]:
     """The fill, plus the reason there is none. See `fill_dish`."""
     if prefs.never_by(dish.slug, evening.joiners):

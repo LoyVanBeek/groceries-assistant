@@ -9,6 +9,17 @@
   de bevestiging aan: de dag wordt weer vrij en de oude items gaan op &lsquo;in huis&rsquo;.
 </p>
 {% endif %}
+{% if request.query_params.error and request.query_params.error.startswith('bonus:') %}
+<p class="warnings">Bonus ophalen mislukt: {{ request.query_params.error | replace('bonus:', '') }}</p>
+{% endif %}
+<details class="muted">
+  <summary>Bonus{% if bonus_count %}: {{ bonus_count }} producten (opgehaald {{ bonus_fetched | dutch_date }}){% endif %}</summary>
+  <form method="post" action="/plan/bonus/refresh">
+    <input type="hidden" name="back" value="/plan/select?day={{ day }}">
+    <p><button class="link">Bonuslijst (opnieuw) ophalen</button>
+      <span class="muted">aanbiedingen wegen mee in de score en staan er als etiquet bij</span></p>
+  </form>
+</details>
 <p class="muted legend">
   <span class="pop love">geliefd</span> <span class="pop mixed">gemengd</span>
   <span class="pop ok">ok</span> <span class="pop hate">niet geliefd</span>

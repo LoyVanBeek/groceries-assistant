@@ -69,8 +69,9 @@ def test_pages_render(tmp_path):
 
 
 def test_plan_shows_bonus_annotation_and_refresh(tmp_path, monkeypatch):
-    """The bonus block lists the fetched products; rows with bonus ingredients
-    carry the annotation; the refresh button refetches via the AH client."""
+    """The bonus block also lives on the select page; rows and options with
+    bonus ingredients carry the annotation; refresh comes back to the page
+    it was started from and never 500s."""
     import groceries_assistant.web.app as app_module
     from groceries_assistant.ah.client import AHProduct
 
@@ -84,8 +85,19 @@ def test_plan_shows_bonus_annotation_and_refresh(tmp_path, monkeypatch):
         def all_bonus_products(self, day):
             return [AHProduct(webshop_id=5, title="AH Spaghetti 500 g")]
 
+    class BrokenAH:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc_info):
+            return False
+
+        def all_bonus_products(self, day):
+            raise TypeError("onverwachte responsvorm")
+
     monkeypatch.setattr(app_module, "AHClient", FakeAH)
     seed_recipe(tmp_path)
+    seed_soep(tmp_path)  # a second dish, so pasta is an *option* somewhere
     with make_client(tmp_path) as client:
         page = client.get("/plan").text
         assert "Bonuslijst (opnieuw) ophalen" in page
@@ -99,6 +111,36 @@ def test_plan_shows_bonus_annotation_and_refresh(tmp_path, monkeypatch):
         seed_plan(client)  # the planner now weighs the bonus...
         page = client.get("/plan").text
         assert "in de bonus" in page  # ...and a row shows the annotation
+
+        # the selection page: same bonus block, chip on the matching option
+        store = Store(tmp_path / "state.db")
+        plan_id, _start, _ = store.load_proposal()
+        day = next(
+            r.day
+            for r in store.plan_entries(plan_id)
+            if "in de bonus" in client.get(f"/plan/select?day={r.day.isoformat()}").text
+        )
+        select = client.get(f"/plan/select?day={day.isoformat()}").text
+        assert "Bonuslijst (opnieuw) ophalen" in select
+        assert "in de bonus" in select
+
+        # refresh from the select page lands back on that same picker
+        resp = client.post(
+            "/plan/bonus/refresh",
+            data={"back": f"/plan/select?day={day.isoformat()}"},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        assert resp.headers["location"] == f"/plan/select?day={day.isoformat()}"
+
+    # a crash inside the AH client is a notice, never a 500
+    monkeypatch.setattr(app_module, "AHClient", BrokenAH)
+    with make_client(tmp_path) as client:
+        resp = client.post("/plan/bonus/refresh", follow_redirects=False)
+        assert resp.status_code == 303
+        page = client.get(resp.headers["location"]).text
+        assert "Bonus ophalen mislukt" in page
+        assert "onverwachte responsvorm" in page
 
 
 def test_plan_starts_empty_and_fills_on_button_press(tmp_path):

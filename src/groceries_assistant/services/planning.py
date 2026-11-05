@@ -42,7 +42,7 @@ def alternatives(
     dishes: Sequence[ComposedDish] = (),
     *,
     by_slug: dict[str, Recipe] | None = None,
-    bonus: Mapping[str, float] | None = None,
+    bonus: Mapping[str, int] | None = None,
 ) -> list[Alternative]:
     """Dishes and recipes that fit the evening's time budget, best first.
 

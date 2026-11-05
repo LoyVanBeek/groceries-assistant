@@ -23,6 +23,7 @@
 <details class="muted">
   <summary>Bonus{% if bonus_count %}: {{ bonus_count }} producten (opgehaald {{ bonus_fetched | dutch_date }}){% endif %}</summary>
   <form method="post" action="/plan/bonus/refresh">
+    <input type="hidden" name="back" value="/plan">
     <p><button class="link">Bonuslijst (opnieuw) ophalen</button>
       <span class="muted">aanbiedingen wegen mee in de voorstellen en de scores op &lsquo;kiezen&rsquo;</span></p>
   </form>

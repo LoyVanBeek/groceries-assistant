@@ -128,7 +128,8 @@ class AHClient:
             raise AHConnectionError(f"Cannot reach ah.nl: {exc}") from exc
         if response.is_error:
             raise AHApiError(f"AH bonus metadata failed: HTTP {response.status_code}")
-        return response.json().get("periods", [])
+        data = response.json()
+        return data.get("periods", []) if isinstance(data, dict) else []
 
     def bonus_section(self, path: str) -> list[dict]:
         """One bonus section: loose products and bonus groups (`url` from the
@@ -143,7 +144,8 @@ class AHClient:
             raise AHConnectionError(f"Cannot reach ah.nl: {exc}") from exc
         if response.is_error:
             raise AHApiError(f"AH bonus section failed: HTTP {response.status_code}")
-        return response.json().get("bonusGroupOrProducts", [])
+        data = response.json()
+        return data.get("bonusGroupOrProducts", []) if isinstance(data, dict) else []
 
     def bonus_segment_products(self, segment_id: str, day: date) -> list[dict]:
         """The products behind one bonus group."""
@@ -162,7 +164,8 @@ class AHClient:
             raise AHConnectionError(f"Cannot reach ah.nl: {exc}") from exc
         if response.is_error:
             raise AHApiError(f"AH bonus segment failed: HTTP {response.status_code}")
-        return response.json().get("products", [])
+        data = response.json()
+        return data.get("products", []) if isinstance(data, dict) else []
 
     def all_bonus_products(self, day: date) -> list[AHProduct]:
         """Every product in the bonus on `day`: the sections' loose products
@@ -179,6 +182,8 @@ class AHClient:
                 if not url:
                     continue
                 for item in self.bonus_section(url):
+                    if not isinstance(item, dict):
+                        continue
                     if item.get("product"):
                         product = self._product_from(item["product"])
                         if product.webshop_id not in seen:
