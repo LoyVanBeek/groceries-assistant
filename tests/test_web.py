@@ -82,7 +82,7 @@ def test_plan_shows_bonus_annotation_and_refresh(tmp_path, monkeypatch):
         def __exit__(self, *exc_info):
             return False
 
-        def all_bonus_products(self, day):
+        def bonus_products_for_queries(self, queries):
             return [AHProduct(webshop_id=5, title="AH Spaghetti 500 g")]
 
     class BrokenAH:
@@ -92,7 +92,7 @@ def test_plan_shows_bonus_annotation_and_refresh(tmp_path, monkeypatch):
         def __exit__(self, *exc_info):
             return False
 
-        def all_bonus_products(self, day):
+        def bonus_products_for_queries(self, queries):
             raise TypeError("onverwachte responsvorm")
 
     monkeypatch.setattr(app_module, "AHClient", FakeAH)
@@ -145,27 +145,24 @@ def test_plan_shows_bonus_annotation_and_refresh(tmp_path, monkeypatch):
 
 def test_bonus_refresh_falls_back_to_search_when_bonuspage_refuses(tmp_path, monkeypatch):
     """AH's bonuspage endpoints refuse anonymous tokens (HTTP 500): the
-    refresh falls back to the search API queried per household ingredient."""
+    refresh searches the household's own ingredient names instead."""
     import groceries_assistant.web.app as app_module
-    from groceries_assistant.ah.client import AHApiError, AHProduct
+    from groceries_assistant.ah.client import AHProduct
 
     seen: dict = {}
 
-    class FallbackAH:
+    class SearchAH:
         def __enter__(self):
             return self
 
         def __exit__(self, *exc_info):
             return False
 
-        def all_bonus_products(self, day):
-            raise AHApiError("AH bonus metadata failed: HTTP 500")
-
-        def bonus_products_by_search(self, queries):
+        def bonus_products_for_queries(self, queries):
             seen["queries"] = queries
             return [AHProduct(webshop_id=7, title="AH Spaghetti 500 g")]
 
-    monkeypatch.setattr(app_module, "AHClient", FallbackAH)
+    monkeypatch.setattr(app_module, "AHClient", SearchAH)
     seed_recipe(tmp_path)
     with make_client(tmp_path) as client:
         resp = client.post("/plan/bonus/refresh", follow_redirects=False)

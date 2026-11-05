@@ -39,6 +39,10 @@ class AHProduct:
     unit_size: str | None = None
     image_url: str | None = None
     """First product image on AH's public CDN (hotlinkable, no auth)."""
+    bonus: bool = False
+    """Whether the product is in the bonus (aanbieding) right now."""
+    bonus_end: date | None = None
+    """Last day of the bonus period, when the product is in bonus."""
 
 
 class AHClient:
@@ -117,6 +121,7 @@ class AHClient:
         price = (item.get("price") or {}).get("now")
         images = item.get("images") or []
         image_url = images[0].get("url") if images else None
+        end = item.get("bonusEndDate")
         return AHProduct(
             webshop_id=int(item["webshopId"]),
             title=str(item["title"]),
@@ -124,116 +129,38 @@ class AHClient:
             price_now=float(price) if price is not None else None,
             unit_size=item.get("salesUnitSize"),
             image_url=image_url,
+            bonus=bool(item.get("isBonus")),
+            bonus_end=_parse_iso(end),
         )
 
-    def bonus_metadata(self) -> list[dict]:
-        """The active bonus periods, each with the section URLs to walk."""
-        token = self._ensure_token()
-        try:
-            response = self._client.get(
-                f"{BASE_URL}/mobile-services/bonuspage/v1/metadata",
-                headers={**self._headers(), "Authorization": f"Bearer {token}"},
-            )
-        except httpx.HTTPError as exc:
-            raise AHConnectionError(f"Cannot reach ah.nl: {exc}") from exc
-        if response.is_error:
-            raise AHApiError(f"AH bonus metadata failed: HTTP {response.status_code}")
-        data = response.json()
-        return data.get("periods", []) if isinstance(data, dict) else []
+    def bonus_products_for_queries(self, queries: list[str], size: int = 10) -> list[AHProduct]:
+        """Products in the bonus, found by searching the household's ingredient
+        names and keeping the hits marked `isBonus` whose bonus period still
+        runs today.
 
-    def bonus_section(self, path: str) -> list[dict]:
-        """One bonus section: loose products and bonus groups (`url` from the
-        period's urlMetadataList)."""
-        token = self._ensure_token()
-        try:
-            response = self._client.get(
-                f"{BASE_URL}/mobile-services/{path.lstrip('/')}",
-                headers={**self._headers(), "Authorization": f"Bearer {token}"},
-            )
-        except httpx.HTTPError as exc:
-            raise AHConnectionError(f"Cannot reach ah.nl: {exc}") from exc
-        if response.is_error:
-            raise AHApiError(f"AH bonus section failed: HTTP {response.status_code}")
-        data = response.json()
-        return data.get("bonusGroupOrProducts", []) if isinstance(data, dict) else []
-
-    def bonus_segment_products(self, segment_id: str, day: date) -> list[dict]:
-        """The products behind one bonus group."""
-        token = self._ensure_token()
-        try:
-            response = self._client.get(
-                f"{BASE_URL}/mobile-services/bonuspage/v1/segment",
-                params={
-                    "date": day.isoformat(),
-                    "segmentId": segment_id,
-                    "includeActivatableDiscount": "false",
-                },
-                headers={**self._headers(), "Authorization": f"Bearer {token}"},
-            )
-        except httpx.HTTPError as exc:
-            raise AHConnectionError(f"Cannot reach ah.nl: {exc}") from exc
-        if response.is_error:
-            raise AHApiError(f"AH bonus segment failed: HTTP {response.status_code}")
-        data = response.json()
-        return data.get("products", []) if isinstance(data, dict) else []
-
-    def working_bonus_filter(self, probe: str = "tomaten") -> str | None:
-        """Which `bonus=` value the search API actually honours, or None.
-
-        The bonuspage endpoints are unavailable to anonymous tokens (HTTP
-        500), but the search API takes a bonus filter; the exact value is
-        undocumented, so probe a handful and keep the one that changes the
-        result set.
+        The plain search API is the one product endpoint that works with
+        anonymous tokens: its items carry `isBonus`/`bonusEndDate` directly
+        (the bonuspage endpoints answer HTTP 500, detail/v4 is 404).
         """
-        base_ids = {p.webshop_id for p in self.search(probe, limit=30)}
-        for value in ("BONUS", "Bonus", "DISCOUNT", "BONUS_AND_DISCOUNT"):
-            filtered_ids = {p.webshop_id for p in self.search(probe, limit=30, bonus_filter=value)}
-            if filtered_ids and filtered_ids != base_ids:
-                return value
-        return None
-
-    def bonus_products_by_search(self, queries: list[str]) -> list[AHProduct]:
-        """Fallback when bonuspage/v1 is unavailable: find bonus products per
-        ingredient name via the (proven) search endpoint + bonus filter."""
-        bonus_filter = self.working_bonus_filter()
-        if bonus_filter is None:
-            raise AHApiError("AH negeert de bonus-filter in de zoek-API")
+        today_iso = date.today().isoformat()
         products: list[AHProduct] = []
         seen: set[int] = set()
         for query in queries:
-            for product in self.search(query, limit=5, bonus_filter=bonus_filter):
+            for product in self.search(query, limit=size):
+                if not product.bonus:
+                    continue
+                if product.bonus_end is not None and product.bonus_end.isoformat() < today_iso:
+                    continue
                 if product.webshop_id not in seen:
                     seen.add(product.webshop_id)
                     products.append(product)
         return products
 
-    def all_bonus_products(self, day: date) -> list[AHProduct]:
-        """Every product in the bonus on `day`: the sections' loose products
-        plus the products of each bonus group (deduplicated by webshop id)."""
-        products: list[AHProduct] = []
-        seen: set[int] = set()
-        for period in self.bonus_metadata():
-            start = str(period.get("bonusStartDate", ""))
-            end = str(period.get("bonusEndDate", ""))
-            if start and end and not start <= day.isoformat() <= end:
-                continue
-            for meta in period.get("urlMetadataList", []):
-                url = meta.get("url") if isinstance(meta, dict) else None
-                if not url:
-                    continue
-                for item in self.bonus_section(url):
-                    if not isinstance(item, dict):
-                        continue
-                    if item.get("product"):
-                        product = self._product_from(item["product"])
-                        if product.webshop_id not in seen:
-                            seen.add(product.webshop_id)
-                            products.append(product)
-                    group = item.get("bonusGroup") or {}
-                    if group.get("id"):
-                        for raw in self.bonus_segment_products(str(group["id"]), day):
-                            product = self._product_from(raw)
-                            if product.webshop_id not in seen:
-                                seen.add(product.webshop_id)
-                                products.append(product)
-        return products
+
+def _parse_iso(value) -> date | None:
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(str(value))
+    except ValueError:
+        return None

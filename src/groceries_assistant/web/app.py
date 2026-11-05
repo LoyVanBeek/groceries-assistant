@@ -20,7 +20,7 @@ from pydantic import ValidationError
 from starlette.datastructures import FormData
 
 from groceries_assistant.ah.bonus import BonusStore
-from groceries_assistant.ah.client import AHApiError, AHClient, AHError
+from groceries_assistant.ah.client import AHClient
 from groceries_assistant.ah.deeplink import (
     build_add_multiple_url,
     chunk_items,
@@ -822,24 +822,19 @@ def create_app(
     def bonus_refresh(back: str = Form("/plan")):
         """Fetch the current AH bonus list into data/bonus.yaml.
 
-        Primary source is the bonuspage API; when AH refuses that to
-        anonymous tokens (HTTP 500) the search API with its bonus filter is
-        the fallback, querying the household's own ingredient names. Catches
+        The household's ingredient names are searched one by one; the search
+        response marks bonus products itself (isBonus/bonusEndDate — the
+        bonuspage endpoints are unavailable to anonymous tokens). Catches
         everything: a failing fetch is a notice on the page you came from,
         never a crash.
         """
         all_recipes, _errors = load_all()
         if not back.startswith("/plan"):
             back = "/plan"  # no open redirects
+        names = sorted({i.product for r in all_recipes for i in r.ingredients})
         try:
             with AHClient() as client:
-                try:
-                    products = client.all_bonus_products(date.today())
-                except AHError:
-                    names = sorted({i.product for r in all_recipes for i in r.ingredients})
-                    if not names:
-                        raise AHApiError("geen ingrediënten om op te zoeken") from None
-                    products = client.bonus_products_by_search(names)
+                products = client.bonus_products_for_queries(names) if names else []
         except Exception as exc:  # the button must never 500
             separator = "&" if "?" in back else "?"
             return RedirectResponse(
