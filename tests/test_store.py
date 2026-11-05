@@ -10,6 +10,7 @@ from groceries_assistant.ah.deeplink import (
     product_url,
 )
 from groceries_assistant.models import ProductFact
+from groceries_assistant.store.barcodes import BarcodeStore, valid_ean
 from groceries_assistant.store.db import DEFAULT_TEMPLATE, PlanEntryRow, Store
 
 
@@ -503,3 +504,26 @@ def test_parse_product_ref_accepts_ids_and_urls():
     )
     assert parse_product_ref("geen id") is None
     assert parse_product_ref("") is None
+
+
+def test_barcode_store_round_trip(tmp_path):
+    """data/barcodes.yaml: an EAN maps to the product name it was scanned
+    with; the file is hand-editable and survives a reload."""
+    barcodes = BarcodeStore(tmp_path / "barcodes.yaml")
+    barcodes.load()
+    assert barcodes.get("8710600988068") is None
+
+    barcodes.put("8710600988068", "Hak Tomatenblokjes")
+    reloaded = BarcodeStore(tmp_path / "barcodes.yaml")
+    reloaded.load()
+    assert reloaded.get("8710600988068") == "Hak Tomatenblokjes"
+
+    with pytest.raises(ValueError):
+        barcodes.put("8710600988068", "   ")
+
+
+def test_valid_ean():
+    assert valid_ean("8710600988068")  # EAN-13
+    assert valid_ean("54490000")  # EAN-8
+    assert not valid_ean("8710 6009 8806 8")  # spaces are not typed, they are scanned
+    assert not valid_ean("geen cijfers")

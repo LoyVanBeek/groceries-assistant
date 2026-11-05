@@ -88,6 +88,7 @@ from groceries_assistant.services.planner_service import (
     propose,
     rows_to_entries,
 )
+from groceries_assistant.store.barcodes import BarcodeStore, valid_ean
 from groceries_assistant.store.db import PlanEntryRow, Store
 from groceries_assistant.web.views import (
     WEEKDAYS,
@@ -619,6 +620,7 @@ def create_app(
 
     _mappings_cache: list[AHMappingStore] = []
     _bonus_cache: list[BonusStore] = []
+    _barcode_cache: list[BarcodeStore] = []
 
     def mappings() -> AHMappingStore:
         if not _mappings_cache:
@@ -632,6 +634,14 @@ def create_app(
             store_instance.load()
             _bonus_cache.append(store_instance)
         return _bonus_cache[0]
+
+    def barcodes() -> BarcodeStore:
+        """The barcode registry singleton: learns from every scan."""
+        if not _barcode_cache:
+            barcode_store_instance = BarcodeStore(data / "barcodes.yaml")
+            barcode_store_instance.load()
+            _barcode_cache.append(barcode_store_instance)
+        return _barcode_cache[0]
 
     def load_all() -> tuple[list[Recipe], list[str]]:
         return load_recipes_with_errors(data / "recipes")
@@ -2031,6 +2041,26 @@ def create_app(
             },
             original_slug=None,
         )
+
+    @app.get("/barcode/{ean}")
+    def barcode_lookup(ean: str):
+        """The product name a barcode is remembered for (the scanner widget)."""
+        if not valid_ean(ean):
+            raise HTTPException(400, "Ongeldige EAN")
+        title = barcodes().get(ean)
+        if title is None:
+            raise HTTPException(404, "Onbekende barcode")
+        return {"ean": ean, "title": title}
+
+    @app.post("/barcode/{ean}")
+    def barcode_remember(ean: str, title: str = Form(...)):
+        """Remember a scanned barcode's product name (the scanner asks once)."""
+        if not valid_ean(ean):
+            raise HTTPException(400, "Ongeldige EAN")
+        if not title.strip():
+            raise HTTPException(400, "Geen productnaam")
+        barcodes().put(ean, title)
+        return {"ean": ean, "title": title.strip()}
 
     @app.get("/recipes", response_class=HTMLResponse)
     def recipes_page(request: Request, q: str = "", tag: str = ""):

@@ -62,7 +62,9 @@
   {% endfor %}
 </ul>
 <form method="post" action="/settings/staples">
-  <input type="text" name="product" placeholder="bijv. olijfolie" required>
+  <input type="text" name="product" id="staples-product" placeholder="bijv. olijfolie" required>
+  <button type="button" class="btn-small" data-barcode-scan="staples-product"
+          title="Scan de barcode van de verpakking">&#9635; scan</button>
   <button>Toevoegen</button>
 </form>
 
@@ -104,7 +106,9 @@
   {% endfor %}
 </ul>
 <form method="post" action="/settings/facts" class="fact-row">
-  <input type="text" name="product" placeholder="bijv. broccoli" required>
+  <input type="text" name="product" id="facts-product" placeholder="bijv. broccoli" required>
+  <button type="button" class="btn-small" data-barcode-scan="facts-product"
+          title="Scan de barcode van de verpakking">&#9635; scan</button>
   <input type="number" name="pack_qty" value="1" step="0.1" min="0" size="4">
   <select name="pack_unit">
     {% for unit in ['stuk', 'g', 'kg', 'ml', 'l'] %}
@@ -117,4 +121,7 @@
   <span class="muted">dagen houdbaar</span>
   <button>Toevoegen</button>
 </form>
+{% endblock %}
+{% block scripts %}
+<script src="/static/barcode.js" defer></script>
 {% endblock %}

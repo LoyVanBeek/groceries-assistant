@@ -148,6 +148,38 @@ def test_plan_shows_bonus_annotation_and_refresh(tmp_path, monkeypatch):
         assert "onverwachte responsvorm" in page
 
 
+def test_barcode_lookup_and_remember(tmp_path):
+    """The scanner's endpoints: an unknown EAN 404s until it is remembered
+    once; a malformed one 400s."""
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        assert client.get("/barcode/8710600988068").status_code == 404
+        assert client.get("/barcode/geen-ean").status_code == 400
+
+        resp = client.post("/barcode/8710600988068", data={"title": "Hak Tomatenblokjes"})
+        assert resp.status_code == 200
+        assert resp.json() == {"ean": "8710600988068", "title": "Hak Tomatenblokjes"}
+
+        assert client.get("/barcode/8710600988068").json()["title"] == "Hak Tomatenblokjes"
+        assert client.post("/barcode/8710600988068", data={"title": "  "}).status_code == 400
+
+
+def test_settings_page_has_the_scanner(tmp_path):
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        page = client.get("/settings").text
+        assert page.count("data-barcode-scan=") == 2  # staples + verpakkingen form
+        assert "/static/barcode.js" in page
+
+
+def test_barcode_script_is_valid_javascript():
+    """A syntax error would make scanning silently do nothing."""
+    import esprima
+
+    static = Path(web_app.__file__).parent / "static"
+    esprima.parseScript((static / "barcode.js").read_text(encoding="utf-8"))
+
+
 def test_bonus_refresh_falls_back_to_search_when_bonuspage_refuses(tmp_path, monkeypatch):
     """AH's bonuspage endpoints refuse anonymous tokens (HTTP 500): the
     refresh searches the household's own ingredient names instead."""
