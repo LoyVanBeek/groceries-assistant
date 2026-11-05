@@ -107,3 +107,4 @@
 - [ ] Barcode scanner to add new grocery items
 - [ ] Bookmarklet should POST new recipes to server directly
 - [ ] Make look nice on mobile as well
+- [ ] Add button to add 'remaining days' on week menu

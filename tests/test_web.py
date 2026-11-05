@@ -140,7 +140,7 @@ def test_import_page_shows_bookmarklet(tmp_path):
 
 def test_bookmarklet_is_valid_javascript(tmp_path):
     """A syntax error in the hand-written bookmarklet JS makes the whole
-    javascript: link silently do nothing -- parse it to catch that."""
+    javascript: link silently do nothing -- parse them all to catch that."""
     import html as html_module
 
     import esprima
@@ -148,10 +148,59 @@ def test_bookmarklet_is_valid_javascript(tmp_path):
     seed_recipe(tmp_path)
     with make_client(tmp_path) as client:
         page = client.get("/recipes/import")
-    match = re.search(r'href="javascript:([^"]+)"', page.text)
-    assert match is not None, "bookmarklet link missing from the import page"
-    js = html_module.unescape(match.group(1))
-    esprima.parseScript(js)  # raises SyntaxError on broken JS
+    hrefs = re.findall(r'href="javascript:([^"]+)"', page.text)
+    assert len(hrefs) >= 2, "both bookmarklets should be on the import page"
+    for href in hrefs:
+        esprima.parseScript(html_module.unescape(href))  # raises SyntaxError on broken JS
+
+
+def test_import_paste_posts_straight_into_the_editor(tmp_path, monkeypatch):
+    """The POST bookmarklet's endpoint: a valid token lands the parsed recipe
+    in the prefilled review editor."""
+    import groceries_assistant.web.app as app_module
+    from groceries_assistant.models import Ingredient
+    from groceries_assistant.recipes.urlimport import UrlParseResult
+
+    def fake_extract(url: str, html: str | None = None):
+        parsed = UrlParseResult(source_url=url or "x")
+        parsed.name = "Pasta pesto"
+        parsed.ingredients = [Ingredient(product="spaghetti", amount=500, unit="g")]
+        return None, parsed
+
+    monkeypatch.setattr(app_module, "extract_from_url", fake_extract)
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        page = client.get("/recipes/import").text
+        assert "import-paste" in page
+        assert "@BASE@" not in page and "@TOKEN@" not in page  # filled in
+        token = (tmp_path / "import_token").read_text(encoding="utf-8").strip()
+
+        ok = client.post(
+            "/recipes/import-paste",
+            data={"token": token, "url": "https://www.ah.nl/recept/x", "paste": "<script/>"},
+        )
+        assert ok.status_code == 200
+        assert 'value="Pasta pesto"' in ok.text  # editor prefilled
+        assert 'value="https://www.ah.nl/recept/x"' in ok.text
+
+
+def test_import_paste_rejects_bad_tokens_and_unparseable_paste(tmp_path):
+    """Bad or missing token -> 403 (before any parsing); a paste without a
+    recipe -> an error page pointing at the bulk-import fallback."""
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        client.get("/recipes/import")  # creates the import token
+        token = (tmp_path / "import_token").read_text(encoding="utf-8").strip()
+        assert (
+            client.post("/recipes/import-paste", data={"token": "fout", "paste": "x"}).status_code
+            == 403
+        )
+        assert client.post("/recipes/import-paste", data={"paste": "x"}).status_code == 403
+
+        bad = client.post("/recipes/import-paste", data={"token": token, "paste": "geen recept"})
+        assert bad.status_code == 400
+        assert "Importeren mislukt" in bad.text
+        assert "bulkimport" in bad.text  # fallback pointer
 
 
 def test_import_paste_with_leading_url_uses_it_as_source(tmp_path, monkeypatch):
