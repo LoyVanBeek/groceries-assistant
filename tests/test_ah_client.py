@@ -1,8 +1,9 @@
 from datetime import date
 
+import pytest
 import respx
 
-from groceries_assistant.ah.client import BASE_URL, USER_AGENT, AHClient
+from groceries_assistant.ah.client import BASE_URL, USER_AGENT, AHApiError, AHClient
 
 SEARCH_URL = f"{BASE_URL}/mobile-services/product/search/v2"
 TOKEN_URL = f"{BASE_URL}/mobile-auth/v1/auth/token/anonymous"
@@ -113,6 +114,59 @@ def test_all_bonus_products_walks_periods_sections_and_groups():
         )
         with AHClient() as client:
             assert client.all_bonus_products(date(2026, 12, 24)) == []
+
+
+def test_fallback_finds_bonus_products_via_search_filter():
+    """bonuspage/v1 refuses anonymous tokens (HTTP 500): the fallback queries
+    the search API per ingredient with the bonus filter, self-calibrating the
+    undocumented param value against a probe query."""
+    with respx.mock(assert_all_called=False) as mock:
+        mock.post(TOKEN_URL).respond(json={"access_token": "tok123", "refresh_token": "r"})
+        mock.get(f"{BASE_URL}/mobile-services/bonuspage/v1/metadata").respond(status_code=500)
+        base = {
+            "products": [
+                {"webshopId": 10, "title": "AH Volkoren brood"},
+                {"webshopId": 11, "title": "AH Melk halfvol"},
+            ]
+        }
+        # filters the API ignores return the same set as the unfiltered probe
+        mock.get(SEARCH_URL, params={"bonus": "Bonus"}).respond(json=base)
+        mock.get(SEARCH_URL, params={"bonus": "DISCOUNT"}).respond(json=base)
+        mock.get(SEARCH_URL, params={"bonus": "BONUS_AND_DISCOUNT"}).respond(json=base)
+        honoured = mock.get(SEARCH_URL, params={"bonus": "BONUS"}).respond(
+            json={
+                "products": [
+                    {"webshopId": 20, "title": "AH Spaghetti 500 g"},
+                    {"webshopId": 21, "title": "Hak Tomatenblokjes"},
+                ]
+            }
+        )
+        plain = mock.get(SEARCH_URL).respond(json=base)  # the probe without filter
+
+        with AHClient() as client:
+            products = client.bonus_products_by_search(["spaghetti", "ui"])
+
+    assert honoured.called
+    assert plain.called
+    assert [p.webshop_id for p in products] == [20, 21]  # deduplicated over the queries
+
+
+def test_fallback_raises_when_the_filter_is_ignored():
+    """If no bonus= value changes the result set, say so instead of marking
+    every ingredient as in-the-bonus."""
+    with respx.mock(assert_all_called=False) as mock:
+        mock.post(TOKEN_URL).respond(json={"access_token": "tok123", "refresh_token": "r"})
+        mock.get(SEARCH_URL).respond(
+            json={
+                "products": [
+                    {"webshopId": 10, "title": "AH Volkoren brood"},
+                    {"webshopId": 11, "title": "AH Melk halfvol"},
+                ]
+            }
+        )
+
+        with AHClient() as client, pytest.raises(AHApiError, match="bonus-filter"):
+            client.bonus_products_by_search(["spaghetti"])
 
 
 def test_search_parses_product_image_url():

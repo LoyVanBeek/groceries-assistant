@@ -83,13 +83,23 @@ class AHClient:
         self._token = response.json()["access_token"]
         return self._token
 
-    def search(self, query: str, limit: int = 5) -> list[AHProduct]:
-        """Search AH products by (Dutch) keyword."""
+    def search(
+        self, query: str, limit: int = 5, bonus_filter: str | None = None
+    ) -> list[AHProduct]:
+        """Search AH products by (Dutch) keyword.
+
+        `bonus_filter` restricts the results to products in the bonus
+        promotion; the value is one the search API honours (see
+        `working_bonus_filter`).
+        """
         token = self._ensure_token()
+        params: dict = {"query": query, "page": 0, "size": limit, "sortOn": "RELEVANCE"}
+        if bonus_filter:
+            params["bonus"] = bonus_filter
         try:
             response = self._client.get(
                 f"{BASE_URL}/mobile-services/product/search/v2",
-                params={"query": query, "page": 0, "size": limit, "sortOn": "RELEVANCE"},
+                params=params,
                 headers={**self._headers(), "Authorization": f"Bearer {token}"},
             )
         except httpx.HTTPError as exc:
@@ -166,6 +176,36 @@ class AHClient:
             raise AHApiError(f"AH bonus segment failed: HTTP {response.status_code}")
         data = response.json()
         return data.get("products", []) if isinstance(data, dict) else []
+
+    def working_bonus_filter(self, probe: str = "tomaten") -> str | None:
+        """Which `bonus=` value the search API actually honours, or None.
+
+        The bonuspage endpoints are unavailable to anonymous tokens (HTTP
+        500), but the search API takes a bonus filter; the exact value is
+        undocumented, so probe a handful and keep the one that changes the
+        result set.
+        """
+        base_ids = {p.webshop_id for p in self.search(probe, limit=30)}
+        for value in ("BONUS", "Bonus", "DISCOUNT", "BONUS_AND_DISCOUNT"):
+            filtered_ids = {p.webshop_id for p in self.search(probe, limit=30, bonus_filter=value)}
+            if filtered_ids and filtered_ids != base_ids:
+                return value
+        return None
+
+    def bonus_products_by_search(self, queries: list[str]) -> list[AHProduct]:
+        """Fallback when bonuspage/v1 is unavailable: find bonus products per
+        ingredient name via the (proven) search endpoint + bonus filter."""
+        bonus_filter = self.working_bonus_filter()
+        if bonus_filter is None:
+            raise AHApiError("AH negeert de bonus-filter in de zoek-API")
+        products: list[AHProduct] = []
+        seen: set[int] = set()
+        for query in queries:
+            for product in self.search(query, limit=5, bonus_filter=bonus_filter):
+                if product.webshop_id not in seen:
+                    seen.add(product.webshop_id)
+                    products.append(product)
+        return products
 
     def all_bonus_products(self, day: date) -> list[AHProduct]:
         """Every product in the bonus on `day`: the sections' loose products
