@@ -26,6 +26,9 @@ vraagt op de server sowieso om sudo, en de container draait toch al als root.
 Zodra de unit actief is: geen `docker compose up -d` meer met de hand, die
 vecht met de service om dezelfde containers; stop/start gaat via `systemctl`.
 
+Bijwerken na nieuwe code op de server: `sudo ./deploy/update.sh` (pull +
+rebuild + restart).
+
 Flow:
 
 1. **Instellingen** — weekschema (per avond: kok, minuten, restjes oké?),
