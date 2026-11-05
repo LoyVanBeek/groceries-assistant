@@ -37,7 +37,7 @@
     </span>
     {% if item.recipes %}
     <span class="item-source">voor
-      {%- for r in item.recipes %}{% if not loop.first %}, {% endif %}<a href="{{ r.href }}">{{ r.name }}</a>{% endfor %}</span>
+      {% for r in item.recipes %}{% if not loop.first %}, {% endif %}<a href="{{ r.href }}">{{ r.name }}</a>{% endfor %}</span>
     {% endif %}
   </li>
   {% endfor %}

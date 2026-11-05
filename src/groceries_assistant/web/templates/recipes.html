@@ -21,6 +21,7 @@
   {% endif %}
   <button type="submit">Zoek</button>
 </form>
+<div class="table-scroll">
 <table>
   <tr><th>Recept</th><th>Tijd</th><th>Protein</th><th>Tags</th><th>Waardering</th><th>Laatst</th><th></th>{% for p in people %}<th>{{ p['name'] or p['id'] }}</th>{% endfor %}</tr>
   {% for r in recipes %}
@@ -65,4 +66,5 @@
   <tr><td colspan="{{ 7 + people|length }}">Nog geen recepten. <a href="/recipes/import">Importeer er een</a>.</td></tr>
   {% endfor %}
 </table>
+</div>
 {% endblock %}

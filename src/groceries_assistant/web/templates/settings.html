@@ -12,6 +12,7 @@
       </select>
     </label>
   </p>
+  <div class="table-scroll">
   <table>
     <tr><th>Avond</th><th>Kok</th><th>Minuten</th><th>Restjes ok?</th></tr>
     {% for e in evenings %}
@@ -30,10 +31,12 @@
     </tr>
     {% endfor %}
   </table>
+</div>
   <p><button type="submit" class="primary">Opslaan</button></p>
 </form>
 
 <h2>Familie</h2>
+<div class="table-scroll">
 <table>
   <tr><th>Id</th><th>Naam</th><th>Rol</th><th>Gewicht</th></tr>
   {% for p in people %}
@@ -42,6 +45,7 @@
   <tr><td colspan="4" class="muted">Nog niemand toegevoegd.</td></tr>
   {% endfor %}
 </table>
+</div>
 <form method="post" action="/settings/people">
   <input type="text" name="person_id" placeholder="id (bijv. piet)" required>
   <input type="text" name="name" placeholder="naam">

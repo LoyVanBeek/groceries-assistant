@@ -1370,6 +1370,7 @@ def create_app(
             request,
             "order.html",
             items=items,
+            start=dutch_date(latest[1]),
             warnings=_plan_warnings(plan_id),
             leftovers=_plan_leftovers(plan_id),
             fmt=format_amount,
