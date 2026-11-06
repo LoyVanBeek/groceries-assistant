@@ -68,10 +68,11 @@ def test_pages_render(tmp_path):
         assert client.get("/recipes/import").status_code == 200
 
 
-def test_plan_shows_bonus_annotation_and_refresh(tmp_path, monkeypatch):
-    """The bonus block also lives on the select page; rows and options with
-    bonus ingredients carry the annotation; refresh comes back to the page
-    it was started from and never 500s."""
+def test_bonus_lives_on_the_select_page_only(tmp_path, monkeypatch):
+    """The week page stays bonus-free: no block, no chips. The selection page
+    carries the block, the option chips and the expandable ingredient list
+    with the bonus ingredient highlighted; refresh returns to the page it was
+    started from and never 500s."""
     import groceries_assistant.web.app as app_module
     from groceries_assistant.ah.client import AHProduct
 
@@ -97,37 +98,34 @@ def test_plan_shows_bonus_annotation_and_refresh(tmp_path, monkeypatch):
 
     monkeypatch.setattr(app_module, "AHClient", FakeAH)
     seed_recipe(tmp_path)
-    seed_soep(tmp_path)  # a second dish, so pasta is an *option* somewhere
+    seed_soep(tmp_path)
     with make_client(tmp_path) as client:
         page = client.get("/plan").text
-        assert "Bonuslijst (opnieuw) ophalen" in page
-        assert "in de bonus" not in page  # nothing fetched yet
+        assert "Bonuslijst" not in page
+        assert "in de bonus" not in page
 
-        client.post("/plan/bonus/refresh", follow_redirects=False)
-        page = client.get("/plan").text
-        assert "1 producten (opgehaald" in page
-        assert (tmp_path / "bonus.yaml").is_file()  # cached, hand-editable
-
-        seed_plan(client)  # the planner now weighs the bonus...
-        page = client.get("/plan").text
-        assert "in de bonus" in page  # ...and a row shows the annotation
-
-        # the selection page: same bonus block, chip on the matching option,
-        # and an expandable ingredient list with the bonus item highlighted
+        seed_plan(client)  # the planner weighs the bonus when filling
         store = Store(tmp_path / "state.db")
         plan_id, _start, _ = store.load_proposal()
+        days = [r.day for r in store.plan_entries(plan_id)]
+        select_url = f"/plan/select?day={days[0].isoformat()}"
+
+        resp = client.post("/plan/bonus/refresh", data={"back": select_url}, follow_redirects=False)
+        assert resp.status_code == 303
+        assert (tmp_path / "bonus.yaml").is_file()  # cached, hand-editable
+
         day = next(
-            r.day
-            for r in store.plan_entries(plan_id)
-            if "in de bonus" in client.get(f"/plan/select?day={r.day.isoformat()}").text
+            d for d in days if "in de bonus" in client.get(f"/plan/select?day={d.isoformat()}").text
         )
         select = client.get(f"/plan/select?day={day.isoformat()}").text
         assert "Bonuslijst (opnieuw) ophalen" in select
-        assert "in de bonus" in select
+        assert "in de bonus" in select  # chip on the matching option
         assert "ingredient-details" in select
         assert "500 g spaghetti" in select  # the ingredient line
         assert 'class="bonus-item"' in select  # the bonus ingredient highlighted
         assert "1 stuk ui" in select  # the non-bonus one, unhighlighted
+        # ... and the week page stayed clean
+        assert "in de bonus" not in client.get("/plan").text
 
         # refresh from the select page lands back on that same picker
         resp = client.post(
@@ -141,93 +139,17 @@ def test_plan_shows_bonus_annotation_and_refresh(tmp_path, monkeypatch):
     # a crash inside the AH client is a notice, never a 500
     monkeypatch.setattr(app_module, "AHClient", BrokenAH)
     with make_client(tmp_path) as client:
-        resp = client.post("/plan/bonus/refresh", follow_redirects=False)
+        store = Store(tmp_path / "state.db")
+        real_day = store.plan_entries(store.load_proposal()[0])[0].day
+        resp = client.post(
+            "/plan/bonus/refresh",
+            data={"back": f"/plan/select?day={real_day.isoformat()}"},
+            follow_redirects=False,
+        )
         assert resp.status_code == 303
         page = client.get(resp.headers["location"]).text
         assert "Bonus ophalen mislukt" in page
         assert "onverwachte responsvorm" in page
-
-
-def test_barcode_lookup_and_remember(tmp_path):
-    """The scanner's endpoints: an unknown EAN 404s until it is remembered
-    once; a malformed one 400s."""
-    seed_recipe(tmp_path)
-    with make_client(tmp_path) as client:
-        assert client.get("/barcode/8710600988068").status_code == 404
-        assert client.get("/barcode/geen-ean").status_code == 400
-
-        resp = client.post("/barcode/8710600988068", data={"title": "Hak Tomatenblokjes"})
-        assert resp.status_code == 200
-        assert resp.json() == {"ean": "8710600988068", "title": "Hak Tomatenblokjes"}
-
-        assert client.get("/barcode/8710600988068").json()["title"] == "Hak Tomatenblokjes"
-        assert client.post("/barcode/8710600988068", data={"title": "  "}).status_code == 400
-
-
-def test_scan_add_puts_a_scanned_package_on_the_list(tmp_path):
-    """The scan button's endpoint: a remembered barcode adds one item to the
-    current plan's list; duplicates and unknown barcodes give a notice."""
-    seed_recipe(tmp_path)
-    with make_client(tmp_path) as client:
-        seed_plan(client)
-        client.post("/barcode/8710600988068", data={"title": "Hak Tomatenblokjes"})
-
-        # the scan button lives on the main page and on the list itself
-        assert "data-barcode-add=" in client.get("/plan").text
-        assert "data-barcode-add=" in client.get("/order").text
-
-        resp = client.post(
-            "/order/scan-add",
-            data={"ean": "8710600988068", "back": "/plan"},
-            follow_redirects=False,
-        )
-        assert resp.status_code == 303
-        assert resp.headers["location"].startswith("/plan?scanadded=")
-
-        store = Store(tmp_path / "state.db")
-        plan_id = store.load_proposal()[0]
-        item = next(i for i in store.order_items(plan_id) if i["product"] == "Hak Tomatenblokjes")
-        assert item["amount"] == 1 and item["unit"] == "stuk"
-        assert "Hak Tomatenblokjes" in client.get("/order").text  # on the list
-
-        # the notice shows on the page you scanned from
-        page = client.get(resp.headers["location"]).text
-        assert "staat op de boodschappenlijst" in page
-
-        # a second scan of the same package: a notice, not a duplicate row
-        resp = client.post(
-            "/order/scan-add",
-            data={"ean": "8710600988068", "back": "/order"},
-            follow_redirects=False,
-        )
-        assert resp.headers["location"].startswith("/order?error=scan:")
-        page = client.get(resp.headers["location"]).text
-        assert "staat al op de lijst" in page
-
-        # an unknown barcode is refused with a notice
-        resp = client.post(
-            "/order/scan-add",
-            data={"ean": "8718951001305", "back": "/order"},
-            follow_redirects=False,
-        )
-        page = client.get(resp.headers["location"]).text
-        assert "onbekende barcode 8718951001305" in page
-
-
-def test_settings_page_has_the_scanner(tmp_path):
-    seed_recipe(tmp_path)
-    with make_client(tmp_path) as client:
-        page = client.get("/settings").text
-        assert page.count("data-barcode-scan=") == 2  # staples + verpakkingen form
-        assert "/static/barcode.js" in page
-
-
-def test_barcode_script_is_valid_javascript():
-    """A syntax error would make scanning silently do nothing."""
-    import esprima
-
-    static = Path(web_app.__file__).parent / "static"
-    esprima.parseScript((static / "barcode.js").read_text(encoding="utf-8"))
 
 
 def test_bonus_refresh_falls_back_to_search_when_bonuspage_refuses(tmp_path, monkeypatch):

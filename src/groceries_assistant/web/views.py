@@ -109,7 +109,6 @@ def plan_view(
     today: date | None = None,
     approved_days: set[date] | None = None,
     ordered_days: set[date] | None = None,
-    bonus: Mapping[str, int] | None = None,
 ) -> list[dict]:
     """Per-evening view model: label, dish, cook, joiners, swap options.
 
@@ -212,7 +211,6 @@ def plan_view(
                 ),
                 "members": members,
                 "cooking": cooking,
-                "bonus_ingredients": (bonus or {}).get(row.recipe_slug or row.source_slug or "", 0),
                 "can_leftovers": (row.kind in ("cook", "no_cook") and last_cook_slug is not None),
                 "over_budget": row.kind == "cook" and minutes > budget,
                 "is_today": row.day == today,

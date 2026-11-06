@@ -793,7 +793,6 @@ def create_app(
             dishes=list(dishes_by_slug().values()),
             approved_days=approved_days,
             ordered_days=ordered_days,
-            bonus=bonus_counts(all_recipes, bonus_store()),
         )
         last_day = max(e["day_iso"] for e in evenings) if evenings else None
         next_start = date.fromisoformat(last_day) + timedelta(days=1) if last_day else start
@@ -801,7 +800,6 @@ def create_app(
         week_empty = all(
             r.kind == "cook" and r.recipe_slug is None for r in store().plan_entries(plan_id)
         )
-        bonus_products = bonus_store().products
         return render(
             request,
             "plan.html",
@@ -809,8 +807,6 @@ def create_app(
             start=start,
             next_start=next_start,
             week_empty=week_empty,
-            bonus_count=len(bonus_products),
-            bonus_fetched=bonus_store().fetched_at,
             order_open=bool(pending),
             order_from=pending[0] if pending else None,
             order_to=pending[-1] if pending else None,

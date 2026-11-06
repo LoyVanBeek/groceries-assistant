@@ -327,6 +327,23 @@ tr.drop-target td {
   background: var(--accent-soft);
 }
 
+tr.dragging td { opacity: 0.45; }
+
+.drag-ghost {
+  display: inline-block;
+  max-width: 260px;
+  padding: 0.45rem 0.75rem;
+  border: 1px solid var(--ink);
+  border-radius: 8px;
+  background: var(--bg);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  font-size: 0.95rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.drag-ghost span { color: var(--muted); }
+
 .big-link {
   display: inline-block;
   margin: 0.75rem 0.75rem 0.75rem 0;
