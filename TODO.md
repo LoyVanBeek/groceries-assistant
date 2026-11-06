@@ -80,7 +80,14 @@
       kipschnitzel, vegaschitzel -- 17 components in total, the dish
       references them and appears in the planner)
 - [x] When there are 'restjes', use the thumbnail of the repeated dish but with an icon overlayed on it
-- [ ] Have a preference for recipes when ingredients of it are in Bonus
+- [x] Have a preference for recipes when ingredients of it are in Bonus
+      (bonus products are fetched per household ingredient via the search API's
+      own `isBonus` flags -- the bonuspage endpoints refuse anonymous tokens
+      with HTTP 500 -- and cached in `data/bonus.yaml`, hand-editable; each
+      bonus ingredient is worth 0.5 planner points, capped at 1.5, so it nudges
+      instead of overriding verdicts. Visible only on the gerecht-kiespagina:
+      a chip on the option plus an expandable ingredient list with the bonus
+      items highlighted)
 - [x] Configure week-start. Groceries are delivered on Tuesdays, for a week ahead
       ('De week begint op' select in the settings, stored as week_start_weekday,
       default Monday; the plan week rotates around it)
@@ -101,10 +108,35 @@
       skipped, same-name recipes get -2. Also accepts pasted JSON-LD/page-source
       blocks -- optionally each preceded by its URL -- for the AH recipes where
       fetching is hopeless and the bookmarklet provides the JSON)
-- [ ] Drag and drop to re-order week menu
-- [ ] Tags for recipes, filter on tags in search
+- [x] Drag and drop to re-order week menu
+      (⋮⋮ handle per day on /plan: a ghost card follows the cursor and the row
+      moves live to the slot where it will land; drop posts /plan/move-day and
+      the server rotates the evenings so picks, goedkeuring and besteld-status
+      travel along. Goedgekeurde/bestelde dagen in the dragged segment refuse
+      the move; touch keeps using 'ruil dag')
+- [x] Tags for recipes, filter on tags in search
+      (tags: field in the editor -- comma-separated, normalized, and no longer
+      wiped by a save; chips + dropdown filter on /recipes and the same filter
+      on /plan/select, where composed dishes match via their parts' tags)
 - [x] Only auto-fill in week with a button press, leave empty otherwise
-- [ ] Barcode scanner to add new grocery items
-- [ ] Bookmarklet should POST new recipes to server directly
-- [ ] Make look nice on mobile as well
+- [x] Barcode scanner to add new grocery items
+      (there is no barcode API -- AH's gtin lookup answers 404 -- so
+      `data/barcodes.yaml` learns: a scan decodes the EAN in the browser
+      (BarcodeDetector on Chromium, vendored ZXing elsewhere: live camera on
+      localhost, photo-of-the-barcode on plain-http phones, typed EAN last)
+      and an unknown barcode asks for the name once. Scan buttons on the
+      settings forms and on /plan + /order, where a scanned package joins the
+      week's list as 1 stuk; list rebuilds reset scanned extras)
+- [x] Bookmarklet should POST new recipes to server directly
+      ("AH-recept direct naar de server" on the import page: grabs the
+      canonical URL + recipe JSON-LD on the page and submits a hidden form to
+      `/recipes/import-paste` with a stable per-install token -- form
+      navigation, so no CORS; lands in the prefilled review editor. The
+      clipboard bookmarklet stays for the bulk page)
+- [x] Make look nice on mobile as well
+      (all pages fit a 390px phone: nav wraps, the plan/select tables already
+      render as day-cards, the wide recipes/settings tables scroll sideways
+      with the name column pinned. Bonus: the order page's week title is
+      filled and 'voor <recept>' has its space back)
 - [ ] Add button to add 'remaining days' on week menu
+- [ ] On mobile, just have the recipe names and only show details in a dropdown on each row, so that the whole page fits a single screen., That makes drag and drop nicer on mobile, which also has pull to refresh which gets confused with drag and drop. 
