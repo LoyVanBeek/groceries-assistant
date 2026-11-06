@@ -117,6 +117,25 @@ RECIPE_BOOKMARKLET = (
     "function(){alert('URL + recept-JSON gekopieerd: plak ze in de bulkimport.')})}"
     "else{alert('Geen recept-JSON gevonden op deze pagina.')}})()"
 )
+# Bookmarklet that posts the recipe straight into the review editor: it builds
+# a hidden form on the recipe page and submits it as a navigation to the
+# server. A form navigation needs no CORS (unlike fetch) and works from an
+# https page to the plain-http home server. @BASE@/@TOKEN@ are filled in per
+# request when the import page renders, so a saved bookmarklet keeps working.
+RECIPE_POST_BOOKMARKLET = (
+    "(function(){var c=document.querySelector('link[rel=\"canonical\"]');"
+    "var u=((c&&c.href)||location.href).split('#')[0];"
+    "var e=document.querySelectorAll('script[type=\"application/ld+json\"]'),h='';"
+    "for(var i=0;i<e.length;i++){"
+    "if(e[i].textContent.indexOf('recipeIngredient')>=0){h=e[i].outerHTML;break}}"
+    "if(!h){alert('Geen recept-JSON gevonden op deze pagina.');return}"
+    "var f=document.createElement('form');f.method='POST';"
+    "f.action='@BASE@/recipes/import-paste';f.style.display='none';"
+    "var a=function(k,v){var i=document.createElement('input');"
+    "i.type='hidden';i.name=k;i.value=v;f.appendChild(i)};"
+    "a('token','@TOKEN@');a('url',u);a('paste',h);"
+    "document.body.appendChild(f);f.submit()})()"
+)
 KEEP_CHOICE = ""
 
 ALLOWED_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
@@ -2069,9 +2088,28 @@ def create_app(
         (staging / f"{uid}{ext}").write_bytes(content)
         return uid
 
+    def import_token() -> str:
+        """Stable secret baked into the served bookmarklet: the POST endpoint
+        has no auth, so a token keeps random sites from creating recipes."""
+        path = data / "import_token"
+        if path.is_file():
+            return path.read_text(encoding="utf-8").strip()
+        token = uuid4().hex
+        path.write_text(token, encoding="utf-8")
+        return token
+
     @app.get("/recipes/import", response_class=HTMLResponse)
     def import_page(request: Request):
-        return render(request, "import.html", bookmarklet=RECIPE_BOOKMARKLET)
+        base = str(request.base_url).rstrip("/")
+        post_bookmarklet = RECIPE_POST_BOOKMARKLET.replace("@BASE@", base).replace(
+            "@TOKEN@", import_token()
+        )
+        return render(
+            request,
+            "import.html",
+            bookmarklet=RECIPE_BOOKMARKLET,
+            post_bookmarklet=post_bookmarklet,
+        )
 
     @app.post("/recipes/import")
     async def do_import(
@@ -2140,6 +2178,49 @@ def create_app(
             **ctx,
             original_slug=None,
         )
+
+    @app.post("/recipes/import-paste")
+    def import_paste(
+        request: Request,
+        token: str = Form(""),
+        url: str = Form(""),
+        paste: str = Form(""),
+    ):
+        """The bookmarklet's target: recipe JSON-LD or page source from an
+        ah.nl tab, posted straight into the review editor.
+
+        Reached by a form navigation, so no CORS is involved; the token keeps
+        random sites from creating recipes. Same offline parse as the
+        pasted-page path of /recipes/import.
+        """
+        if not token or token != import_token():
+            raise HTTPException(403, "Ongeldige token")
+        source_url = url.strip()
+        try:
+            _recipe, parsed = extract_from_url(
+                source_url or PASTE_DEFAULT_URL,
+                html=normalize_pasted_page(paste),
+            )
+        except Exception as exc:
+            return HTMLResponse(
+                "<html><body><h1>Importeren mislukt</h1>"
+                f"<p>{exc}</p>"
+                "<p>Gebruik in plaats daarvan het kopieer-bookmarkletje en plak"
+                ' de JSON in <a href="/recipes/import-urls">de bulkimport</a>'
+                ' of op <a href="/recipes/import">de importpagina</a>.</p>'
+                "</body></html>",
+                status_code=400,
+            )
+        ctx = _editor_ctx_from_parse(parsed, url_value=source_url)
+        stage_uid = ""
+        if getattr(parsed, "image_url", None):
+            try:
+                stage_uid = _stage_web_image(getattr(parsed, "image_url", ""))
+            except Exception:
+                stage_uid = ""
+        ctx["staged_photo"] = ocr_staged_url(stage_uid) if stage_uid else ""
+        ctx["stage_uid"] = stage_uid
+        return render(request, "recipe_edit.html", **ctx, original_slug=None)
 
     @app.get("/recipes/import-urls", response_class=HTMLResponse)
     def import_urls_page(request: Request):

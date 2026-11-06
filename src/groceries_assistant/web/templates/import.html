@@ -27,9 +27,11 @@
   <p><button type="submit" class="primary">Uitlezen &rarr;</button></p>
 </form>
 <details class="muted">
-  <summary>ah.nl-recept importeren met een bookmarkletje</summary>
-  <p>Sleep deze link naar je bladwijzerbalk en klik hem op de ah.nl-receptpagina:
-     <a href="javascript:{{ bookmarklet }}">AH-recept + URL kopi&euml;ren</a>.
+  <summary>ah.nl-recept importeren met bookmarkletjes</summary>
+  <p>Sleep een link naar je bladwijzerbalk en klik hem op de ah.nl-receptpagina:</p>
+  <p><a href="javascript:{{ post_bookmarklet }}">AH-recept direct naar de server</a> &mdash;
+     opent hier de controlesheet met het recept alvast ingevuld.</p>
+  <p><a href="javascript:{{ bookmarklet }}">AH-recept + URL kopi&euml;ren</a> &mdash;
      URL en recept-JSON belanden op je klembord; plak ze in de
      <a href="/recipes/import-urls">bulkimport</a> (URL bovenaan, JSON eronder)
      of hierboven in het bronveld, en lees uit.</p>
