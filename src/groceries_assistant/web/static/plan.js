@@ -11,6 +11,7 @@
 
   const tbody = table.tBodies[0];
   let dragRow = null; // the row being dragged
+  let hoverDay = null; // the slot the preview currently places the drop in
   let dropped = false;
   let ghost = null;
   let originalRows = null;
@@ -51,6 +52,7 @@
   for (const handle of table.querySelectorAll(".drag-handle")) {
     handle.addEventListener("dragstart", (event) => {
       dragRow = handle.closest("tr");
+      hoverDay = null;
       dropped = false;
       originalRows = [...tbody.children];
       originalRows.forEach((row, index) => originalIndex.set(row, index));
@@ -69,15 +71,19 @@
       table.querySelectorAll(".dragging").forEach((row) => row.classList.remove("dragging"));
       clearMarks();
       dragRow = null;
+      hoverDay = null;
     });
   }
 
   for (const row of table.querySelectorAll("tbody tr")) {
     row.addEventListener("dragover", (event) => {
-      if (!dragRow || row === dragRow || !row.dataset.day) return;
-      event.preventDefault();
+      if (!dragRow) return;
+      event.preventDefault(); // the dragged row itself is a target too: the
+      // preview just placed it under the cursor
+      if (row === dragRow) return; // keep the slot the preview chose
       event.dataTransfer.dropEffect = "move";
       row.classList.add("drop-target");
+      hoverDay = row.dataset.day;
       // live preview: dragging down, the row takes the hovered slot (after
       // it); dragging up, it lands before it. Direction comes from the
       // original slots, not the moved-around DOM.
@@ -92,7 +98,9 @@
     row.addEventListener("dragleave", () => row.classList.remove("drop-target"));
     row.addEventListener("drop", (event) => {
       event.preventDefault();
-      const to = row.dataset.day;
+      // dropping on the dragged row itself is normal (the preview moved it
+      // under the cursor): the target is the slot it last hovered
+      const to = row === dragRow ? hoverDay : row.dataset.day;
       if (dragRow && to && to !== dragRow.dataset.day) {
         dropped = true;
         form.day.value = dragRow.dataset.day;
@@ -100,6 +108,7 @@
         form.submit(); // navigates; the server reproduces the previewed order
       }
       dragRow = null;
+      hoverDay = null;
     });
   }
 })();
