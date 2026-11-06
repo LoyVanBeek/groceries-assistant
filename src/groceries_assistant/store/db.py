@@ -680,6 +680,74 @@ class Store:
             )
         self.conn.commit()
 
+    def move_day(self, plan_id: int, day: date, to: date) -> None:
+        """Move one evening's content to another position, shifting the
+        evenings in between by one — like dragging a row in the week table.
+
+        Picks, approvals and ordered-days travel with the dish they belong
+        to, exactly as in swap_days. Raises KeyError when a day is not part
+        of the plan.
+        """
+        if day == to:
+            return
+        entries = {
+            date.fromisoformat(r["day"]): r
+            for r in self.conn.execute(
+                "SELECT day, kind, recipe_slug, source_slug, people"
+                " FROM plan_entries WHERE plan_id = ?",
+                (plan_id,),
+            )
+        }
+        if day not in entries or to not in entries:
+            missing = day if day not in entries else to
+            raise KeyError(f"plan {plan_id} has no day {missing.isoformat()}")
+        lo, hi = sorted((day, to))
+        span = [d for d in sorted(entries) if lo <= d <= hi]
+        # later: every content shifts one day up, the moved one lands on `to`;
+        # earlier: the mirror image
+        dest: dict[date, date] = {}
+        if to > day:
+            for i, d in enumerate(span):
+                dest[d] = span[i - 1] if i else span[-1]
+        else:
+            for i, d in enumerate(span):
+                dest[d] = span[i + 1] if i + 1 < len(span) else span[0]
+        cur = self.conn.cursor()
+        for src_day in span:
+            src = entries[src_day]
+            cur.execute(
+                "UPDATE plan_entries SET kind=?, recipe_slug=?, source_slug=?, people=?"
+                " WHERE plan_id=? AND day=?",
+                (
+                    src["kind"],
+                    src["recipe_slug"],
+                    src["source_slug"],
+                    src["people"],
+                    plan_id,
+                    dest[src_day].isoformat(),
+                ),
+            )
+        # day-keyed tables rotate their keys with the content; a tmp key per
+        # day keeps neighbours with rows from colliding
+        for table in ("plan_picks", "plan_approvals", "plan_ordered"):
+            marks = ",".join("?" * len(span))
+            rows = cur.execute(
+                f"SELECT day FROM {table} WHERE plan_id=? AND day IN ({marks})",
+                (plan_id, *(d.isoformat() for d in span)),
+            ).fetchall()
+            present = [date.fromisoformat(r["day"]) for r in rows]
+            for d in present:
+                cur.execute(
+                    f"UPDATE {table} SET day=? WHERE plan_id=? AND day=?",
+                    (f"__move_tmp__{d.isoformat()}", plan_id, d.isoformat()),
+                )
+            for d in present:
+                cur.execute(
+                    f"UPDATE {table} SET day=? WHERE plan_id=? AND day=?",
+                    (dest[d].isoformat(), plan_id, f"__move_tmp__{d.isoformat()}"),
+                )
+        self.conn.commit()
+
     def approve_plan(self, start: date, entries: list[PlanEntryRow]) -> int:
         cur = self.conn.cursor()
         cur.execute("INSERT INTO plans(start_date) VALUES (?)", (start.isoformat(),))
