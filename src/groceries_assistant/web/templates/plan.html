@@ -36,8 +36,9 @@
   <tbody>
   {% for e in evenings %}
   {% set row = loop.index %}
-  <tr class="evening {% if e.over_budget %}over{% endif %} {% if e.is_past %}passed{% endif %} {% if e.is_today %}today{% endif %}">
+  <tr class="evening {% if e.over_budget %}over{% endif %} {% if e.is_past %}passed{% endif %} {% if e.is_today %}today{% endif %}" data-day="{{ e.day_iso }}">
     <td class="col-day">
+      <span class="drag-handle" draggable="true" title="Sleep om deze dag te verplaatsen" aria-label="Sleep om deze dag te verplaatsen">&#8942;&#8942;</span>
       <strong>{{ e.label }}</strong>
       {% if e.is_today %}<span class="today-badge">vandaag</span>{% endif %}
       <br>
@@ -244,5 +245,12 @@
   onsubmit="return confirm('Week(en) leegmaken? Het voorstel, alle goedkeuringen en bestellingen van deze week en later worden gewist; het verleden blijft staan.')">
   <p><button type="submit" class="link">Week(en) leegmaken</button></p>
 </form>
+<form id="move-day-form" method="post" action="/plan/move-day" hidden>
+  <input type="hidden" name="day">
+  <input type="hidden" name="to">
+</form>
 {% endif %}
+{% endblock %}
+{% block scripts %}
+<script src="/static/plan.js" defer></script>
 {% endblock %}

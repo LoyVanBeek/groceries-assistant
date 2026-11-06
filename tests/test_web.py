@@ -124,6 +124,58 @@ def test_clear_weeks_brings_back_the_fill_button(tmp_path):
         assert "leeggemaakt" in page
 
 
+def test_move_day_reorders_the_week(tmp_path):
+    """The drag & drop endpoint: the dragged dish lands on the target day and
+    the evenings in between shift by one."""
+    seed_recipe(tmp_path)
+    seed_soep(tmp_path)
+    with make_client(tmp_path) as client:
+        seed_plan(client)
+        page = client.get("/plan").text
+        assert 'class="drag-handle"' in page
+        assert 'action="/plan/move-day"' in page
+
+        store = Store(tmp_path / "state.db")
+        plan_id, _start, _ = store.load_proposal()
+        days = sorted(r.day for r in store.plan_entries(plan_id))
+        # pin three known dishes (beyond Monday's 25-minute budget)
+        client.post("/plan/swap", data={"day": days[1].isoformat(), "choice": "bonensoep"})
+        client.post("/plan/swap", data={"day": days[2].isoformat(), "choice": "pasta"})
+        client.post("/plan/swap", data={"day": days[3].isoformat(), "choice": "bonensoep"})
+        resp = client.post(
+            "/plan/move-day",
+            data={"day": days[1].isoformat(), "to": days[3].isoformat()},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        rows = {r.day: r for r in store.plan_entries(plan_id)}
+        assert rows[days[3]].recipe_slug == "bonensoep"
+        assert rows[days[1]].recipe_slug == "pasta"
+        assert rows[days[2]].recipe_slug == "bonensoep"
+
+
+def test_move_day_refuses_approved_evenings(tmp_path):
+    """An approved evening inside the dragged segment blocks the move."""
+    seed_recipe(tmp_path)
+    seed_soep(tmp_path)
+    with make_client(tmp_path) as client:
+        seed_plan(client)
+        store = Store(tmp_path / "state.db")
+        plan_id, _start, _ = store.load_proposal()
+        days = sorted(r.day for r in store.plan_entries(plan_id))
+        before = [(r.day, r.recipe_slug) for r in store.plan_entries(plan_id)]
+        client.post("/plan/approve", data={"day": days[2].isoformat()}, follow_redirects=False)
+        resp = client.post(
+            "/plan/move-day",
+            data={"day": days[1].isoformat(), "to": days[3].isoformat()},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/plan?error=goedkeuring"
+        after = [(r.day, r.recipe_slug) for r in store.plan_entries(plan_id)]
+        assert after == before
+
+
 def test_import_page_shows_bookmarklet(tmp_path):
     """The bookmarklet copies the recipe URL plus its JSON-LD for the bulk box."""
     seed_recipe(tmp_path)
@@ -152,6 +204,15 @@ def test_bookmarklet_is_valid_javascript(tmp_path):
     assert match is not None, "bookmarklet link missing from the import page"
     js = html_module.unescape(match.group(1))
     esprima.parseScript(js)  # raises SyntaxError on broken JS
+
+
+def test_plan_drag_script_is_valid_javascript():
+    """The week-table drag & drop script must parse, or dragging silently
+    does nothing."""
+    import esprima
+
+    static = Path(web_app.__file__).parent / "static"
+    esprima.parseScript((static / "plan.js").read_text(encoding="utf-8"))
 
 
 def test_import_paste_with_leading_url_uses_it_as_source(tmp_path, monkeypatch):
