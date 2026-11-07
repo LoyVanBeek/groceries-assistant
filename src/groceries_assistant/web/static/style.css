@@ -704,56 +704,37 @@ table.plan .col-attend .cell-name { display: none; }
 
 @media (max-width: 700px) {
   table.plan thead { display: none; }
-  table.plan, table.plan tbody, table.plan tr, table.plan td { display: block; width: 100%; }
-  table.plan tr { border-bottom: 1px solid var(--rule); padding-bottom: 0.5rem; margin-bottom: 0.5rem; }
-  table.plan td { border: none; padding: 0.25rem 0; }
-  table.plan select, table.plan button { width: auto; }
-  table.plan .col-attend { display: inline-block; width: auto; padding-right: 0.75rem; }
-  table.plan .col-attend .cell-name { display: inline; padding-right: 0.3rem; }
-
-  /* compact rows: handle + thumbnail + name + move arrows on one line;
-     everything else hides into the row's expander (own form ids) */
-  table.plan tr.evening { display: flex; flex-wrap: wrap; align-items: center; gap: 0 0.5rem; }
-  table.plan tr.evening > td { width: auto; flex: 0 0 auto; border: none; }
-  table.plan td.col-dish { flex: 1 1 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
-  /* the name takes what is left of the line; the arrows never wrap under it */
-  table.plan td.col-dish > strong,
-  table.plan td.col-dish > .dish-label,
-  table.plan td.col-dish > .dish-combo {
-    flex: 1 1 auto;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    text-align: left;
+  table.plan, table.plan tbody, table.plan tr { display: block; width: 100%; }
+  table.plan tr { border-bottom: 1px solid var(--rule); padding-bottom: 0.4rem; margin-bottom: 0.4rem; }
+  /* the row's contents flow inline: day tile, thumb, name, arrows, meer --
+     one to two lines, no table-row/flex blockification traps */
+  table.plan tr.evening > td {
+    display: inline;
+    width: auto;
+    border: none;
+    padding: 0.3rem 0.4rem;
+    vertical-align: middle;
   }
-  table.plan tr.evening > td.col-cook,
-  table.plan tr.evening > td.col-attend,
-  table.plan tr.evening > td.col-approve { display: none; }
+  table.plan select, table.plan button { width: auto; }
+  table.plan .col-cook, table.plan .col-attend, table.plan .col-approve { display: none; }
   table.plan .parts-form { display: none; }
-  table.plan .col-day .budget { display: none; }
+  table.plan .col-day .budget, table.plan .col-day .warnings { display: none; }
   table.plan .col-dish .parts-label { display: none; }
   table.plan .col-dish > div > .btn-small { display: none; }
   table.plan .col-dish > form.inline { display: none; }
-  .row-more { display: block; flex-basis: 100%; }
-  .row-more summary { cursor: pointer; color: var(--muted); }
-  .row-more-label { display: block; margin: 0.25rem 0; }
-  .row-more .btn-small { display: inline-block; margin: 0.3rem 0; }
-  .row-more form.inline { margin: 0.3rem 0; }
-  .move-arrows { display: flex; gap: 0.25rem; margin: 0 0 0 auto; }
-  .move-arrows button { padding: 0.2rem 0.5rem; font-size: 0.95rem; }
-
-  /* the day tile: two letters + date stacked, as tall as the thumbnail */
-  table.plan .col-day { display: flex; align-items: center; gap: 0.35rem; }
-  table.plan .col-day > strong { display: none; }
   .day-tile {
-    display: flex;
+    display: inline-flex;
     flex-direction: column;
     align-items: center;
     line-height: 1.15;
   }
   .day-tile .day-abbr { font-weight: 700; }
   .day-tile .day-date { font-size: 0.7rem; color: var(--muted); white-space: nowrap; }
+  .move-arrows { display: inline-flex; gap: 0.25rem; }
+  .move-arrows button { padding: 0.2rem 0.5rem; }
+  .row-more { display: block; margin: 0.2rem 0 0 0; }
+  .row-more summary { cursor: pointer; color: var(--muted); }
+  .row-more-label { display: block; margin: 0.25rem 0; }
 
   table.select-table thead { display: none; }
   table.select-table, table.select-table tbody, table.select-table tr, table.select-table td {
