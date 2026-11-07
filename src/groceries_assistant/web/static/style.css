@@ -714,7 +714,7 @@ table.plan .col-attend .cell-name { display: none; }
   /* compact rows: handle + thumbnail + name + move arrows on one line;
      everything else hides into the row's expander (own form ids) */
   table.plan tr.evening { display: flex; flex-wrap: wrap; align-items: center; gap: 0 0.5rem; }
-  table.plan tr.evening > td { display: block; width: auto; flex: 0 0 auto; border: none; }
+  table.plan tr.evening > td { width: auto; flex: 0 0 auto; border: none; }
   table.plan td.col-dish { flex: 1 1 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
   /* the name takes what is left of the line; the arrows never wrap under it */
   table.plan td.col-dish > strong,
