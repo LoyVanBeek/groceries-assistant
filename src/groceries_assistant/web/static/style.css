@@ -711,10 +711,14 @@ table.plan .col-attend .cell-name { display: none; }
      can shrink; the name ellipsizes; the arrows pin right. The tr's flex
      survives (Chromium keeps it for tr since the td's are display-none'd or
      flexed themselves). */
-  table.plan tr.evening { display: flex; flex-wrap: wrap; align-items: center; gap: 0 0.5rem; }
-  table.plan tr.evening > td { width: auto; flex: 0 0 auto; min-width: 0; border: none; padding: 0.2rem 0; }
+  table.plan tr.evening {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    column-gap: 0.5rem;
+    align-items: center;
+  }
+  table.plan tr.evening > td { width: auto; min-width: 0; border: none; padding: 0.2rem 0; }
   table.plan td.col-dish {
-    flex: 1 1 0;
     min-width: 0;
     display: flex;
     flex-wrap: wrap;
