@@ -390,7 +390,7 @@
 {% endif %}
 {% endblock %}
 {% block scripts %}
-<script src="/static/zxing.min.js" defer></script>
-<script src="/static/barcode.js" defer></script>
-<script src="/static/plan.js" defer></script>
+<script src="/static/zxing.min.js?v={{ GIT_HASH }}" defer></script>
+<script src="/static/barcode.js?v={{ GIT_HASH }}" defer></script>
+<script src="/static/plan.js?v={{ GIT_HASH }}" defer></script>
 {% endblock %}
