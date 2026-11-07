@@ -706,17 +706,31 @@ table.plan .col-attend .cell-name { display: none; }
   table.plan thead { display: none; }
   table.plan, table.plan tbody, table.plan tr { display: block; width: 100%; }
   table.plan tr { border-bottom: 1px solid var(--rule); padding-bottom: 0.4rem; margin-bottom: 0.4rem; }
-  /* the visible cells flow inline (day tile + thumb + name + arrows + meer
-     on one to two lines); every other element has exactly ONE display rule,
-     so the selectors cannot fight each other */
-  table.plan tr.evening > td.col-day, table.plan tr.evening > td.col-dish {
-    display: inline;
-    width: auto;
-    border: none;
-    padding: 0.3rem 0.4rem;
-    vertical-align: middle;
+  /* the row is one flex line: handle + day tile + thumb + name + arrows,
+     with the expander full-width below. min-width: 0 everywhere so the line
+     can shrink; the name ellipsizes; the arrows pin right. The tr's flex
+     survives (Chromium keeps it for tr since the td's are display-none'd or
+     flexed themselves). */
+  table.plan tr.evening { display: flex; flex-wrap: wrap; align-items: center; gap: 0 0.5rem; }
+  table.plan tr.evening > td { width: auto; flex: 0 0 auto; min-width: 0; border: none; padding: 0.2rem 0; }
+  table.plan td.col-dish {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
   }
-  table.plan select, table.plan button { width: auto; }
+  table.plan td.col-dish > strong,
+  table.plan td.col-dish > .dish-label,
+  table.plan td.col-dish > .dish-combo {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: left;
+  }
   table.plan .col-cook, table.plan .col-attend, table.plan .col-approve { display: none; }
   table.plan .parts-form { display: none; }
   table.plan .col-day .budget, table.plan .col-day .warnings { display: none; }
@@ -732,9 +746,9 @@ table.plan .col-attend .cell-name { display: none; }
   }
   .day-tile .day-abbr { font-weight: 700; }
   .day-tile .day-date { font-size: 0.7rem; color: var(--muted); white-space: nowrap; }
-  .move-arrows { display: inline-flex; gap: 0.25rem; }
+  .move-arrows { display: flex; gap: 0.25rem; margin: 0 0 0 auto; }
   .move-arrows button { padding: 0.2rem 0.5rem; }
-  .row-more { display: block; margin: 0.2rem 0 0 0; }
+  .row-more { display: block; flex: 0 0 100%; min-width: 0; margin: 0.2rem 0 0 0; }
   .row-more summary { cursor: pointer; color: var(--muted); }
   .row-more-label { display: block; margin: 0.25rem 0; }
 
