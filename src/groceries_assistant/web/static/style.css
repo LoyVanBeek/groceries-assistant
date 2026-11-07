@@ -716,6 +716,17 @@ table.plan .col-attend .cell-name { display: none; }
   table.plan tr.evening { display: flex; flex-wrap: wrap; align-items: center; gap: 0 0.5rem; }
   table.plan tr.evening > td { display: block; width: auto; flex: 0 0 auto; border: none; }
   table.plan td.col-dish { flex: 1 1 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+  /* the name takes what is left of the line; the arrows never wrap under it */
+  table.plan td.col-dish > strong,
+  table.plan td.col-dish > .dish-label,
+  table.plan td.col-dish > .dish-combo {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: left;
+  }
   table.plan tr.evening > td.col-cook,
   table.plan tr.evening > td.col-attend,
   table.plan tr.evening > td.col-approve { display: none; }
@@ -729,8 +740,8 @@ table.plan .col-attend .cell-name { display: none; }
   .row-more-label { display: block; margin: 0.25rem 0; }
   .row-more .btn-small { display: inline-block; margin: 0.3rem 0; }
   .row-more form.inline { margin: 0.3rem 0; }
-  .move-arrows { display: flex; gap: 0.4rem; margin: 0; }
-  .move-arrows button { padding: 0.35rem 0.7rem; }
+  .move-arrows { display: flex; gap: 0.25rem; margin: 0 0 0 auto; }
+  .move-arrows button { padding: 0.2rem 0.5rem; font-size: 0.95rem; }
 
   /* the day tile: two letters + date stacked, as tall as the thumbnail */
   table.plan .col-day { display: flex; align-items: center; gap: 0.35rem; }
