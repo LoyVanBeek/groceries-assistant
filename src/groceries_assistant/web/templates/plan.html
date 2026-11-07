@@ -161,6 +161,10 @@
     <td class="col-day">
       <span class="drag-handle" draggable="true" title="Sleep om deze dag te verplaatsen" aria-label="Sleep om deze dag te verplaatsen">&#8942;&#8942;</span>
       <strong>{{ e.label }}</strong>
+      <span class="day-tile">
+        <strong class="day-abbr">{{ e.day_abbr }}</strong>
+        <span class="day-date">{{ e.day_date }}</span>
+      </span>
       {% if e.is_today %}<span class="today-badge">vandaag</span>{% endif %}
       <br>
       <span class="budget">

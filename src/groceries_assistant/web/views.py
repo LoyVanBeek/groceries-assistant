@@ -191,6 +191,8 @@ def plan_view(
             {
                 "day_iso": row.day.isoformat(),
                 "label": f"{WEEKDAYS[row.day.weekday()].capitalize()} {row.day.strftime('%d-%m')}",
+                "day_abbr": WEEKDAYS[row.day.weekday()][:2].capitalize(),
+                "day_date": row.day.strftime("%d-%m"),
                 "kind": row.kind,
                 "slug": row.recipe_slug,
                 "name": name,

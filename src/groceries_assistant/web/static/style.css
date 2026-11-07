@@ -121,6 +121,9 @@ nav a.active {
 .row-more { display: none; }
 .move-arrows { display: none; }
 
+/* the mobile day tile (two letters + date) sits next to the full label */
+.day-tile { display: none; }
+
 nav form.inline { margin-left: auto; }
 
 .git-hash {
@@ -728,6 +731,18 @@ table.plan .col-attend .cell-name { display: none; }
   .row-more form.inline { margin: 0.3rem 0; }
   .move-arrows { display: flex; gap: 0.4rem; margin: 0; }
   .move-arrows button { padding: 0.35rem 0.7rem; }
+
+  /* the day tile: two letters + date stacked, as tall as the thumbnail */
+  table.plan .col-day { display: flex; align-items: center; gap: 0.35rem; }
+  table.plan .col-day > strong { display: none; }
+  .day-tile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    line-height: 1.15;
+  }
+  .day-tile .day-abbr { font-weight: 700; }
+  .day-tile .day-date { font-size: 0.7rem; color: var(--muted); white-space: nowrap; }
 
   table.select-table thead { display: none; }
   table.select-table, table.select-table tbody, table.select-table tr, table.select-table td {
