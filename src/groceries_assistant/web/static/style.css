@@ -713,7 +713,9 @@ table.plan .col-attend .cell-name { display: none; }
   table.plan tr.evening { display: flex; flex-wrap: wrap; align-items: center; gap: 0 0.5rem; }
   table.plan tr.evening > td { display: block; width: auto; flex: 0 0 auto; border: none; }
   table.plan td.col-dish { flex: 1 1 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
-  table.plan .col-cook, table.plan .col-attend, table.plan .col-approve { display: none; }
+  table.plan tr.evening > td.col-cook,
+  table.plan tr.evening > td.col-attend,
+  table.plan tr.evening > td.col-approve { display: none; }
   table.plan .parts-form { display: none; }
   table.plan .col-day .budget { display: none; }
   table.plan .col-dish .parts-label { display: none; }
