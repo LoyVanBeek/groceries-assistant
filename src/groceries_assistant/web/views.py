@@ -131,7 +131,7 @@ def plan_view(
             )
         )
     last_cook_slug: str | None = None
-    for row in all_rows:
+    for index, row in enumerate(all_rows):
         evening = planner.evenings_for(store, row.day, days=1)[0]
         budget = evening.free_minutes
         name = ""
@@ -217,6 +217,10 @@ def plan_view(
                 "is_past": row.day < today,
                 "is_approved": row.day in approved_days,
                 "is_ordered": row.day in ordered_days,
+                "prev_day_iso": (all_rows[index - 1].day.isoformat() if index else None),
+                "next_day_iso": (
+                    all_rows[index + 1].day.isoformat() if index + 1 < len(all_rows) else None
+                ),
                 "swap_targets": [
                     {"day_iso": iso, "label": label}
                     for iso, label in day_targets

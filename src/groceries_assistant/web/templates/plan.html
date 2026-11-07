@@ -1,5 +1,110 @@
 {% extends "base.html" %}
 {% block title %}Weekplan{% endblock %}
+
+{# The mobile expander's copy of the evening's controls: kok + minuten, wie
+   eet mee, goedkeuren/intrekken/besteld-acties, de onderdeelkiezers en de
+   verplaatspijlen. Eigen formulier-ids (achtervoegsel -m) zodat de desktop
+   kolommen en de mobiele uitklapper nooit elkaars velden posten; elke actie
+   laadt de pagina opnieuw, dus er kunnen geen verlopen kopieën posten. #}
+{% macro row_more(e, row) %}
+<form method="post" action="/plan/evening" id="evening-{{ row }}-m">
+  <input type="hidden" name="day" value="{{ e.day_iso }}">
+  <label class="row-more-label">Minuten {{ e.label }}
+    <input type="number" name="minutes" value="{{ e.budget }}" min="0" max="300"
+           aria-label="Minuten {{ e.label }}" onchange="this.form.requestSubmit()">
+  </label>
+  {% if e.kind != 'no_cook' and not e.is_ordered %}
+  <label class="row-more-label">Kok {{ e.label }}
+    <select name="cook" aria-label="Kok {{ e.label }}" onchange="this.form.requestSubmit()">
+      <option value="" {% if not e.cooking.stored_valid %}selected{% endif %}>
+        {%- if e.cooking.auto_cook -%}
+        auto: {{ e.cooking.auto_cook }}
+        {%- else -%}
+        ?{% if e.cooking.cook_unset_label %} ({{ e.cooking.cook_unset_label }}){% endif %}
+        {%- endif -%}
+      </option>
+      {% for opt in e.cooking.cook_options %}
+      <option value="{{ opt.id }}" {% if e.cooking.stored_valid and e.cooking.stored_cook == opt.id %}selected{% endif %}>{{ opt.name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  {% endif %}
+</form>
+{% if e.kind != 'no_cook' and not e.is_ordered %}
+{% for p in e.members %}
+<form method="post" action="/plan/evening" id="evening-{{ row }}-m-{{ p.id }}">
+  <input type="hidden" name="day" value="{{ e.day_iso }}">
+  <label class="row-more-label">
+    <input type="checkbox" form="evening-{{ row }}-m-{{ p.id }}" name="joined" value="{{ p.id }}"
+           {% if not p.absent %}checked{% endif %} onchange="this.form.requestSubmit()">
+    {{ p.name }} eet mee
+  </label>
+</form>
+{% endfor %}
+{% endif %}
+<div class="move-arrows">
+  <form method="post" action="/plan/swap-days" class="inline">
+    <input type="hidden" name="day" value="{{ e.day_iso }}">
+    <input type="hidden" name="swap_to" value="{{ e.prev_day_iso or '' }}">
+    <button class="link" aria-label="Ruil {{ e.label }} met de avond ervoor"
+            {% if not e.prev_day_iso %}disabled{% endif %}>&uarr; eerder</button>
+  </form>
+  <form method="post" action="/plan/swap-days" class="inline">
+    <input type="hidden" name="day" value="{{ e.day_iso }}">
+    <input type="hidden" name="swap_to" value="{{ e.next_day_iso or '' }}">
+    <button class="link" aria-label="Ruil {{ e.label }} met de avond erna"
+            {% if not e.next_day_iso %}disabled{% endif %}>&darr; later</button>
+  </form>
+</div>
+{% if not e.is_past %}
+{% if e.is_ordered %}
+<span class="besteld-tag">&#10003; besteld</span>
+<a class="btn-small" href="/plan/select?day={{ e.day_iso }}">gerecht wisselen</a>
+{% elif e.is_approved %}
+<span class="approved-badge">&#10003;</span>
+<form method="post" action="/plan/unapprove" class="inline">
+  <input type="hidden" name="day" value="{{ e.day_iso }}">
+  <button class="link">intrekken</button>
+</form>
+{% else %}
+<form method="post" action="/plan/approve" class="inline">
+  <input type="hidden" name="day" value="{{ e.day_iso }}">
+  <button>goedkeuren</button>
+</form>
+{% endif %}
+{% endif %}
+{% if not e.is_ordered and not e.is_approved and e.is_dish and e.editable_parts and e.part_options %}
+<div class="parts-form">
+  {% for part in e.part_options %}
+  <details class="part-picker">
+    <summary>{{ part.label }}: <span class="part-choice">{{ part.chosen_label or 'nog te kiezen' }}</span></summary>
+    <div class="part-options">
+      {% for opt in part.options %}
+      <form method="post" action="/plan/picks">
+        <input type="hidden" name="day" value="{{ e.day_iso }}">
+        {% for sibling in e.part_options if sibling.key != part.key %}
+        <input type="hidden" name="part_{{ sibling.key }}" value="{{ sibling.chosen }}">
+        {% endfor %}
+        <button class="dish-option{% if part.chosen == opt.slug %} chosen{% endif %}"
+                name="part_{{ part.key }}" value="{{ opt.slug }}">
+          {% if opt.image %}<img class="thumb" src="{{ opt.image }}" alt="">{% endif %}
+          <span class="dish-option-name">{{ opt.label }}</span>
+        </button>
+      </form>
+      {% endfor %}
+      <form method="post" action="/plan/picks">
+        <input type="hidden" name="day" value="{{ e.day_iso }}">
+        {% for sibling in e.part_options if sibling.key != part.key %}
+        <input type="hidden" name="part_{{ sibling.key }}" value="{{ sibling.chosen }}">
+        {% endfor %}
+        <button class="dish-option muted" name="part_{{ part.key }}" value="">nog te kiezen</button>
+      </form>
+    </div>
+  </details>
+  {% endfor %}
+</div>
+{% endif %}
+{% endmacro %}
 {% block content %}
 {% if request.query_params.error == 'kok' %}
 <p class="warnings">Kok moet een volwassene zijn die mee-eet.</p>
@@ -161,6 +266,10 @@
       {% elif not e.is_ordered and not e.is_approved and e.is_dish and e.unfilled and not e.part_options %}
       <div class="muted">Nog te kiezen: {{ e.unfilled|join(', ') }}</div>
       {% endif %}
+      <details class="row-more">
+        <summary aria-label="Meer instellingen voor {{ e.label }}">meer</summary>
+        <div class="row-more-body">{{ row_more(e, row) }}</div>
+      </details>
     </td>
     <td class="col-cook">
       {% if e.is_ordered %}

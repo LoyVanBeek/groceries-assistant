@@ -117,6 +117,10 @@ nav a.active {
   background: var(--accent-soft);
 }
 
+/* the mobile expander: desktop shows the columns, so the copy hides */
+.row-more { display: none; }
+.move-arrows { display: none; }
+
 nav form.inline { margin-left: auto; }
 
 table { border-collapse: collapse; width: 100%; }
@@ -694,6 +698,14 @@ table.plan .col-attend .cell-name { display: none; }
   table.plan select, table.plan button { width: auto; }
   table.plan .col-attend { display: inline-block; width: auto; padding-right: 0.75rem; }
   table.plan .col-attend .cell-name { display: inline; padding-right: 0.3rem; }
+
+  /* compact rows: the day + dish stay, the rest hides into the row expander */
+  table.plan .col-cook, table.plan .col-attend, table.plan .col-approve { display: none; }
+  table.plan .parts-form { display: none; }
+  .row-more { display: block; }
+  .row-more summary { cursor: pointer; color: var(--muted); }
+  .row-more-label { display: block; margin: 0.25rem 0; }
+  .move-arrows { display: flex; gap: 0.75rem; margin: 0.4rem 0; }
 
   table.select-table thead { display: none; }
   table.select-table, table.select-table tbody, table.select-table tr, table.select-table td {

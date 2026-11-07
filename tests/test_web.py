@@ -265,6 +265,24 @@ def test_fill_remaining_keeps_manual_picks(tmp_path):
         assert "Vul de lege dagen in" not in page  # nothing left to fill
 
 
+def test_mobile_week_rows_have_an_expander(tmp_path):
+    """Every evening renders a 'meer' expander with the move arrows (the
+    compact mobile rows); the first evening cannot move up."""
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        seed_plan(client)
+        page = client.get("/plan").text
+        assert page.count('class="row-more"') == 7
+        assert page.count('class="move-arrows"') == 7
+
+        store = Store(tmp_path / "state.db")
+        plan_id, _start, _ = store.load_proposal()
+        days = [r.day.isoformat() for r in store.plan_entries(plan_id)]
+        arrows = re.search(r'<div class="move-arrows">.*?</div>', page, re.S).group(0)
+        assert 'value=""' in arrows and "disabled" in arrows  # no day before the first
+        assert f'value="{days[1]}"' in arrows  # down: the next evening
+
+
 def test_settings_page_has_the_scanner(tmp_path):
     seed_recipe(tmp_path)
     with make_client(tmp_path) as client:
@@ -740,8 +758,9 @@ def test_ordered_rows_are_locked_on_the_plan_page(tmp_path):
         client.post("/order/confirm", follow_redirects=False)
         page = client.get("/plan").text
         select = client.get(f"/plan/select?day={third.isoformat()}").text
-    # exactly the one ordered day is marked besteld and locked
-    assert page.count('class="besteld-tag"') == 1
+    # exactly the one ordered day is marked besteld and locked — desktop
+    # cell plus the mobile expander's copy
+    assert page.count('class="besteld-tag"') == 2
     assert "intrekken" not in page
     # the confirmed row may move to another day or change with confirmation only
     assert 'action="/plan/swap-days"' in page
@@ -749,8 +768,9 @@ def test_ordered_rows_are_locked_on_the_plan_page(tmp_path):
     # the change link points at the select page, where the force gate lives
     assert f'href="/plan/select?day={third.isoformat()}"' in page
     assert 'name="force"' in select
-    # all other (unapproved) days still offer goedkeuren
-    assert page.count(">goedkeuren<") == n - 1
+    # all other (unapproved) days still offer goedkeuren — desktop cell plus
+    # the mobile expander's copy, so twice per unapproved day
+    assert page.count(">goedkeuren<") == 2 * (n - 1)
 
 
 def test_order_page_no_longer_confirms(tmp_path):
@@ -916,9 +936,15 @@ def test_swap_days_moves_a_confirmed_recipe(tmp_path):
         client.post("/plan/approve", data={"day": third.isoformat()}, follow_redirects=False)
         client.post("/plan/order", follow_redirects=False)
         client.post("/order/confirm", follow_redirects=False)
-        # the rendered ruil-dag form must carry the day (route requires it)
+        # the rendered ruil-dag form must carry the day (route requires it);
+        # the mobile expander's move-arrows are also swap-days forms, so
+        # match the ruil-form class specifically
         page = client.get("/plan").text
-        ruil_form = re.search(r'<form method="post" action="/plan/swap-days".*?</form>', page, re.S)
+        ruil_form = re.search(
+            r'<form method="post" action="/plan/swap-days" class="inline ruil-form".*?</form>',
+            page,
+            re.S,
+        )
         assert ruil_form, "swap-days form not rendered"
         assert f'name="day" value="{third.isoformat()}"' in ruil_form.group(0)
         resp = client.post(
@@ -2383,8 +2409,9 @@ def test_recipe_selection_is_a_page_and_lists_alternatives(tmp_path):
         # no more picker-only forms on the plan page either
         assert 'value="__no_cook__"' not in page
         assert 'value="__leftovers__"' not in page
-        # only the 7 cook selects remain (no picker selects)
-        assert page.count("<select") == 7
+        # only the 7 cook selects remain (no picker selects) — plus the
+        # mobile expander's kok-select copy per evening
+        assert page.count("<select") == 14
 
         from groceries_assistant.store.db import Store
 
