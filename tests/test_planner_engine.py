@@ -38,6 +38,22 @@ def _prefs(verdicts=None, people=None):
     )
 
 
+def test_partial_fill_seeds_planned_and_previous():
+    """'Vul de lege dagen': slugs passed as planned never return, and the
+    evening before the first planned one can still yield restjes."""
+    pasta = _recipe("pasta")
+    rijst = _recipe("rijst")
+    evenings = [
+        _evening(D1, 15, allow_leftovers=True),  # nothing fits except restjes
+        _evening(D2, 120),
+    ]
+
+    plan = plan_week([pasta, rijst], _prefs(), evenings, planned={"rijst"}, previous=pasta)
+    first, second = plan.entries
+    assert first.kind == "leftovers" and first.source_slug == "pasta"
+    assert second.recipe.slug == "pasta"  # rijst stays taken via 'planned'
+
+
 def test_bonus_tips_a_tied_evening():
     """Ingredients in the AH bonus give a recipe a small nudge: with equal
     verdicts the bonus recipe wins the evening."""

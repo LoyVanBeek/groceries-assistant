@@ -78,6 +78,7 @@ from groceries_assistant.services.planner_service import (
     bonus_counts,
     build_order,
     evenings_for,
+    fill_remaining,
     incomplete_dish_warnings,
     last_weeks_stock,
     match_products,
@@ -797,8 +798,10 @@ def create_app(
         last_day = max(e["day_iso"] for e in evenings) if evenings else None
         next_start = date.fromisoformat(last_day) + timedelta(days=1) if last_day else start
         pending = sorted(approved_days - ordered_days)
-        week_empty = all(
-            r.kind == "cook" and r.recipe_slug is None for r in store().plan_entries(plan_id)
+        rows_now = store().plan_entries(plan_id)
+        week_empty = all(r.kind == "cook" and r.recipe_slug is None for r in rows_now)
+        week_partly = not week_empty and any(
+            r.kind == "cook" and r.recipe_slug is None for r in rows_now
         )
         return render(
             request,
@@ -807,6 +810,7 @@ def create_app(
             start=start,
             next_start=next_start,
             week_empty=week_empty,
+            week_partly=week_partly,
             order_open=bool(pending),
             order_from=pending[0] if pending else None,
             order_to=pending[-1] if pending else None,
@@ -835,6 +839,31 @@ def create_app(
                 bonus=bonus_counts(all_recipes, bonus_store()),
             )
             store().save_proposal(start, plan_to_rows(plan), plan_to_picks(plan, dishes))
+        return RedirectResponse("/plan", status_code=303)
+
+    @app.post("/plan/fill-remaining")
+    def plan_fill_remaining():
+        """Fill only the evenings without a dish; manual picks stay."""
+        all_recipes, _errors = load_all()
+        proposal = store().load_proposal()
+        if proposal is None or not all_recipes:
+            return RedirectResponse("/plan", status_code=303)
+        plan_id = proposal[0]
+        rows = store().plan_entries(plan_id)
+        if all(r.kind == "cook" and r.recipe_slug is None for r in rows):
+            return RedirectResponse("/plan", status_code=303)  # use "Vul de week in"
+        new_rows, new_picks = fill_remaining(
+            rows,
+            store(),
+            store().plan_picks(plan_id),
+            all_recipes,
+            dishes=list(dishes_by_slug().values()),
+            components=list(all_known().values()),
+            bonus=bonus_counts(all_recipes, bonus_store()),
+        )
+        store().update_proposal_rows(plan_id, new_rows)
+        for day, day_picks in new_picks.items():
+            store().set_picks(plan_id, day, day_picks)
         return RedirectResponse("/plan", status_code=303)
 
     @app.post("/plan/clear")

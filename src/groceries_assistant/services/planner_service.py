@@ -122,6 +122,75 @@ def bonus_counts(recipes: list[Recipe], bonus: BonusStore) -> dict[str, int]:
     return {r.slug: bonus.count_for(r.slug, r.ingredients) for r in recipes}
 
 
+def fill_remaining(
+    rows: list[PlanEntryRow],
+    store: Store,
+    picks: dict[date, dict[str, str]],
+    recipes: list[Recipe],
+    servings: int = DEFAULT_SERVINGS,
+    repeat_window_days: int = DEFAULT_REPEAT_WINDOW_DAYS,
+    dishes: Sequence[ComposedDish] = (),
+    components: list[Recipe] | None = None,
+    bonus: Mapping[str, int] | None = None,
+) -> tuple[list[PlanEntryRow], dict[date, dict[str, str]]]:
+    """Plan only the evenings without a dish; the manual picks stay.
+
+    The filled days' slugs (dishes with their chosen parts included) go to the
+    planner as 'planned' so nothing repeats, and the dish of the evening
+    before the first empty one is passed as 'previous' so the tail can open
+    with restjes. Returns (new rows, new picks) — merge with
+    update_proposal_rows/set_picks; goedkeuring stays as it is.
+    """
+    empty = [r for r in rows if r.kind == "cook" and r.recipe_slug is None]
+    if not empty:
+        return rows, {}
+
+    planned: set[str] = set()
+    for r in rows:
+        if r.kind == "cook" and r.recipe_slug:
+            planned.add(r.recipe_slug)
+    for day_picks in picks.values():
+        planned.update(slug for slug in day_picks.values() if slug)
+
+    empty_days = sorted(r.day for r in empty)
+    first = empty_days[0]
+    previous_row = next((r for r in rows if r.day == first - timedelta(days=1)), None)
+    previous = (
+        {r.slug: r for r in recipes}.get(previous_row.recipe_slug)
+        if previous_row is not None and previous_row.kind == "cook"
+        else None
+    )
+
+    evenings = [evenings_for(store, day, days=1)[0] for day in empty_days]
+    plan = plan_week(
+        recipes,
+        preferences_from_store(store),
+        evenings,
+        history=store.history(),
+        repeat_window_days=repeat_window_days,
+        dishes=dishes,
+        components=components,
+        bonus=bonus,
+        planned=planned,
+        previous=previous,
+    )
+
+    planned_rows = {r.day: r for r in plan_to_rows(plan, servings)}
+    plan_picks = plan_to_picks(plan, {d.slug: d for d in dishes})
+    new_rows: list[PlanEntryRow] = []
+    for r in rows:
+        if r.kind != "cook" or r.recipe_slug is not None:
+            new_rows.append(r)  # a manual pick (or niet koken/restjes): stays
+            continue
+        new = planned_rows.get(r.day)
+        if new is not None and (new.recipe_slug or new.kind != "cook"):
+            new_rows.append(new)
+        else:
+            new_rows.append(r)  # nothing fit: leave the evening empty
+    new_picks = {day: day_picks for day, day_picks in plan_picks.items() if day in set(empty_days)}
+    return new_rows, new_picks
+
+
 def _portions(entry: PlanEntry, servings: int) -> int:
     """Joiners of the evening; fixed servings when no people are configured."""
     return entry.availability.people_count or servings

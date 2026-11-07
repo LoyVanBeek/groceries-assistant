@@ -108,9 +108,12 @@ def test_bonus_lives_on_the_select_page_only(tmp_path, monkeypatch):
         store = Store(tmp_path / "state.db")
         plan_id, _start, _ = store.load_proposal()
         days = [r.day for r in store.plan_entries(plan_id)]
-        select_url = f"/plan/select?day={days[0].isoformat()}"
 
-        resp = client.post("/plan/bonus/refresh", data={"back": select_url}, follow_redirects=False)
+        resp = client.post(
+            "/plan/bonus/refresh",
+            data={"back": f"/plan/select?day={days[0].isoformat()}"},
+            follow_redirects=False,
+        )
         assert resp.status_code == 303
         assert (tmp_path / "bonus.yaml").is_file()  # cached, hand-editable
 
@@ -150,6 +153,132 @@ def test_bonus_lives_on_the_select_page_only(tmp_path, monkeypatch):
         page = client.get(resp.headers["location"]).text
         assert "Bonus ophalen mislukt" in page
         assert "onverwachte responsvorm" in page
+
+
+def test_barcode_lookup_and_remember(tmp_path):
+    """The scanner's endpoints: an unknown EAN 404s until it is remembered
+    once; a malformed one 400s."""
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        assert client.get("/barcode/8710600988068").status_code == 404
+        assert client.get("/barcode/geen-ean").status_code == 400
+
+        resp = client.post("/barcode/8710600988068", data={"title": "Hak Tomatenblokjes"})
+        assert resp.status_code == 200
+        assert resp.json() == {"ean": "8710600988068", "title": "Hak Tomatenblokjes"}
+
+        assert client.get("/barcode/8710600988068").json()["title"] == "Hak Tomatenblokjes"
+        assert client.post("/barcode/8710600988068", data={"title": "  "}).status_code == 400
+
+
+def test_scan_add_puts_a_scanned_package_on_the_list(tmp_path):
+    """The scan button's endpoint: a remembered barcode adds one item to the
+    current plan's list; duplicates and unknown barcodes give a notice."""
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        seed_plan(client)
+        client.post("/barcode/8710600988068", data={"title": "Hak Tomatenblokjes"})
+
+        # the scan button lives on the main page and on the list itself
+        assert "data-barcode-add=" in client.get("/plan").text
+        assert "data-barcode-add=" in client.get("/order").text
+
+        resp = client.post(
+            "/order/scan-add",
+            data={"ean": "8710600988068", "back": "/plan"},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        assert resp.headers["location"].startswith("/plan?scanadded=")
+
+        store = Store(tmp_path / "state.db")
+        plan_id = store.load_proposal()[0]
+        item = next(i for i in store.order_items(plan_id) if i["product"] == "Hak Tomatenblokjes")
+        assert item["amount"] == 1 and item["unit"] == "stuk"
+        assert "Hak Tomatenblokjes" in client.get("/order").text  # on the list
+
+        # the notice shows on the page you scanned from
+        page = client.get(resp.headers["location"]).text
+        assert "staat op de boodschappenlijst" in page
+
+        # a second scan of the same package: a notice, not a duplicate row
+        resp = client.post(
+            "/order/scan-add",
+            data={"ean": "8710600988068", "back": "/order"},
+            follow_redirects=False,
+        )
+        assert resp.headers["location"].startswith("/order?error=scan:")
+        page = client.get(resp.headers["location"]).text
+        assert "staat al op de lijst" in page
+
+        # an unknown barcode is refused with a notice
+        resp = client.post(
+            "/order/scan-add",
+            data={"ean": "8718951001305", "back": "/order"},
+            follow_redirects=False,
+        )
+        page = client.get(resp.headers["location"]).text
+        assert "onbekende barcode 8718951001305" in page
+
+
+def test_fill_remaining_keeps_manual_picks(tmp_path):
+    """'Vul de lege dagen in': only the days without a dish get a proposal;
+    the button is visible on a partly filled week and gone when full/empty."""
+    seed_recipe(tmp_path)
+    seed_soep(tmp_path)
+    (tmp_path / "recipes" / "curry.yaml").write_text(
+        "name: Curry\nservings: 4\ntime: {cook: 30}\n"
+        "ingredients:\n  - {product: rijst, amount: 400, unit: g}\n",
+        encoding="utf-8",
+    )
+    with make_client(tmp_path) as client:
+        client.get("/plan")  # the empty week: the skeleton
+        store = Store(tmp_path / "state.db")
+        plan_id, _start, _ = store.load_proposal()
+        days = sorted(r.day for r in store.plan_entries(plan_id))
+        page = client.get("/plan").text
+        assert "Vul de lege dagen in" not in page  # the week is empty: use fill
+
+        # hand-pick two days (the picker's normal flow)
+        client.post("/plan/swap", data={"day": days[2].isoformat(), "choice": "pasta"})
+        client.post("/plan/swap", data={"day": days[3].isoformat(), "choice": "bonensoep"})
+        after_picks = {r.day: (r.kind, r.recipe_slug) for r in store.plan_entries(plan_id)}
+
+        page = client.get("/plan").text
+        assert "Vul de lege dagen in" in page  # partly filled: the button shows
+        assert "Vul de week in" not in page  # the week is not empty anymore
+
+        resp = client.post("/plan/fill-remaining", follow_redirects=False)
+        assert resp.status_code == 303
+        rows = {r.day: r for r in store.plan_entries(plan_id)}
+        # the manual picks survived untouched
+        assert (rows[days[2]].kind, rows[days[2]].recipe_slug) == after_picks[days[2]]
+        assert (rows[days[3]].kind, rows[days[3]].recipe_slug) == after_picks[days[3]]
+        # and every evening has something on it now
+        assert all(r.recipe_slug or r.kind != "cook" for r in rows.values())
+        # the restjes source stays correct across the merge
+        for r in rows.values():
+            if r.kind == "leftovers":
+                assert r.source_slug
+
+        page = client.get("/plan").text
+        assert "Vul de lege dagen in" not in page  # nothing left to fill
+
+
+def test_settings_page_has_the_scanner(tmp_path):
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        page = client.get("/settings").text
+        assert page.count("data-barcode-scan=") == 2  # staples + verpakkingen form
+        assert "/static/barcode.js" in page
+
+
+def test_barcode_script_is_valid_javascript():
+    """A syntax error would make scanning silently do nothing."""
+    import esprima
+
+    static = Path(web_app.__file__).parent / "static"
+    esprima.parseScript((static / "barcode.js").read_text(encoding="utf-8"))
 
 
 def test_bonus_refresh_falls_back_to_search_when_bonuspage_refuses(tmp_path, monkeypatch):

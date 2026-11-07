@@ -23,6 +23,12 @@
     <span class="muted">de week staat leeg; zelf invullen kan per dag via &lsquo;gerecht kiezen&rsquo;</span></p>
 </form>
 {% endif %}
+{% if week_partly %}
+<form method="post" action="/plan/fill-remaining">
+  <p><button type="submit" class="primary">Vul de lege dagen in</button>
+    <span class="muted">vult alleen de dagen zonder gerecht; jouw keuzes blijven staan</span></p>
+</form>
+{% endif %}
 <form id="scan-add-form" method="post" action="/order/scan-add" hidden>
   <input type="hidden" name="ean">
   <input type="hidden" name="back" value="/plan">

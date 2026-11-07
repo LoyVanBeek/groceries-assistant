@@ -128,6 +128,8 @@ def plan_week(
     dishes: Sequence[ComposedDish] = (),
     components: list[Recipe] | None = None,
     bonus: Mapping[str, int] | None = None,
+    planned: set[str] | None = None,
+    previous: Recipe | None = None,
 ) -> WeeklyPlan:
     """Pick a dish per evening, honouring time, verdicts and variety.
 
@@ -138,22 +140,27 @@ def plan_week(
 
     Pass `components` (as Recipe-shaped objects) alongside `recipes` so the
     engine can resolve dish part options that reference component slugs.
-    `bonus` maps recipe slug -> extra points (ingredients in the AH bonus); a
-    dish inherits it through its parts' scores.
+    `bonus` maps recipe slug -> how many of its ingredients are in the AH
+    bonus; a dish inherits it through its parts' scores.
+
+    `planned` seeds the already-taken slugs and `previous` is the dish of the
+    evening before the first one planned here — both for partial fills, where
+    the caller keeps its manually chosen evenings out of this run.
     """
     history = history or {}
+    planned = set(planned or ())
     recipes_by_slug = {recipe.slug: recipe for recipe in recipes}
     if components:
         for c in components:
             if c.slug not in recipes_by_slug:
                 recipes_by_slug[c.slug] = c
     entries: list[PlanEntry] = []
-    planned: set[str] = set()
     dislike_used = 0
     # Spare minutes on already-planned evenings, available for advance prep work.
     prep_capacity = 0
 
     for evening in sorted(evenings, key=lambda e: e.date):
+        prev = _previous_recipe(entries) if entries else previous
         pick = _pick(
             recipes,
             recipes_by_slug,
@@ -166,7 +173,7 @@ def plan_week(
             dislike_slots,
             repeat_window_days,
             prep_capacity,
-            _previous_recipe(entries),
+            prev,
             bonus=bonus,
         )
         if pick is None:
@@ -182,7 +189,7 @@ def plan_week(
                 dislike_slots,
                 repeat_window_days,
                 prep_capacity,
-                _previous_recipe(entries),
+                prev,
                 allow_reuse=True,
                 bonus=bonus,
             )
