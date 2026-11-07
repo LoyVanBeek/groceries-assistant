@@ -7,6 +7,16 @@
    kolommen en de mobiele uitklapper nooit elkaars velden posten; elke actie
    laadt de pagina opnieuw, dus er kunnen geen verlopen kopieën posten. #}
 {% macro row_more(e, row) %}
+{% if not e.is_ordered and not e.is_approved %}
+<a class="btn-small" href="/plan/select?day={{ e.day_iso }}" aria-label="Gerecht kiezen voor {{ e.label }}">gerecht kiezen</a>
+{% endif %}
+{% if e.kind == 'leftovers' and not e.is_approved %}
+<form method="post" action="/plan/swap" class="inline">
+  <input type="hidden" name="day" value="{{ e.day_iso }}">
+  <input type="hidden" name="choice" value="__cook__">
+  <button>toch koken</button>
+</form>
+{% endif %}
 <form method="post" action="/plan/evening" id="evening-{{ row }}-m">
   <input type="hidden" name="day" value="{{ e.day_iso }}">
   <label class="row-more-label">Minuten {{ e.label }}

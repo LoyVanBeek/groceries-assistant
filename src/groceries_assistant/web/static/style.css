@@ -699,12 +699,20 @@ table.plan .col-attend .cell-name { display: none; }
   table.plan .col-attend { display: inline-block; width: auto; padding-right: 0.75rem; }
   table.plan .col-attend .cell-name { display: inline; padding-right: 0.3rem; }
 
-  /* compact rows: the day + dish stay, the rest hides into the row expander */
+  /* compact rows: only the day and the dish name stay visible; everything
+     else hides into the row's expander (whose copies carry their own forms) */
   table.plan .col-cook, table.plan .col-attend, table.plan .col-approve { display: none; }
   table.plan .parts-form { display: none; }
+  table.plan .col-day .budget { display: none; }
+  table.plan .col-dish > .thumb, table.plan .col-dish > .restjes-thumb { display: none; }
+  table.plan .col-dish .parts-label { display: none; }
+  table.plan .col-dish > div > .btn-small { display: none; }
+  table.plan .col-dish > form.inline { display: none; }
   .row-more { display: block; }
   .row-more summary { cursor: pointer; color: var(--muted); }
   .row-more-label { display: block; margin: 0.25rem 0; }
+  .row-more .btn-small { display: inline-block; margin: 0.3rem 0; }
+  .row-more form.inline { margin: 0.3rem 0; }
   .move-arrows { display: flex; gap: 0.75rem; margin: 0.4rem 0; }
 
   table.select-table thead { display: none; }
