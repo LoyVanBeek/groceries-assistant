@@ -334,9 +334,10 @@ table.order-links td.col-confirm { white-space: nowrap; }
 
 .drag-handle {
   cursor: grab;
-  margin-right: 0.35em;
+  margin-right: 0.35rem;
   color: var(--muted);
   user-select: none;
+  touch-action: none;
 }
 
 tr.drop-target td {
@@ -346,6 +347,10 @@ tr.drop-target td {
 tr.dragging td { opacity: 0.45; }
 
 .drag-ghost {
+  position: fixed;
+  z-index: 60;
+  pointer-events: none;
+  touch-action: none;
   display: inline-block;
   max-width: 260px;
   padding: 0.45rem 0.75rem;
@@ -717,7 +722,8 @@ table.plan .col-attend .cell-name { display: none; }
     column-gap: 0.5rem;
     align-items: center;
   }
-  table.plan tr.evening > td { width: auto; min-width: 0; border: none; padding: 0.2rem 0; }
+  table.plan tr.evening > td { width: auto; min-width: 0; border: none; padding: 0.1rem 0; }
+  table.plan .thumb { width: 2.5rem; height: 2.5rem; }
   table.plan td.col-dish {
     min-width: 0;
     display: flex;
