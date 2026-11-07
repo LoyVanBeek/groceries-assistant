@@ -336,7 +336,8 @@ def test_plan_starts_empty_and_fills_on_button_press(tmp_path):
     with make_client(tmp_path) as client:
         page = client.get("/plan").text
         assert "Vul de week in" in page
-        assert page.count(">gerecht kiezen<") == 7
+        # seven days, each with the link in the dish cell plus the expander
+        assert page.count(">gerecht kiezen<") == 14
 
         store = Store(tmp_path / "state.db")
         plan_id, _start, _ = store.load_proposal()
