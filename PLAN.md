@@ -24,16 +24,16 @@ API's isBonus flags, select-page only), bookmarklet-POST, barcode scanner
 
 ## 2. Compact mobile week rows (TODO: "On mobile, just have the recipe names…")
 
-- [ ] Per evening block on mobile: day + dish name (+ time/bonus chip) only;
+- [x] Per evening block on mobile: day + dish name (+ time/bonus chip) only;
       kok, attendance, goedkeuren/verplaatsen and dish parts move into a
       details-expander per row, so the week fits one screen
-- [ ] Dual rendering with per-breakpoint form ids (Jinja macro): desktop keeps
+- [x] Dual rendering with per-breakpoint form ids (Jinja macro): desktop keeps
       its columns, mobile gets the expander — no double-submit conflicts
-- [ ] Reordering on mobile without HTML5-drag: ↑/↓ buttons inside the
-      expander, posting the same /plan/move-day rotation — also sidesteps the
+- [x] Reordering on mobile without HTML5-drag: ↑/↓ buttons inside the
+      expander, posting the same /plan/swap-days exchange — also sidesteps the
       pull-to-refresh clash
 - [ ] Test on a real phone (Firefox): seven days fit one screen, expanders
-      work, ↑/↓ moves correctly
+      work, ↑/↓ moves correctly (user's check)
 
 **Verify**: phone, Firefox, no scrolling needed for the whole week; details
 per row available; reorder via arrows.
