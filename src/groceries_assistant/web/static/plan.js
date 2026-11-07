@@ -132,8 +132,9 @@
       };
       const onEnd = (endEvent) => {
         handle.removeEventListener("pointermove", onMove);
-        const to = dragging && dragRow ? (rowUnderPoint(endEvent.clientY) || {}).dataset?.day : null;
-        endDrag(to || null);
+        const target = dragging && dragRow ? rowUnderPoint(endEvent.clientY) : null;
+        const to = target ? target.dataset.day : null;
+        endDrag(to);
       };
       handle.addEventListener("pointermove", onMove);
       handle.addEventListener("pointerup", onEnd, { once: true });
