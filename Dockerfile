@@ -13,6 +13,11 @@ COPY pyproject.toml uv.lock ./
 COPY src ./src
 RUN uv sync --frozen --no-dev
 
+# version indicator: pass the checkout's hash, e.g.
+#   GIT_HASH=$(git rev-parse --short HEAD) docker compose up --build -d
+ARG GIT_HASH=dev
+ENV GIT_HASH=${GIT_HASH}
+
 EXPOSE 8901
 ENV GROCERIES_DATA_DIR=/app/data
 # playwright drives the system chromium, headed under xvfb (Akamai bypass)

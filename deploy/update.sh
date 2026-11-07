@@ -23,7 +23,9 @@ cd "$REPO_DIR"
 echo "pulling the latest master..."
 git pull --ff-only || fail "git pull failed (lokaal gewijzigde bestanden op de server?)"
 
-echo "rebuilding the image..."
+echo "rebuilding the image (met de huidige commit-hash als versie-indicator)..."
+GIT_HASH="$(git rev-parse --short HEAD)"
+export GIT_HASH
 run_root docker compose build
 
 echo "restarting the service..."

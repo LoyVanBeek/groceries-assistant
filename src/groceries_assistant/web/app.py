@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import subprocess
 import tempfile
 from collections.abc import Mapping
 from datetime import date, timedelta
@@ -149,6 +150,28 @@ AH_CANDIDATES = 8
 STAGED_UID_RE = re.compile(r"[0-9a-f]{32}\Z")
 PHOTO_STAGING = "photo-staging"
 OCR_STAGING = "ocr-staging"
+
+
+def git_hash() -> str:
+    """The version indicator's hash: GIT_HASH wins (baked into the image at
+    build time), then the checkout's git, then 'dev'. The container has no
+    .git, so a docker build passes the hash via the GIT_HASH build-arg."""
+    baked = os.environ.get("GIT_HASH")
+    if baked:
+        return baked
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            cwd=Path(__file__).parent,
+        )
+        if out.returncode == 0 and out.stdout.strip():
+            return out.stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return "dev"
 
 
 def _image_ext(filename: str | None) -> str:
@@ -630,6 +653,7 @@ def create_app(
     app = FastAPI(title="Groceries Assistant")
     templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
     app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
+    templates.env.globals["GIT_HASH"] = git_hash()
 
     holder: list[Store] = []
 

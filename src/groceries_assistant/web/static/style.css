@@ -123,6 +123,15 @@ nav a.active {
 
 nav form.inline { margin-left: auto; }
 
+.git-hash {
+  margin-left: 0.5rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-family: ui-monospace, monospace;
+  align-self: center;
+  white-space: nowrap;
+}
+
 table { border-collapse: collapse; width: 100%; }
 th, td { border: 1px solid var(--border); padding: 0.5rem 0.6rem; text-align: left; vertical-align: top; }
 

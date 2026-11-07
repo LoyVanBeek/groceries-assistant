@@ -27,7 +27,8 @@ Zodra de unit actief is: geen `docker compose up -d` meer met de hand, die
 vecht met de service om dezelfde containers; stop/start gaat via `systemctl`.
 
 Bijwerken na nieuwe code op de server: `sudo ./deploy/update.sh` (pull +
-rebuild + restart).
+rebuild + restart). Lokaal met de versie-indicator:
+`GIT_HASH=$(git rev-parse --short HEAD) docker compose up --build -d`.
 
 Flow:
 

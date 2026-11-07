@@ -283,6 +283,22 @@ def test_mobile_week_rows_have_an_expander(tmp_path):
         assert f'value="{days[1]}"' in arrows  # down: the next evening
 
 
+def test_git_hash_indicator(tmp_path, monkeypatch):
+    """The nav's version indicator: a baked GIT_HASH wins, otherwise the
+    checkout's own git hash; pages show it top-right."""
+    monkeypatch.setenv("GIT_HASH", "abc1234")
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        page = client.get("/plan").text
+        assert ">abc1234</span>" in page
+
+    # no env: fall back to this checkout's hash
+    monkeypatch.delenv("GIT_HASH", raising=False)
+    with make_client(tmp_path) as client:
+        match = re.search(r'class="git-hash"[^>]*>([0-9a-f]+)</span>', client.get("/plan").text)
+        assert match and len(match.group(1)) >= 7
+
+
 def test_settings_page_has_the_scanner(tmp_path):
     seed_recipe(tmp_path)
     with make_client(tmp_path) as client:
