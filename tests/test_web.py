@@ -411,7 +411,7 @@ def test_move_day_reorders_the_week(tmp_path):
         seed_plan(client)
         page = client.get("/plan").text
         assert 'class="drag-handle"' in page
-        assert 'action="/plan/move-day"' in page
+        assert "/static/plan.js?v=" in page  # the drag engine is loaded
 
         store = Store(tmp_path / "state.db")
         plan_id, _start, _ = store.load_proposal()
