@@ -159,7 +159,7 @@
   {% set row = loop.index %}
   <tr class="evening {% if e.over_budget %}over{% endif %} {% if e.is_past %}passed{% endif %} {% if e.is_today %}today{% endif %}" data-day="{{ e.day_iso }}">
     <td class="col-day">
-      <span class="drag-handle" draggable="true" title="Sleep om deze dag te verplaatsen" aria-label="Sleep om deze dag te verplaatsen">&#8942;&#8942;</span>
+      <span class="drag-handle" title="Sleep om deze dag te verplaatsen" aria-label="Sleep om deze dag te verplaatsen">&#8942;&#8942;</span>
       <strong>{{ e.label }}</strong>
       <span class="day-tile">
         <strong class="day-abbr">{{ e.day_abbr }}</strong>
@@ -387,10 +387,6 @@
 <form method="post" action="/plan/clear"
   onsubmit="return confirm('Week(en) leegmaken? Het voorstel, alle goedkeuringen en bestellingen van deze week en later worden gewist; het verleden blijft staan.')">
   <p><button type="submit" class="link">Week(en) leegmaken</button></p>
-</form>
-<form id="move-day-form" method="post" action="/plan/move-day" hidden>
-  <input type="hidden" name="day">
-  <input type="hidden" name="to">
 </form>
 {% endif %}
 {% endblock %}
