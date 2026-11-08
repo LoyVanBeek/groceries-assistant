@@ -146,7 +146,6 @@
       let dragging = false;
 
       const onMove = (moveEvent) => {
-        if (!dragRow) return;
         if (!dragging) {
           // a small threshold: a tap stays a tap, a move becomes a drag
           if (Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY) < 8) return;
