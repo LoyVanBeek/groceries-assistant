@@ -63,6 +63,8 @@ per row available; reorder via arrows.
       option + swap, engine frozen-fallback rules
 - [ ] Later: dragging frozen portions onto a day straight from the week page
       (for now: selection page + auto-planner cover it)
+- [ ] Later: vriezen van samengestelde gerechten — het vries-punt kijkt alleen
+      in gewone recepten, een ❄ op een dag-gerecht weigert nu met restjes-geen
 
 **Verify**: cook a dish with leftover portions → chip shows the count → ❄
 freezes them → clear the week → the stock is still on the cook row of the
