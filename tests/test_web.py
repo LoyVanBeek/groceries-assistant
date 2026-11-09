@@ -4754,7 +4754,7 @@ def test_frozen_restjes_keep_their_source_across_swaps(tmp_path):
         assert after[days[3]].source_slug == "pasta"
         assert after[days[3]].frozen is True
         page = client.get("/plan").text
-        assert "Vriezer (Pasta)" in page
+        assert "Pasta (uit vriezer)" in page
         assert "Restjes (Pasta)" not in page
 
 
