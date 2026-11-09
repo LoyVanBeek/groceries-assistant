@@ -4622,9 +4622,15 @@ def test_frozen_restjes_on_the_select_page_and_swap(tmp_path):
         assert "restjes uit de vriezer" in page
         assert "Pasta" in page
 
+        # de keuze precies zoals de pagina hem rendert — template en endpoint
+        # kunnen dan niet meer uit elkaar lopen
+        rendered = re.search(r'name="choice" value="(__vriezer__:[^"]+)"', page)
+        assert rendered is not None
+        assert rendered.group(1) == "__vriezer__:pasta"
+
         resp = client.post(
             "/plan/swap",
-            data={"day": target.isoformat(), "choice": "__vriezer__:pasta"},
+            data={"day": target.isoformat(), "choice": rendered.group(1)},
             follow_redirects=False,
         )
         assert resp.status_code == 303

@@ -126,7 +126,7 @@
   {% for f in frozen_options %}
   <form method="post" action="/plan/swap" class="inline">
     <input type="hidden" name="day" value="{{ day }}">
-    <input type="hidden" name="choice" value="__vriezer__{{ f.slug }}">
+    <input type="hidden" name="choice" value="__vriezer__:{{ f.slug }}">
     {% if confirmed %}<label class="confirm-force"><input type="checkbox" name="force" required> boodschappen al besteld</label>{% endif %}
     <button>&#10052; restjes uit de vriezer: {{ f.name }} ({{ f.portions }} porties)</button>
   </form>
