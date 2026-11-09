@@ -3696,8 +3696,10 @@ def test_leftovers_follow_the_sources_part_picks(tmp_path):
         assert "+ Sperziebonen" not in text
 
 
-def test_leftovers_repoint_when_the_source_day_is_exchanged(tmp_path):
-    """Ruir takes the recipe before a restjes evening along with it."""
+def test_leftovers_stay_with_their_dish_and_fall_back_when_it_vanishes(tmp_path):
+    """Restjes horen bij hun gerecht: een ruil elders laat de bron staan zolang
+    het gerecht nog ergens eerder kookt; verdwijnt het helemaal, dan valt de
+    avond terug op de dichtstbijzijnde vorige kookavond."""
     seed_recipe(tmp_path)
     (tmp_path / "recipes" / "curry.yaml").write_text(
         "name: Curry\nservings: 4\ntime: {cook: 30}\n"
@@ -3726,17 +3728,23 @@ def test_leftovers_repoint_when_the_source_day_is_exchanged(tmp_path):
         )
         assert "Restjes (Curry)" in client.get("/plan").text
 
-        # exchange the source (tuesday=curry) with monday=pasta
+        # exchange the source (tuesday=curry) with monday=pasta: the restjes
+        # evening stays with its dish — curry still cooks, now on monday
         client.post(
             "/plan/swap-days",
             data={"day": tuesday.isoformat(), "swap_to": monday.isoformat()},
             follow_redirects=False,
         )
-        text = client.get("/plan").text
-        assert "Restjes (Pasta)" in text
-        # the day that remains as leftovers of the original source may also exist,
-        # but wednesday (the one we created) now shows Restjes (Pasta)
-        # assert "Restjes (Curry)" not in text
+        assert "Restjes (Curry)" in client.get("/plan").text
+
+        # curry disappears from the week entirely: the evening falls back to
+        # the nearest preceding cook (pasta on tuesday)
+        client.post(
+            "/plan/swap",
+            data={"day": monday.isoformat(), "choice": "pasta"},
+            follow_redirects=False,
+        )
+        assert "Restjes (Pasta)" in client.get("/plan").text
 
 
 def test_approved_day_blocks_a_swap_until_revoked(tmp_path):
@@ -4640,3 +4648,144 @@ def test_frozen_restjes_on_the_select_page_and_swap(tmp_path):
         reloaded = VriezerStore(tmp_path / "vriezer.yaml")
         reloaded.load()
         assert reloaded.portions("pasta") == 0
+
+
+def test_restjes_chip_of_a_dish_freezes_its_component(tmp_path):
+    """De ❄ van een samengesteld gerecht vriezt het gekozen onderdeel met de
+    meeste porties in, niet het gerecht als geheel; de chip telt dat surplus."""
+    seed_part_recipes(tmp_path)
+    (tmp_path / "recipes" / "aardappels-uit-de-oven.yaml").write_text(
+        AARDAPPEL.replace("servings: 4", "servings: 6"), encoding="utf-8"
+    )
+    seed_dish(tmp_path)
+    with make_client(tmp_path) as client:
+        seed_plan(client)
+        day = plan_a_dish(client, tmp_path)
+        pick(
+            client,
+            day,
+            aardappels="aardappels-uit-de-oven",
+            groente="sperziebonen",
+            vlees="kip-doner",
+        )
+        store = Store(tmp_path / "state.db")
+        plan_id, _start, _ = store.load_proposal()
+        rows = store.plan_entries(plan_id)
+        rebuilt = [
+            PlanEntryRow(
+                day=r.day,
+                kind=r.kind,
+                recipe_slug=r.recipe_slug,
+                source_slug=r.source_slug,
+                people=2 if r.day == day else r.people,
+            )
+            for r in rows
+        ]
+        store.update_proposal_rows(plan_id, rebuilt)
+
+        page = client.get("/plan").text
+        assert "restjes (4)" in page  # 6 porties aardappels, 2 eters
+
+        resp = client.post(
+            "/plan/restjes-vriezer", data={"day": day.isoformat()}, follow_redirects=False
+        )
+        assert resp.status_code == 303
+        vriezer = VriezerStore(tmp_path / "vriezer.yaml")
+        vriezer.load()
+        assert vriezer.all() == {"aardappels-uit-de-oven": 4}
+        # de porties zitten nu in de vriezer: de chip verdwijnt, de regel blijft
+        page = client.get("/plan").text
+        assert "restjes (4)" not in page
+        assert "in de vriezer: 4 porties" in page
+
+
+def test_frozen_restjes_keep_their_source_across_swaps(tmp_path):
+    """Restjes uit de vriezer volgen nooit de vorige kookavond: hun bron is
+    leidend, ook na latere ruilen elders in de week."""
+    seed_recipe(tmp_path)
+    (tmp_path / "recipes" / "pasta.yaml").write_text(
+        PASTA.replace("servings: 4", "servings: 6"), encoding="utf-8"
+    )
+    (tmp_path / "recipes" / "curry.yaml").write_text(
+        "name: Curry\nservings: 4\ntime: {cook: 30}\n"
+        "ingredients:\n  - {product: rijst, amount: 400, unit: g}\n",
+        encoding="utf-8",
+    )
+    with make_client(tmp_path) as client:
+        seed_plan(client)
+        store = Store(tmp_path / "state.db")
+        plan_id, _start, _ = store.load_proposal()
+        days = [r.day for r in store.plan_entries(plan_id)]
+        rebuilt = [
+            PlanEntryRow(day=d, kind="cook", recipe_slug="pasta" if i == 0 else None, people=2)
+            for i, d in enumerate(days)
+        ]
+        store.update_proposal_rows(plan_id, rebuilt)
+
+        # invriezen: 4 porties pasta
+        resp = client.post(
+            "/plan/restjes-vriezer", data={"day": days[0].isoformat()}, follow_redirects=False
+        )
+        assert resp.status_code == 303
+
+        # eten op dag 4: een restjes-avond met de vriezer als bron
+        resp = client.post(
+            "/plan/swap",
+            data={"day": days[3].isoformat(), "choice": "__vriezer__:pasta"},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        after = {r.day: r for r in store.plan_entries(plan_id)}
+        assert after[days[3]].kind == "leftovers"
+        assert after[days[3]].source_slug == "pasta"
+        assert after[days[3]].frozen is True
+        vriezer = VriezerStore(tmp_path / "vriezer.yaml")
+        vriezer.load()
+        assert vriezer.portions("pasta") == 0
+
+        # een ruil elders schuift de vriesrestjes niet mee
+        client.post(
+            "/plan/swap",
+            data={"day": days[1].isoformat(), "choice": "curry"},
+            follow_redirects=False,
+        )
+        after = {r.day: r for r in store.plan_entries(plan_id)}
+        assert after[days[3]].source_slug == "pasta"
+        assert after[days[3]].frozen is True
+        assert "Restjes (Pasta)" in client.get("/plan").text
+
+
+def test_restjes_chip_keeps_its_dish_across_a_cook_day(tmp_path):
+    """Sleep je de chip van dinsdag naar vrijdag met een kookavond ertussen,
+    dan eet vrijdag nog steeds het gerecht van de chip, niet dat van donderdag."""
+    seed_recipe(tmp_path)
+    (tmp_path / "recipes" / "curry.yaml").write_text(
+        "name: Curry\nservings: 4\ntime: {cook: 30}\n"
+        "ingredients:\n  - {product: rijst, amount: 400, unit: g}\n",
+        encoding="utf-8",
+    )
+    with make_client(tmp_path) as client:
+        seed_plan(client)
+        store = Store(tmp_path / "state.db")
+        plan_id, _start, _ = store.load_proposal()
+        days = [r.day for r in store.plan_entries(plan_id)]
+        rebuilt = [
+            PlanEntryRow(
+                day=d,
+                kind="cook",
+                recipe_slug="pasta" if i == 0 else ("curry" if i == 1 else None),
+                people=2,
+            )
+            for i, d in enumerate(days)
+        ]
+        store.update_proposal_rows(plan_id, rebuilt)
+
+        resp = client.post(
+            "/plan/restjes",
+            data={"source_day": days[0].isoformat(), "day": days[3].isoformat()},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        after = {r.day: r for r in store.plan_entries(plan_id)}
+        assert after[days[3]].source_slug == "pasta"
+        assert "Restjes (Pasta)" in client.get("/plan").text

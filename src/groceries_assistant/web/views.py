@@ -14,9 +14,51 @@ from groceries_assistant.preferences import Preferences
 from groceries_assistant.recipes.loader import load_recipes_with_errors
 from groceries_assistant.services import planner_service as planner
 from groceries_assistant.services.planning import alternatives
-from groceries_assistant.store.db import Store
+from groceries_assistant.store.db import PlanEntryRow, Store
 
 WEEKDAYS = ("maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag", "zondag")
+
+
+def restjes_surplus(
+    row: PlanEntryRow,
+    picks_day: Mapping[str, str],
+    by_slug: Mapping[str, Recipe],
+    dishes_by_slug: Mapping[str, ComposedDish],
+    gepland: Mapping[str, int],
+    vriezer=None,
+) -> tuple[int, str | None]:
+    """Hoeveel porties deze kookavond overlaat, en waar ze vandaan komen.
+
+    Returns (porties, slug): een gewoon recept is zijn eigen bron; een
+    samengesteld gerecht laat het gekozen onderdeel met de meeste porties over
+    achter — de component wordt ingevroren, niet het gerecht als geheel.
+    `gepland` telt per slug de porties die al als restjes-avond staan
+    (gerechtsbron én onderdeelbron), `vriezer.portions` wat al ingevroren is.
+    """
+    if row.kind != "cook" or not row.recipe_slug:
+        return 0, None
+    people = row.people or 4
+    dish = dishes_by_slug.get(row.recipe_slug)
+    if dish is None:
+        recipe = by_slug.get(row.recipe_slug)
+        if recipe is None:
+            return 0, None
+        restjes = recipe.servings - people - gepland.get(recipe.slug, 0)
+        restjes -= vriezer.portions(recipe.slug) if vriezer else 0
+        return max(0, restjes), recipe.slug
+    # samengesteld gerecht: alleen de gekozen onderdelen zijn werkelijk gekookt
+    dish_eaten = gepland.get(dish.slug, 0)
+    best_portions, best_slug = 0, None
+    for pick_slug in dict.fromkeys(picks_day.values()):
+        part = by_slug.get(pick_slug)
+        if part is None:
+            continue
+        restjes = part.servings - people - gepland.get(pick_slug, 0)
+        restjes -= vriezer.portions(pick_slug) if vriezer else 0
+        restjes -= dish_eaten
+        if restjes > best_portions:
+            best_portions, best_slug = restjes, pick_slug
+    return max(0, best_portions), best_slug
 
 
 class Popularity(TypedDict):
@@ -193,6 +235,16 @@ def plan_view(
             for p in people
         ]
         cooking = cook_view(evening.cook or "", members, list(evening.joiners or ()))
+        restjes_portions, _freeze_slug = restjes_surplus(
+            row, picks.get(row.day, {}), by_slug, dishes_by_slug, restjes_gepland, vriezer
+        )
+        if row.kind == "cook" and row.recipe_slug in dishes_by_slug:
+            restjes_frozen = sum(
+                (vriezer.portions(slug) if vriezer else 0)
+                for slug in set(picks.get(row.day, {}).values())
+            )
+        else:
+            restjes_frozen = vriezer.portions(row.recipe_slug) if vriezer and row.recipe_slug else 0
         view.append(
             {
                 "day_iso": row.day.isoformat(),
@@ -220,22 +272,9 @@ def plan_view(
                 "members": members,
                 "cooking": cooking,
                 "can_leftovers": (row.kind in ("cook", "no_cook") and last_cook_slug is not None),
-                "restjes_portions": (
-                    max(
-                        0,
-                        by_slug[row.recipe_slug].servings
-                        - (row.people or 4)
-                        - restjes_gepland.get(row.recipe_slug, 0)
-                        - (vriezer.portions(row.recipe_slug) if vriezer else 0),
-                    )
-                    if row.kind == "cook" and row.recipe_slug in by_slug
-                    else 0
-                ),
-                "restjes_frozen": (
-                    vriezer.portions(row.recipe_slug)
-                    if vriezer and row.kind == "cook" and row.recipe_slug
-                    else 0
-                ),
+                "restjes_portions": restjes_portions,
+                "restjes_frozen": restjes_frozen,
+                "frozen": row.frozen,
                 "over_budget": row.kind == "cook" and minutes > budget,
                 "is_today": row.day == today,
                 "is_past": row.day < today,

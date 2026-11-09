@@ -140,3 +140,4 @@
       filled and 'voor <recept>' has its space back)
 - [ ] Add button to add 'remaining days' on week menu
 - [ ] On mobile, just have the recipe names and only show details in a dropdown on each row, so that the whole page fits a single screen., That makes drag and drop nicer on mobile, which also has pull to refresh which gets confused with drag and drop. 
+- [ ] Keep all data in Postgress or sqlite, not yaml files.

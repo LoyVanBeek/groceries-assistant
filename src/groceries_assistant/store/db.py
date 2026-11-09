@@ -72,6 +72,7 @@ CREATE TABLE IF NOT EXISTS plan_entries (
     recipe_slug TEXT,                     -- NULL for leftovers
     source_slug TEXT,                     -- leftovers source
     people INTEGER NOT NULL DEFAULT 4,
+    frozen INTEGER NOT NULL DEFAULT 0,    -- restjes uit de vriezer: bron is leidend
     PRIMARY KEY (plan_id, day)
 );
 
@@ -155,6 +156,9 @@ class PlanEntryRow:
     recipe_slug: str | None = None
     source_slug: str | None = None
     people: int = 4
+    frozen: bool = False
+    """True for leftovers evenings that eat freezer stock: their source is
+    leading and never follows the nearest cook."""
 
 
 @dataclass
@@ -170,6 +174,7 @@ class ApprovedPlan:
 ADDED_COLUMNS: dict[str, tuple[tuple[str, str], ...]] = {
     "order_items": (("pack_count", "REAL"), ("pack_unit", "TEXT"), ("note", "TEXT")),
     "plans": (("approved_through", "TEXT"), ("ordered_through", "TEXT")),
+    "plan_entries": (("frozen", "INTEGER NOT NULL DEFAULT 0"),),
 }
 
 
@@ -430,8 +435,9 @@ class Store:
         assert plan_id is not None
         for entry in entries:
             cur.execute(
-                "INSERT INTO plan_entries(plan_id, day, kind, recipe_slug, source_slug, people)"
-                " VALUES (?,?,?,?,?,?)",
+                "INSERT INTO plan_entries"
+                "(plan_id, day, kind, recipe_slug, source_slug, people, frozen)"
+                " VALUES (?,?,?,?,?,?,?)",
                 (
                     plan_id,
                     entry.day.isoformat(),
@@ -439,6 +445,7 @@ class Store:
                     entry.recipe_slug,
                     entry.source_slug,
                     entry.people,
+                    int(entry.frozen),
                 ),
             )
         for day, day_picks in (picks or {}).items():
@@ -485,8 +492,9 @@ class Store:
         cur.execute("DELETE FROM plan_entries WHERE plan_id = ?", (plan_id,))
         for entry in entries:
             cur.execute(
-                "INSERT INTO plan_entries(plan_id, day, kind, recipe_slug, source_slug, people)"
-                " VALUES (?,?,?,?,?,?)",
+                "INSERT INTO plan_entries"
+                "(plan_id, day, kind, recipe_slug, source_slug, people, frozen)"
+                " VALUES (?,?,?,?,?,?,?)",
                 (
                     plan_id,
                     entry.day.isoformat(),
@@ -494,6 +502,7 @@ class Store:
                     entry.recipe_slug,
                     entry.source_slug,
                     entry.people,
+                    int(entry.frozen),
                 ),
             )
         self.conn.commit()
@@ -546,8 +555,9 @@ class Store:
         cur = self.conn.cursor()
         for entry in entries:
             cur.execute(
-                "INSERT INTO plan_entries(plan_id, day, kind, recipe_slug, source_slug, people)"
-                " VALUES (?,?,?,?,?,?)",
+                "INSERT INTO plan_entries"
+                "(plan_id, day, kind, recipe_slug, source_slug, people, frozen)"
+                " VALUES (?,?,?,?,?,?,?)",
                 (
                     plan_id,
                     entry.day.isoformat(),
@@ -555,6 +565,7 @@ class Store:
                     entry.recipe_slug,
                     entry.source_slug,
                     entry.people,
+                    int(entry.frozen),
                 ),
             )
         for day, day_picks in (picks or {}).items():
@@ -640,7 +651,7 @@ class Store:
         entries = {
             date.fromisoformat(r["day"]): r
             for r in cur.execute(
-                "SELECT day, kind, recipe_slug, source_slug, people"
+                "SELECT day, kind, recipe_slug, source_slug, people, frozen"
                 " FROM plan_entries WHERE plan_id = ?",
                 (plan_id,),
             )
@@ -651,13 +662,14 @@ class Store:
         a, b = entries[day_a], entries[day_b]
         for day, other in ((day_a, b), (day_b, a)):
             cur.execute(
-                "UPDATE plan_entries SET kind=?, recipe_slug=?, source_slug=?, people=?"
+                "UPDATE plan_entries SET kind=?, recipe_slug=?, source_slug=?, people=?, frozen=?"
                 " WHERE plan_id=? AND day=?",
                 (
                     other["kind"],
                     other["recipe_slug"],
                     other["source_slug"],
                     other["people"],
+                    other["frozen"],
                     plan_id,
                     day.isoformat(),
                 ),
@@ -690,7 +702,7 @@ class Store:
             dish_days.setdefault(r["recipe_slug"], []).append(date.fromisoformat(r["day"]))
         restjes_rows = self.conn.execute(
             "SELECT day, source_slug FROM plan_entries"
-            " WHERE plan_id=? AND kind='leftovers' AND source_slug IS NOT NULL",
+            " WHERE plan_id=? AND kind='leftovers' AND source_slug IS NOT NULL AND frozen=0",
             (plan_id,),
         ).fetchall()
         for row in restjes_rows:
@@ -769,8 +781,9 @@ class Store:
         assert plan_id is not None
         for entry in entries:
             cur.execute(
-                "INSERT INTO plan_entries(plan_id, day, kind, recipe_slug, source_slug, people)"
-                " VALUES (?,?,?,?,?,?)",
+                "INSERT INTO plan_entries"
+                "(plan_id, day, kind, recipe_slug, source_slug, people, frozen)"
+                " VALUES (?,?,?,?,?,?,?)",
                 (
                     plan_id,
                     entry.day.isoformat(),
@@ -778,6 +791,7 @@ class Store:
                     entry.recipe_slug,
                     entry.source_slug,
                     entry.people,
+                    int(entry.frozen),
                 ),
             )
         self.conn.commit()
@@ -833,7 +847,7 @@ class Store:
 
     def plan_entries(self, plan_id: int) -> list[PlanEntryRow]:
         rows = self.conn.execute(
-            "SELECT day, kind, recipe_slug, source_slug, people FROM plan_entries"
+            "SELECT day, kind, recipe_slug, source_slug, people, frozen FROM plan_entries"
             " WHERE plan_id = ? ORDER BY day",
             (plan_id,),
         ).fetchall()
@@ -844,6 +858,7 @@ class Store:
                 recipe_slug=row["recipe_slug"],
                 source_slug=row["source_slug"],
                 people=row["people"],
+                frozen=bool(row["frozen"]),
             )
             for row in rows
         ]

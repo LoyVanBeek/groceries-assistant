@@ -102,6 +102,7 @@ from groceries_assistant.web.views import (
     plan_view,
     popularity,
     recency,
+    restjes_surplus,
     select_options,
 )
 
@@ -740,32 +741,44 @@ def create_app(
         return earlier[-1] if earlier else None
 
     def _repoint_leftovers(plan_id: int, rows: list[PlanEntryRow]) -> list[PlanEntryRow]:
-        """Re-point each leftovers evening at the evening that now cooks before it.
+        """Houd elke restjes-avond aan zijn gerecht gekoppeld.
 
-        A leftovers evening eats what the most recent cook evening before it
-        makes, so when a swap moves that source (or part picks fill it
-        differently), the leftover follows: `source_slug` updates and the
-        day's picks are copied from the source again. An evening with no
-        preceding cook keeps its stored source -- the dish was planned, even
-        if it can no longer be cooked.
+        Een restjes-avond eet het gerecht waar zijn `source_slug` naar wijst,
+        waar die avond in de week ook staat: zolang het gerecht nog ergens
+        vóór de restjesdag gekookt wordt, blijft de bron staan en volgen de
+        dag-picks de avond waar het gerecht nu staat. Pas als het gerecht
+        nergens meer vóór de restjesdag kookt, valt de avond terug op de
+        dichtstbijzijnde vorige kookavond (het oude 'avond ervoor' gedrag).
+        Restjes uit de vriezer (frozen) staan los van de weekopbouw: hun bron
+        is leidend en wordt nooit verplaatst.
         """
         new_rows: list[PlanEntryRow] = []
         for row in rows:
-            if row.kind != "leftovers":
+            if row.kind != "leftovers" or row.frozen:
                 new_rows.append(row)
                 continue
-            source = _previous_cook_row(rows, row.day)
+            own = None
+            for r in reversed(rows):
+                if r.day < row.day and r.kind == "cook" and r.recipe_slug == row.source_slug:
+                    own = r
+                    break
+            source = own if own is not None else _previous_cook_row(rows, row.day)
             if source is None:
                 new_rows.append(row)
                 continue
-            new_rows.append(
-                PlanEntryRow(
-                    day=row.day,
-                    kind="leftovers",
-                    source_slug=source.recipe_slug,
-                    people=row.people,
+            if source.recipe_slug != row.source_slug:
+                new_rows.append(
+                    PlanEntryRow(
+                        day=row.day,
+                        kind="leftovers",
+                        source_slug=source.recipe_slug,
+                        people=row.people,
+                        frozen=row.frozen,
+                    )
                 )
-            )
+            else:
+                new_rows.append(row)
+            # de restjes-dag kookt de onderdelen van de bron-dag mee
             fresh = store().plan_picks(plan_id).get(source.day, {})
             if fresh != store().plan_picks(plan_id).get(row.day, {}):
                 store().set_picks(plan_id, row.day, fresh)
@@ -1010,10 +1023,15 @@ def create_app(
                     "portions": prev_recipe.servings - prev_people - restjes_gepland,
                 }
         # bevroren restjes: wat er in de vriezer ligt, kan elke avond gegeten worden
+        dishes = dishes_by_slug()
         frozen_options = [
             {
                 "slug": slug,
-                "name": known[slug].name if slug in known else slug,
+                "name": (
+                    known[slug].name
+                    if slug in known
+                    else (dishes[slug].name if slug in dishes else slug)
+                ),
                 "portions": portions,
             }
             for slug, portions in sorted(vriezer().all().items())
@@ -1104,7 +1122,13 @@ def create_app(
                 if portions <= 0:
                     raise HTTPException(400, "Geen restjes van dit gerecht in de vriezer")
                 new_rows.append(
-                    PlanEntryRow(day=target, kind="leftovers", source_slug=slug, people=portions)
+                    PlanEntryRow(
+                        day=target,
+                        kind="leftovers",
+                        source_slug=slug,
+                        people=portions,
+                        frozen=True,
+                    )
                 )
                 vriezer().take(slug, portions)
             elif choice == NO_COOK_CHOICE:
@@ -1177,24 +1201,21 @@ def create_app(
         row = next((r for r in rows if r.day == target), None)
         if row is None or row.kind != "cook" or not row.recipe_slug:
             return RedirectResponse("/plan?error=restjes-geen", status_code=303)
-        recipe = all_known().get(row.recipe_slug)
-        if recipe is None:
-            return RedirectResponse("/plan?error=restjes-geen", status_code=303)
-        restjes_gepland = sum(
-            (r.people or 0)
-            for r in rows
-            if r.kind == "leftovers" and r.source_slug == row.recipe_slug
+        gepland: dict[str, int] = {}
+        for r in rows:
+            if r.kind == "leftovers" and r.source_slug:
+                gepland[r.source_slug] = gepland.get(r.source_slug, 0) + (r.people or 0)
+        portions, slug = restjes_surplus(
+            row,
+            store().plan_picks(plan_id).get(target, {}),
+            all_known(),
+            dishes_by_slug(),
+            gepland,
+            vriezer(),
         )
-        portions = max(
-            0,
-            recipe.servings
-            - (row.people or 4)
-            - restjes_gepland
-            - vriezer().portions(row.recipe_slug),
-        )
-        if portions <= 0:
+        if portions <= 0 or slug is None:
             return RedirectResponse("/plan?error=restjes-geen", status_code=303)
-        vriezer().add(row.recipe_slug, portions)
+        vriezer().add(slug, portions)
         return RedirectResponse("/plan", status_code=303)
 
     def _row_dish_slug(rows: list[PlanEntryRow], day: date) -> str:

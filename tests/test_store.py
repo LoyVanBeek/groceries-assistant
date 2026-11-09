@@ -579,6 +579,32 @@ def test_swap_keeps_restjes_that_stay_after_the_dish(store):
     assert wednesday.kind == "leftovers" and wednesday.source_slug == "pasta"
 
 
+def test_swap_days_spares_frozen_restjes(store):
+    """Vriesrestjes hangen niet aan een kookdag: het gerecht mag voorbij ze
+    schuiven zonder dat het gebruik gewist wordt."""
+    start = date(2026, 11, 10)
+    plan_id = store.save_proposal(
+        start,
+        [
+            PlanEntryRow(day=start, kind="cook", recipe_slug="pasta", people=4),
+            PlanEntryRow(
+                day=start + timedelta(days=1),
+                kind="leftovers",
+                source_slug="pasta",
+                people=2,
+                frozen=True,
+            ),
+            PlanEntryRow(day=start + timedelta(days=3), kind="cook", recipe_slug="curry", people=4),
+        ],
+    )
+    store.swap_days(plan_id, start, start + timedelta(days=3))
+    by_day = {e.day: e for e in store.plan_entries(plan_id)}
+    frozen = by_day[start + timedelta(days=1)]
+    assert frozen.kind == "leftovers"
+    assert frozen.source_slug == "pasta"
+    assert frozen.frozen is True
+
+
 def test_vriezer_store_round_trip(tmp_path):
     """De vriezer bewaart porties per gerecht in yaml en overleeft een
     herstart; invriezen en eten komen beide in het bestand terecht."""
