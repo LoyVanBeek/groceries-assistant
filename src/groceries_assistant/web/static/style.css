@@ -772,7 +772,7 @@ table.plan .col-attend .cell-name { display: none; }
   table.plan .col-dish .parts-label { display: none; }
   table.plan .col-dish > div > .btn-small { display: none; }
   table.plan .col-dish > form.inline { display: none; }
-  table.plan .col-dish > .restjes-freeze-form { display: inline-flex; align-items: center; gap: 0.3rem; margin: 0; }
+  table.plan .col-dish > form.restjes-freeze-form { display: inline-flex; align-items: center; gap: 0.3rem; margin: 0; }
   .day-tile {
     display: inline-flex;
     flex-direction: column;
