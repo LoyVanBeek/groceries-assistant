@@ -21,7 +21,10 @@ LOGGING_CONFIG = {
         },
         "access": {
             "()": "uvicorn.logging.AccessFormatter",
-            "fmt": '%(asctime)s %(levelprefix)s %(client_addr)s - "%(request_line)s" %(status_code)s',
+            "fmt": (
+                "%(asctime)s %(levelprefix)s %(client_addr)s"
+                ' - "%(request_line)s" %(status_code)s'
+            ),
             "datefmt": "%Y-%m-%d %H:%M:%S",
         },
     },
