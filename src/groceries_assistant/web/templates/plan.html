@@ -204,13 +204,14 @@
       {% if e.image %}
       <span class="restjes-thumb">
         <img class="thumb" src="{{ e.image }}" alt="">
-        <span class="restjes-icon" aria-label="restjes" title="Restjes">&#9851;</span>
+        {% if e.frozen %}<span class="restjes-icon" aria-label="vriezer" title="Uit de vriezer">&#10052;</span>
+        {% else %}<span class="restjes-icon" aria-label="restjes" title="Restjes">&#9851;</span>{% endif %}
       </span>
       {% endif %}
       {% if e.is_dish %}
       <span class="dish-label">{{ e.name }}</span>
       <span class="parts-label">{{ e.parts_label or 'nog te kiezen' }}</span>
-      {% else %}<strong>{{ e.name }}</strong>{% if e.frozen %} <span class="muted" title="Restjes uit de vriezer">&#10052;</span>{% endif %}{% endif %}
+      {% else %}<strong>{{ e.name }}</strong>{% endif %}
       {% if not e.is_approved %}
       <form method="post" action="/plan/swap" class="inline">
         <input type="hidden" name="day" value="{{ e.day_iso }}">
@@ -234,7 +235,7 @@
       </span>
       {% else %}
       <strong{% if e.kind == 'no_cook' or not e.slug %} class="muted"{% endif %}>{{ e.name }}</strong>
-      {% if e.frozen %} <span class="muted" title="Restjes uit de vriezer">&#10052;</span>{% endif %}
+      {% if e.frozen %} <span class="muted" title="Uit de vriezer">&#10052;</span>{% endif %}
       {% endif %}
       {% if not e.is_approved %}
       <div><a class="btn-small" href="/plan/select?day={{ e.day_iso }}" aria-label="Gerecht kiezen voor {{ e.label }}">gerecht kiezen</a></div>

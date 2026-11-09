@@ -214,7 +214,9 @@ def plan_view(
             source = by_slug.get(row.source_slug or "")
             dish = dishes_by_slug.get(row.source_slug or "")
             label = dish.name if dish else (source.name if source else row.source_slug)
-            name = f"Restjes ({label})"
+            # uit de vriezer = geen restjes van gisteren: eigen naam + icoon
+            prefix = "Vriezer" if row.frozen else "Restjes"
+            name = f"{prefix} ({label})"
             minutes = 15
             if dish is not None:
                 # cook once, eat twice: show the combination the source cooks

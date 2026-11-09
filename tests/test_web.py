@@ -4627,7 +4627,7 @@ def test_frozen_restjes_on_the_select_page_and_swap(tmp_path):
         vriezer.add("pasta", 2)
 
         page = client.get(f"/plan/select?day={target.isoformat()}").text
-        assert "restjes uit de vriezer" in page
+        assert "uit de vriezer" in page
         assert "Pasta" in page
 
         # de keuze precies zoals de pagina hem rendert — template en endpoint
@@ -4743,7 +4743,8 @@ def test_frozen_restjes_keep_their_source_across_swaps(tmp_path):
         vriezer.load()
         assert vriezer.portions("pasta") == 0
 
-        # een ruil elders schuift de vriesrestjes niet mee
+        # een ruil elders schuift de vriesrestjes niet mee, en de avond heet
+        # Vriezer (met het sneeuwvlok-icoon), geen Restjes
         client.post(
             "/plan/swap",
             data={"day": days[1].isoformat(), "choice": "curry"},
@@ -4752,7 +4753,9 @@ def test_frozen_restjes_keep_their_source_across_swaps(tmp_path):
         after = {r.day: r for r in store.plan_entries(plan_id)}
         assert after[days[3]].source_slug == "pasta"
         assert after[days[3]].frozen is True
-        assert "Restjes (Pasta)" in client.get("/plan").text
+        page = client.get("/plan").text
+        assert "Vriezer (Pasta)" in page
+        assert "Restjes (Pasta)" not in page
 
 
 def test_restjes_chip_keeps_its_dish_across_a_cook_day(tmp_path):
