@@ -94,12 +94,15 @@ def propose(
     dishes: Sequence[ComposedDish] = (),
     components: list[Recipe] | None = None,
     bonus: Mapping[str, int] | None = None,
+    vriezer: Mapping[str, int] | None = None,
 ) -> WeeklyPlan:
     """Run the planner for the week starting at `start`.
 
     Pass `components` (as Recipe-shaped objects) alongside `recipes` so the
     engine can resolve dish part options that reference component slugs.
     `bonus` maps recipe slug -> extra points for ingredients in the AH bonus.
+    `vriezer` maps dish slug -> frozen restjes portions; the planner may plan
+    an evening around them (no shopping).
     """
     return plan_week(
         recipes,
@@ -110,6 +113,7 @@ def propose(
         dishes=dishes,
         components=components,
         bonus=bonus,
+        vriezer=vriezer,
     )
 
 
@@ -132,6 +136,7 @@ def fill_remaining(
     dishes: Sequence[ComposedDish] = (),
     components: list[Recipe] | None = None,
     bonus: Mapping[str, int] | None = None,
+    vriezer: Mapping[str, int] | None = None,
 ) -> tuple[list[PlanEntryRow], dict[date, dict[str, str]]]:
     """Plan only the evenings without a dish; the manual picks stay.
 
@@ -173,6 +178,7 @@ def fill_remaining(
         bonus=bonus,
         planned=planned,
         previous=previous,
+        vriezer=vriezer,
     )
 
     planned_rows = {r.day: r for r in plan_to_rows(plan, servings)}

@@ -115,6 +115,9 @@
 {% if request.query_params.error == 'restjes-bezet' %}
 <p class="warnings">Restjes kan alleen op een lege, latere dag — die dag heeft al een gerecht.</p>
 {% endif %}
+{% if request.query_params.error == 'restjes-geen' %}
+<p class="warnings">Dit gerecht levert geen porties over — niets om in te vriezen.</p>
+{% endif %}
 {% if request.query_params.cleared %}
 <p class="warnings">Week(en) leeggemaakt, de kogel is terug.</p>
 {% endif %}
@@ -287,12 +290,21 @@
                   {% if not e.next_day_iso %}disabled{% endif %}>&darr;</button>
         </form>
       </div>
-      {% if e.restjes_available %}
-      <span class="restjes-chip" data-restjes-source="{{ e.day_iso }}" title="Sleep naar een latere dag om de restjes te plannen">&#8618; restjes</span>
+      {% if e.restjes_portions %}
+      <span class="restjes-chip" data-restjes-source="{{ e.day_iso }}" title="Sleep naar een latere dag om de restjes te plannen">&#8618; restjes ({{ e.restjes_portions }})</span>
+      <form method="post" action="/plan/restjes-vriezer" class="inline">
+        <input type="hidden" name="day" value="{{ e.day_iso }}">
+        <button class="restjes-freeze" title="Bewaar de overgebleven porties in de vriezer">&#10052;</button>
+      </form>
       {% endif %}
       <details class="row-more">
         <summary aria-label="Meer instellingen voor {{ e.label }}">meer</summary>
-        <div class="row-more-body">{{ row_more(e, row) }}</div>
+        <div class="row-more-body">
+          {% if e.restjes_frozen %}
+          <span class="muted">&#10052; in de vriezer: {{ e.restjes_frozen }} porties</span>
+          {% endif %}
+          {{ row_more(e, row) }}
+        </div>
       </details>
     </td>
     <td class="col-cook">

@@ -12,6 +12,7 @@ from groceries_assistant.ah.deeplink import (
 from groceries_assistant.models import ProductFact
 from groceries_assistant.store.barcodes import BarcodeStore, valid_ean
 from groceries_assistant.store.db import DEFAULT_TEMPLATE, PlanEntryRow, Store
+from groceries_assistant.store.vriezer import VriezerStore
 
 
 @pytest.fixture
@@ -576,3 +577,32 @@ def test_swap_keeps_restjes_that_stay_after_the_dish(store):
     assert by_day[start].recipe_slug == "pasta"
     wednesday = by_day[start + timedelta(days=2)]
     assert wednesday.kind == "leftovers" and wednesday.source_slug == "pasta"
+
+
+def test_vriezer_store_round_trip(tmp_path):
+    """De vriezer bewaart porties per gerecht in yaml en overleeft een
+    herstart; invriezen en eten komen beide in het bestand terecht."""
+    path = tmp_path / "vriezer.yaml"
+    vriezer = VriezerStore(path)
+    vriezer.load()
+    assert vriezer.all() == {}
+
+    vriezer.add("pasta", 2)
+    vriezer.add("pasta", 1)
+    vriezer.add("curry", 1)
+    assert vriezer.portions("pasta") == 3
+
+    again = VriezerStore(path)
+    again.load()
+    assert again.all() == {"pasta": 3, "curry": 1}
+
+    again.take("pasta", 3)
+    reloaded = VriezerStore(path)
+    reloaded.load()
+    assert reloaded.all() == {"curry": 1}
+
+    # een onleesbaar bestand is gewoon een lege vriezer
+    path.write_text(": : broken [", encoding="utf-8")
+    broken = VriezerStore(path)
+    broken.load()
+    assert broken.all() == {}

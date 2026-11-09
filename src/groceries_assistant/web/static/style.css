@@ -353,6 +353,17 @@ table.order-links td.col-confirm { white-space: nowrap; }
   border: 1px solid var(--accent);
 }
 
+.restjes-freeze {
+  cursor: pointer;
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.restjes-freeze:hover { border-color: var(--accent); color: var(--accent); }
+
 tr.drop-target td {
   background: var(--accent-soft);
 }

@@ -130,6 +130,7 @@ def plan_week(
     bonus: Mapping[str, int] | None = None,
     planned: set[str] | None = None,
     previous: Recipe | None = None,
+    vriezer: Mapping[str, int] | None = None,
 ) -> WeeklyPlan:
     """Pick a dish per evening, honouring time, verdicts and variety.
 
@@ -175,6 +176,7 @@ def plan_week(
             prep_capacity,
             prev,
             bonus=bonus,
+            vriezer=vriezer,
         )
         if pick is None:
             pick = _pick(
@@ -192,6 +194,7 @@ def plan_week(
                 prev,
                 allow_reuse=True,
                 bonus=bonus,
+                vriezer=vriezer,
             )
         if pick is None:
             # Nothing fits the time budget at all: plan the shortest recipe
@@ -233,6 +236,13 @@ def _previous_recipe(entries: list[PlanEntry]) -> Recipe | None:
         if entry.kind == "cook" and entry.recipe is not None:
             return entry.recipe
     return None
+
+
+def _frozen_choice(vriezer: Mapping[str, int] | None) -> str | None:
+    """The dish with the most portions in the freezer (tie: alphabetical)."""
+    if not vriezer:
+        return None
+    return max(sorted(vriezer), key=lambda slug: vriezer[slug])
 
 
 @dataclass
@@ -353,6 +363,7 @@ def _pick(
     previous_recipe: Recipe | None,
     allow_reuse: bool = False,
     bonus: Mapping[str, int] | None = None,
+    vriezer: Mapping[str, int] | None = None,
 ) -> _Pick | None:
     """Score every recipe and every dish, and take the best that fits tonight."""
     candidates: list[_Candidate] = []
@@ -459,6 +470,33 @@ def _pick(
                 reason=f"restjes van '{previous_recipe.name}'",
             )
             return _Pick(entry=entry, minutes=LEFTOVER_MINUTES, prep_ahead_used=0)
+
+    # Frozen restjes: portions in the freezer can be eaten any evening, even in
+    # a later week — the fallback after fresh leftovers, and only when nothing
+    # scored better. Eating them needs no shopping, so same rules as restjes.
+    frozen = {
+        slug: portions
+        for slug, portions in (vriezer or {}).items()
+        if portions > 0 and slug in recipes_by_slug
+    }
+    frozen_slug = _frozen_choice(frozen)
+    if (
+        frozen_slug is not None
+        and evening.allow_leftovers
+        and evening.free_minutes >= LEFTOVER_MINUTES
+        and (not candidates or max(c.score for c in candidates) < LEFTOVER_SCORE)
+    ):
+        entry = PlanEntry(
+            date=evening.date,
+            recipe=None,
+            availability=evening,
+            score=LEFTOVER_SCORE,
+            minutes=LEFTOVER_MINUTES,
+            kind="leftovers",
+            source_slug=frozen_slug,
+            reason=f"restjes uit de vriezer: '{recipes_by_slug[frozen_slug].name}'",
+        )
+        return _Pick(entry=entry, minutes=LEFTOVER_MINUTES, prep_ahead_used=0)
 
     if not candidates:
         return None

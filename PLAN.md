@@ -37,3 +37,33 @@ API's isBonus flags, select-page only), bookmarklet-POST, barcode scanner
 
 **Verify**: phone, Firefox, no scrolling needed for the whole week; details
 per row available; reorder via arrows.
+
+## 3. Restjes: portions, freezer, selection page, auto-planner
+
+- [x] Drag = swap everywhere (restjes included): dropping a dish past its
+      restjes erases the usage, the chip only offers *later* days
+      (`restjes-vroeg` / `restjes-bezet` refusals)
+- [x] The ⇛ restjes chip counts portions: `servings − eters − geplande
+      restjes − vriezer` — no chip when nothing is left over; the editor
+      field is relabeled "Porties (het gerecht oplevert)"
+- [x] ❄ in de vriezer: button next to the chip stores the surplus in
+      `data/vriezer.yaml` (VriezerStore, hand-editable, re-read per request);
+      without surplus the endpoint refuses with `restjes-geen`
+- [x] Frozen restjes survive week(en) leegmaken (the file is never touched by
+      clearing) and show as "❄ in de vriezer: N porties" on the cook row
+- [x] Selection page (/plan/select): the restjes button names the dish and its
+      surplus; each frozen stock appears as "❄ restjes uit de vriezer: name
+      (N porties)" — eating it swaps the evening to a leftovers row and takes
+      the portions out of the freezer (`__vriezer__:<slug>` choice)
+- [x] Auto-planner: `plan_week(..., vriezer=...)` may open the freezer as the
+      fallback after fresh leftovers (needs `allow_leftovers` + 15 min, and
+      nothing scoring better); wired through propose() and fill-remaining()
+- [x] Tests: VriezerStore round-trip, freeze endpoint (create + `restjes-geen`),
+      chip portion arithmetic (shows and disappears), select-page frozen
+      option + swap, engine frozen-fallback rules
+- [ ] Later: dragging frozen portions onto a day straight from the week page
+      (for now: selection page + auto-planner cover it)
+
+**Verify**: cook a dish with leftover portions → chip shows the count → ❄
+freezes them → clear the week → the stock is still on the cook row of the
+dish and on the selection page; auto-fill may plan an evening around it.

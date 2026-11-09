@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from groceries_assistant.models import slugify
 from groceries_assistant.store.db import DEFAULT_TEMPLATE, PlanEntryRow, Store
+from groceries_assistant.store.vriezer import VriezerStore
 from groceries_assistant.web import app as web_app
 from groceries_assistant.web.app import create_app
 
@@ -4503,25 +4504,35 @@ def test_select_page_filters_on_tag(tmp_path):
 
 
 def test_restjes_chip_and_endpoint(tmp_path):
-    """De restjes-chip staat op gekookte dagen; de endpoint plant restjes op
-    een latere, lege dag en weigert vroege of bezette dagen."""
+    """De restjes-chip telt de porties die een gerecht overlaat; de endpoint
+    plant restjes op een latere, lege dag en weigert vroege of bezette dagen."""
     seed_recipe(tmp_path)
+    (tmp_path / "recipes" / "pasta.yaml").write_text(
+        PASTA.replace("servings: 4", "servings: 6"), encoding="utf-8"
+    )
     with make_client(tmp_path) as client:
         seed_plan(client)
-        page = client.get("/plan").text
-        assert "restjes-chip" in page
-
         store = Store(tmp_path / "state.db")
         plan_id, _start, _ = store.load_proposal()
-        rows = store.plan_entries(plan_id)
-        source_day = next(r.day for r in rows if r.kind == "cook" and r.recipe_slug)
-        source_slug = next(r.recipe_slug for r in rows if r.day == source_day)
+        days = [r.day for r in store.plan_entries(plan_id)]
+        # porties rekenbaar maken: pasta maakt er 6, dag 1 eet er 2 (surplus 4),
+        # dag 2 eet er 6 (geen surplus), de rest blijft leeg
+        rebuilt = [
+            PlanEntryRow(
+                day=day,
+                kind="cook",
+                recipe_slug="pasta" if i in (0, 1) else None,
+                people=2 if i == 0 else 6,
+            )
+            for i, day in enumerate(days)
+        ]
+        store.update_proposal_rows(plan_id, rebuilt)
 
-        # de laatste dag wordt leeggegeven zodat daar restjes gepland kan worden
-        last = rows[-1].day
-        emptied = [r for r in rows if r.day != last]
-        emptied.append(PlanEntryRow(day=last, kind="cook", people=4))
-        store.update_proposal_rows(plan_id, emptied)
+        source_day, source_slug = days[0], "pasta"
+        last = days[-1]
+        page = client.get("/plan").text
+        assert "restjes-chip" in page
+        assert "restjes (4)" in page
 
         resp = client.post(
             "/plan/restjes",
@@ -4533,19 +4544,13 @@ def test_restjes_chip_and_endpoint(tmp_path):
         after = {r.day: r for r in store.plan_entries(plan_id)}
         assert after[last].kind == "leftovers"
         assert after[last].source_slug == source_slug
+        # de porties zijn nu als restjes gepland: de chip verdwijnt
+        assert "restjes-chip" not in client.get("/plan").text
 
         # een dag die al een gerecht heeft: geweigerd (restjes-bezet)
-        occupied = next(
-            r.day
-            for r in store.plan_entries(plan_id)
-            if r.day > source_day
-            and r.day != last
-            and r.kind == "cook"
-            and r.recipe_slug
-        )
         resp = client.post(
             "/plan/restjes",
-            data={"source_day": source_day.isoformat(), "day": occupied.isoformat()},
+            data={"source_day": source_day.isoformat(), "day": days[1].isoformat()},
             follow_redirects=False,
         )
         assert resp.headers["location"] == "/plan?error=restjes-bezet"
@@ -4557,3 +4562,75 @@ def test_restjes_chip_and_endpoint(tmp_path):
             follow_redirects=False,
         )
         assert resp.headers["location"] == "/plan?error=restjes-vroeg"
+
+
+def test_restjes_vriezer_endpoint(tmp_path):
+    """De sneeuwvlok-knop bewaart de porties die een gerecht overlaat in
+    vriezer.yaml; zonder surplus volgt de restjes-geen weigering."""
+    seed_recipe(tmp_path)
+    (tmp_path / "recipes" / "pasta.yaml").write_text(
+        PASTA.replace("servings: 4", "servings: 6"), encoding="utf-8"
+    )
+    with make_client(tmp_path) as client:
+        seed_plan(client)
+        store = Store(tmp_path / "state.db")
+        plan_id, _start, _ = store.load_proposal()
+        days = [r.day for r in store.plan_entries(plan_id)]
+        rebuilt = [
+            PlanEntryRow(day=day, kind="cook", recipe_slug="pasta" if i == 0 else None, people=2)
+            for i, day in enumerate(days)
+        ]
+        store.update_proposal_rows(plan_id, rebuilt)
+
+        resp = client.post(
+            "/plan/restjes-vriezer", data={"day": days[0].isoformat()}, follow_redirects=False
+        )
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/plan"
+        vriezer = VriezerStore(tmp_path / "vriezer.yaml")
+        vriezer.load()
+        assert vriezer.portions("pasta") == 4
+
+        # alles staat nu in de vriezer: niets meer om in te vriezen
+        resp = client.post(
+            "/plan/restjes-vriezer", data={"day": days[0].isoformat()}, follow_redirects=False
+        )
+        assert resp.headers["location"] == "/plan?error=restjes-geen"
+
+        # een dag zonder gerecht: ook geweigerd
+        resp = client.post(
+            "/plan/restjes-vriezer", data={"day": days[1].isoformat()}, follow_redirects=False
+        )
+        assert resp.headers["location"] == "/plan?error=restjes-geen"
+
+
+def test_frozen_restjes_on_the_select_page_and_swap(tmp_path):
+    """Bevroren porties staan als optie op de keuzepagina en het eten ervan
+    haalt ze uit de vriezer."""
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        seed_plan(client)
+        store = Store(tmp_path / "state.db")
+        plan_id, _start, _ = store.load_proposal()
+        rows = store.plan_entries(plan_id)
+        target = next(r.day for r in rows if r.kind == "cook" and r.recipe_slug)
+        vriezer = VriezerStore(tmp_path / "vriezer.yaml")
+        vriezer.load()
+        vriezer.add("pasta", 2)
+
+        page = client.get(f"/plan/select?day={target.isoformat()}").text
+        assert "restjes uit de vriezer" in page
+        assert "Pasta" in page
+
+        resp = client.post(
+            "/plan/swap",
+            data={"day": target.isoformat(), "choice": "__vriezer__:pasta"},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        after = {r.day: r for r in store.plan_entries(plan_id)}
+        assert after[target].kind == "leftovers"
+        assert after[target].source_slug == "pasta"
+        reloaded = VriezerStore(tmp_path / "vriezer.yaml")
+        reloaded.load()
+        assert reloaded.portions("pasta") == 0

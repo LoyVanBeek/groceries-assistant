@@ -38,6 +38,45 @@ def _prefs(verdicts=None, people=None):
     )
 
 
+def test_frozen_restjes_fill_an_evening_when_nothing_fits():
+    """Porties in de vriezer kunnen elke avond gegeten worden, ook zonder
+    gerecht de avond ervoor; onbekende slugs worden genegeerd."""
+    pasta = _recipe("pasta")
+    plan = plan_week(
+        [pasta],
+        _prefs(),
+        [_evening(D1, 15, allow_leftovers=True)],
+        vriezer={"spookgerecht": 5, "pasta": 2},
+    )
+    entry = plan.entries[0]
+    assert entry.kind == "leftovers"
+    assert entry.source_slug == "pasta"
+    assert "vriezer" in entry.reason
+
+
+def test_frozen_restjes_are_only_the_fallback():
+    """Past er een geliefd gerecht, dan wint dat: de vriezer blijft liggen."""
+    pasta = _recipe("pasta")
+    prefs = _prefs(verdicts={"pasta": {"kid1": "love", "kid2": "love", "adult1": "love"}})
+    plan = plan_week(
+        [pasta],
+        prefs,
+        [_evening(D1, 120, allow_leftovers=True)],
+        vriezer={"pasta": 2},
+    )
+    assert plan.entries[0].kind == "cook"
+
+
+def test_frozen_restjes_need_leftovers_minutes():
+    """Zijn de restjes-avond niet toegestaan (of te weinig tijd), dan gaat de
+    vriezer niet open."""
+    pasta = _recipe("pasta")
+    plan = plan_week(
+        [pasta], _prefs(), [_evening(D1, 15, allow_leftovers=False)], vriezer={"pasta": 2}
+    )
+    assert plan.entries[0].kind == "cook"
+
+
 def test_partial_fill_seeds_planned_and_previous():
     """'Vul de lege dagen': slugs passed as planned never return, and the
     evening before the first planned one can still yield restjes."""

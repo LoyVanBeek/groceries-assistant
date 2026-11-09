@@ -92,6 +92,7 @@ from groceries_assistant.services.planner_service import (
 )
 from groceries_assistant.store.barcodes import BarcodeStore, valid_ean
 from groceries_assistant.store.db import PlanEntryRow, Store
+from groceries_assistant.store.vriezer import VriezerStore
 from groceries_assistant.web.views import (
     WEEKDAYS,
     Popularity,
@@ -108,6 +109,7 @@ SERVINGS = 4
 LEFTOVERS_CHOICE = "__leftovers__"
 COOK_CHOICE = "__cook__"
 NO_COOK_CHOICE = "__no_cook__"
+VRIEZER_CHOICE = "__vriezer__:"
 
 # Bookmarklet for ah.nl recipe pages: copies 'URL\nJSON-LD' to the clipboard.
 # ah.nl's bot protection only lets a real browser through, so the JSON is
@@ -679,6 +681,12 @@ def create_app(
             _bonus_cache.append(store_instance)
         return _bonus_cache[0]
 
+    def vriezer() -> VriezerStore:
+        """The freezer: a small yaml, re-read per request so hand edits land."""
+        store_instance = VriezerStore(data / "vriezer.yaml")
+        store_instance.load()
+        return store_instance
+
     def barcodes() -> BarcodeStore:
         """The barcode registry singleton: learns from every scan."""
         if not _barcode_cache:
@@ -818,6 +826,7 @@ def create_app(
             dishes=list(dishes_by_slug().values()),
             approved_days=approved_days,
             ordered_days=ordered_days,
+            vriezer=vriezer(),
         )
         last_day = max(e["day_iso"] for e in evenings) if evenings else None
         next_start = date.fromisoformat(last_day) + timedelta(days=1) if last_day else start
@@ -861,6 +870,7 @@ def create_app(
                 dishes=list(dishes.values()),
                 components=list(all_known().values()),
                 bonus=bonus_counts(all_recipes, bonus_store()),
+                vriezer=vriezer().all(),
             )
             store().save_proposal(start, plan_to_rows(plan), plan_to_picks(plan, dishes))
         return RedirectResponse("/plan", status_code=303)
@@ -884,6 +894,7 @@ def create_app(
             dishes=list(dishes_by_slug().values()),
             components=list(all_known().values()),
             bonus=bonus_counts(all_recipes, bonus_store()),
+            vriezer=vriezer().all(),
         )
         store().update_proposal_rows(plan_id, new_rows)
         for day, day_picks in new_picks.items():
@@ -977,6 +988,37 @@ def create_app(
             bonus=bonus_counts(all_recipes, bonus_store()),
             bonus_store=bonus_store(),
         )
+        # restjes-optie: het gerecht van de avond ervoor, als er porties
+        # over zijn (servings minus de eters minus alle geplande restjes)
+        prev_slug = _previous_cook_slug(rows, target)
+        restjes_option = None
+        if prev_slug:
+            prev_recipe = known.get(prev_slug)
+            prev_row = next(
+                (r for r in rows if r.day < target and r.recipe_slug == prev_slug), None
+            )
+            prev_people = prev_row.people if prev_row else 4
+            restjes_gepland = sum(
+                (r.people or 0)
+                for r in rows
+                if r.kind == "leftovers" and r.source_slug == prev_slug and r.day != target
+            )
+            if prev_recipe is not None and prev_recipe.servings > prev_people + restjes_gepland:
+                restjes_option = {
+                    "day_iso": target.isoformat(),
+                    "name": prev_recipe.name,
+                    "portions": prev_recipe.servings - prev_people - restjes_gepland,
+                }
+        # bevroren restjes: wat er in de vriezer ligt, kan elke avond gegeten worden
+        frozen_options = [
+            {
+                "slug": slug,
+                "name": known[slug].name if slug in known else slug,
+                "portions": portions,
+            }
+            for slug, portions in sorted(vriezer().all().items())
+            if portions > 0
+        ]
         return render(
             request,
             "select.html",
@@ -984,6 +1026,8 @@ def create_app(
             q=q,
             sort=sort,
             tag=tag,
+            restjes_option=restjes_option,
+            frozen_options=frozen_options,
             all_tags=sorted({t for tags in tags_by_slug.values() for t in tags}),
             label=f"{WEEKDAYS[target.weekday()].capitalize()} {target.strftime('%d-%m')}",
             options=options,
@@ -1053,6 +1097,16 @@ def create_app(
                 new_rows.append(
                     PlanEntryRow(day=target, kind="leftovers", source_slug=source, people=4)
                 )
+            elif choice.startswith(VRIEZER_CHOICE):
+                # restjes uit de vriezer eten: de porties gaan van de voorraad af
+                slug = choice[len(VRIEZER_CHOICE) :]
+                portions = vriezer().portions(slug)
+                if portions <= 0:
+                    raise HTTPException(400, "Geen restjes van dit gerecht in de vriezer")
+                new_rows.append(
+                    PlanEntryRow(day=target, kind="leftovers", source_slug=slug, people=portions)
+                )
+                vriezer().take(slug, portions)
             elif choice == NO_COOK_CHOICE:
                 # eating elsewhere: no dish, no groceries, no cook needed
                 new_rows.append(PlanEntryRow(day=target, kind="no_cook", people=0))
@@ -1093,12 +1147,7 @@ def create_app(
 
     @app.post("/plan/restjes")
     def plan_restjes(source_day: str = Form(...), day: str = Form(...)):
-        """Plan the restjes of `source_day`'s dish on a later, empty day.
-
-        The drag of the 'restjes' chip posts here. Refusals (dish already on
-        the day, restjes before the dish, unknown days) come back as the
-        usual error-notice redirects.
-        """
+        """Plan the restjes of `source_day`'s dish on a later, empty day."""
         proposal = store().load_proposal()
         if proposal is None:
             raise HTTPException(404, "Geen voorstel")
@@ -1114,6 +1163,38 @@ def create_app(
         store().update_proposal_rows(
             plan_id, _repoint_leftovers(plan_id, store().plan_entries(plan_id))
         )
+        return RedirectResponse("/plan", status_code=303)
+
+    @app.post("/plan/restjes-vriezer")
+    def plan_restjes_vriezer(day: str = Form(...)):
+        """Bewaar de overgebleven porties van deze dag in de vriezer."""
+        proposal = store().load_proposal()
+        if proposal is None:
+            raise HTTPException(404, "Geen voorstel")
+        plan_id = proposal[0]
+        target = date.fromisoformat(day)
+        rows = store().plan_entries(plan_id)
+        row = next((r for r in rows if r.day == target), None)
+        if row is None or row.kind != "cook" or not row.recipe_slug:
+            return RedirectResponse("/plan?error=restjes-geen", status_code=303)
+        recipe = all_known().get(row.recipe_slug)
+        if recipe is None:
+            return RedirectResponse("/plan?error=restjes-geen", status_code=303)
+        restjes_gepland = sum(
+            (r.people or 0)
+            for r in rows
+            if r.kind == "leftovers" and r.source_slug == row.recipe_slug
+        )
+        portions = max(
+            0,
+            recipe.servings
+            - (row.people or 4)
+            - restjes_gepland
+            - vriezer().portions(row.recipe_slug),
+        )
+        if portions <= 0:
+            return RedirectResponse("/plan?error=restjes-geen", status_code=303)
+        vriezer().add(row.recipe_slug, portions)
         return RedirectResponse("/plan", status_code=303)
 
     def _row_dish_slug(rows: list[PlanEntryRow], day: date) -> str:
@@ -1397,6 +1478,7 @@ def create_app(
             dishes=list(dishes.values()),
             components=components,
             bonus=bonus_counts(all_recipes, bonus_store()),
+            vriezer=vriezer().all(),
         )
         store().extend_proposal(plan_id, plan_to_rows(plan), plan_to_picks(plan, dishes))
         return RedirectResponse("/plan", status_code=303)

@@ -107,7 +107,8 @@
     <input type="hidden" name="day" value="{{ day }}">
     <input type="hidden" name="choice" value="__leftovers__">
     {% if confirmed %}<label class="confirm-force"><input type="checkbox" name="force" required> boodschappen al besteld</label>{% endif %}
-    <button>Restjes (avond ervoor)</button>
+    {% if restjes_option %}<button>Restjes van {{ restjes_option.name }} ({{ restjes_option.portions }} porties)</button>
+    {% else %}<button>Restjes (avond ervoor)</button>{% endif %}
   </form>
   {% endif %}
   {% if not is_no_cook %}
@@ -118,6 +119,18 @@
     <button>niet koken (eten elders)</button>
   </form>
   {% endif %}
+</p>
+{% endif %}
+{% if frozen_options %}
+<p class="special-actions frozen-actions">
+  {% for f in frozen_options %}
+  <form method="post" action="/plan/swap" class="inline">
+    <input type="hidden" name="day" value="{{ day }}">
+    <input type="hidden" name="choice" value="__vriezer__{{ f.slug }}">
+    {% if confirmed %}<label class="confirm-force"><input type="checkbox" name="force" required> boodschappen al besteld</label>{% endif %}
+    <button>&#10052; restjes uit de vriezer: {{ f.name }} ({{ f.portions }} porties)</button>
+  </form>
+  {% endfor %}
 </p>
 {% endif %}
 <p>

@@ -109,6 +109,7 @@ def plan_view(
     today: date | None = None,
     approved_days: set[date] | None = None,
     ordered_days: set[date] | None = None,
+    vriezer=None,
 ) -> list[dict]:
     """Per-evening view model: label, dish, cook, joiners, swap options.
 
@@ -131,6 +132,11 @@ def plan_view(
             )
         )
     last_cook_slug: str | None = None
+    # porties restjes die per gerecht al als restjes-avonden gepland staan
+    restjes_gepland: dict[str, int] = {}
+    for r in all_rows:
+        if r.kind == "leftovers" and r.source_slug:
+            restjes_gepland[r.source_slug] = restjes_gepland.get(r.source_slug, 0) + (r.people or 0)
     for index, row in enumerate(all_rows):
         evening = planner.evenings_for(store, row.day, days=1)[0]
         budget = evening.free_minutes
@@ -214,7 +220,22 @@ def plan_view(
                 "members": members,
                 "cooking": cooking,
                 "can_leftovers": (row.kind in ("cook", "no_cook") and last_cook_slug is not None),
-                "restjes_available": row.kind == "cook" and row.recipe_slug is not None,
+                "restjes_portions": (
+                    max(
+                        0,
+                        by_slug[row.recipe_slug].servings
+                        - (row.people or 4)
+                        - restjes_gepland.get(row.recipe_slug, 0)
+                        - (vriezer.portions(row.recipe_slug) if vriezer else 0),
+                    )
+                    if row.kind == "cook" and row.recipe_slug in by_slug
+                    else 0
+                ),
+                "restjes_frozen": (
+                    vriezer.portions(row.recipe_slug)
+                    if vriezer and row.kind == "cook" and row.recipe_slug
+                    else 0
+                ),
                 "over_budget": row.kind == "cook" and minutes > budget,
                 "is_today": row.day == today,
                 "is_past": row.day < today,

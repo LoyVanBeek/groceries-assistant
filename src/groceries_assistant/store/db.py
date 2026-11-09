@@ -723,8 +723,7 @@ class Store:
         entries = {
             date.fromisoformat(r["day"]): r
             for r in self.conn.execute(
-                "SELECT day, kind, recipe_slug, source_slug FROM plan_entries"
-                " WHERE plan_id=?",
+                "SELECT day, kind, recipe_slug, source_slug FROM plan_entries WHERE plan_id=?",
                 (plan_id,),
             )
         }
