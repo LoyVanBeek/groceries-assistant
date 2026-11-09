@@ -30,6 +30,7 @@
     }
     table.querySelectorAll(".dragging").forEach((row) => row.classList.remove("dragging"));
     clearMarks();
+    document.body.style.overflow = "";
     dragRow = null;
     dragMode = null;
     sourceDay = null;
@@ -82,6 +83,11 @@
 
   function moveDrag(x, y) {
     moveGhost(x, y);
+    // autorandsrollen: bij de boven-/onderrand scrollt de pagina langzaam mee,
+    // zodat een dag onder de vouw bereikbaar blijft zonder de drag te lossen
+    const vh = window.innerHeight;
+    if (y < 90) window.scrollBy(0, -Math.ceil((90 - y) * 0.2));
+    else if (y > vh - 90) window.scrollBy(0, Math.ceil((y - (vh - 90)) * 0.2));
     const target = rowUnderPoint(y);
     if (hoverRow !== target) {
       hoverRow = target;
@@ -147,6 +153,7 @@
     dragMode = mode;
     sourceDay = mode === "restjes" ? sourceEl.dataset.restjesSource : null;
     hoverRow = null;
+    grabbedOffsetX = Math.min(event.clientX - dragRow.getBoundingClientRect().left, 40);
     try {
       sourceEl.setPointerCapture(event.pointerId);
     } catch (err) {
@@ -154,6 +161,9 @@
     }
     makeGhost(dragRow, event.clientX, event.clientY, mode);
     dragRow.classList.add("dragging");
+    // scroll-lock: de pagina scrollt niet onder de vinger/muis; de randen van
+    // het scherm scrollen de pagina zelf (moveDrag)
+    document.body.style.overflow = "hidden";
 
     const onMove = (moveEvent) => {
       moveDrag(moveEvent.clientX, moveEvent.clientY);

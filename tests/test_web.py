@@ -4500,3 +4500,60 @@ def test_select_page_filters_on_tag(tmp_path):
         assert "Bonensoep" in filtered
         unmatched = client.get(f"/plan/select?day={offer_day.isoformat()}&tag=pasta").text
         assert "Bonensoep" not in unmatched
+
+
+def test_restjes_chip_and_endpoint(tmp_path):
+    """De restjes-chip staat op gekookte dagen; de endpoint plant restjes op
+    een latere, lege dag en weigert vroege of bezette dagen."""
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        seed_plan(client)
+        page = client.get("/plan").text
+        assert "restjes-chip" in page
+
+        store = Store(tmp_path / "state.db")
+        plan_id, _start, _ = store.load_proposal()
+        rows = store.plan_entries(plan_id)
+        source_day = next(r.day for r in rows if r.kind == "cook" and r.recipe_slug)
+        source_slug = next(r.recipe_slug for r in rows if r.day == source_day)
+
+        # de laatste dag wordt leeggegeven zodat daar restjes gepland kan worden
+        last = rows[-1].day
+        emptied = [r for r in rows if r.day != last]
+        emptied.append(PlanEntryRow(day=last, kind="cook", people=4))
+        store.update_proposal_rows(plan_id, emptied)
+
+        resp = client.post(
+            "/plan/restjes",
+            data={"source_day": source_day.isoformat(), "day": last.isoformat()},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/plan"
+        after = {r.day: r for r in store.plan_entries(plan_id)}
+        assert after[last].kind == "leftovers"
+        assert after[last].source_slug == source_slug
+
+        # een dag die al een gerecht heeft: geweigerd (restjes-bezet)
+        occupied = next(
+            r.day
+            for r in store.plan_entries(plan_id)
+            if r.day > source_day
+            and r.day != last
+            and r.kind == "cook"
+            and r.recipe_slug
+        )
+        resp = client.post(
+            "/plan/restjes",
+            data={"source_day": source_day.isoformat(), "day": occupied.isoformat()},
+            follow_redirects=False,
+        )
+        assert resp.headers["location"] == "/plan?error=restjes-bezet"
+
+        # vroeger dan het gerecht: geweigerd (restjes-vroeg)
+        resp = client.post(
+            "/plan/restjes",
+            data={"source_day": last.isoformat(), "day": source_day.isoformat()},
+            follow_redirects=False,
+        )
+        assert resp.headers["location"] == "/plan?error=restjes-vroeg"

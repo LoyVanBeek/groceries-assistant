@@ -527,3 +527,52 @@ def test_valid_ean():
     assert valid_ean("54490000")  # EAN-8
     assert not valid_ean("8710 6009 8806 8")  # spaces are not typed, they are scanned
     assert not valid_ean("geen cijfers")
+
+
+def test_swap_past_restjes_erases_the_usage(store):
+    """Een gerecht dat voorbij zijn restjes dag schuift: het gebruik wordt
+    gewist en de dag wordt een lege kookavond."""
+    start = date(2026, 11, 10)
+    plan_id = store.save_proposal(
+        start,
+        [
+            PlanEntryRow(day=start, kind="cook", recipe_slug="pasta", people=4),
+            PlanEntryRow(
+                day=start + timedelta(days=1),
+                kind="leftovers",
+                source_slug="pasta",
+                people=4,
+            ),
+            PlanEntryRow(day=start + timedelta(days=2), kind="cook", recipe_slug="curry", people=4),
+        ],
+    )
+    store.swap_days(plan_id, start, start + timedelta(days=2))  # pasta -> woensdag
+    by_day = {e.day: e for e in store.plan_entries(plan_id)}
+    assert by_day[start + timedelta(days=2)].recipe_slug == "pasta"
+    tuesday = by_day[start + timedelta(days=1)]
+    assert tuesday.kind == "cook" and tuesday.recipe_slug is None
+
+
+def test_swap_keeps_restjes_that_stay_after_the_dish(store):
+    """Restjes die ná het gerecht blijven, overleven de ruil."""
+    start = date(2026, 11, 10)
+    plan_id = store.save_proposal(
+        start,
+        [
+            PlanEntryRow(day=start, kind="cook", recipe_slug="pasta", people=4),
+            PlanEntryRow(
+                day=start + timedelta(days=1),
+                kind="leftovers",
+                source_slug="pasta",
+                people=4,
+            ),
+            PlanEntryRow(day=start + timedelta(days=2), kind="cook", recipe_slug="curry", people=4),
+        ],
+    )
+    store.swap_days(
+        plan_id, start + timedelta(days=1), start + timedelta(days=2)
+    )  # restjes <-> curry
+    by_day = {e.day: e for e in store.plan_entries(plan_id)}
+    assert by_day[start].recipe_slug == "pasta"
+    wednesday = by_day[start + timedelta(days=2)]
+    assert wednesday.kind == "leftovers" and wednesday.source_slug == "pasta"
