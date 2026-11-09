@@ -678,74 +678,89 @@ class Store:
                 f"UPDATE {table} SET day=? WHERE plan_id=? AND day=?",
                 (day_b.isoformat(), plan_id, tmp),
             )
+        # Restjes dat door de ruil vóór zijn gerecht zou komen: wissen — de
+        # dag wordt een lege kookavond (nog te kiezen), zijn goedkeuring
+        # vervalt mee.
+        dish_days: dict[str, list[date]] = {}
+        for r in self.conn.execute(
+            "SELECT day, recipe_slug FROM plan_entries"
+            " WHERE plan_id=? AND kind='cook' AND recipe_slug IS NOT NULL",
+            (plan_id,),
+        ):
+            dish_days.setdefault(r["recipe_slug"], []).append(date.fromisoformat(r["day"]))
+        restjes_rows = self.conn.execute(
+            "SELECT day, source_slug FROM plan_entries"
+            " WHERE plan_id=? AND kind='leftovers' AND source_slug IS NOT NULL",
+            (plan_id,),
+        ).fetchall()
+        for row in restjes_rows:
+            restjes_day = date.fromisoformat(row["day"])
+            source_days = dish_days.get(row["source_slug"], [])
+            # alleen wissen als géén enkele keer koken van het gerecht op of
+            # vóór de restjesdag valt
+            if source_days and all(d > restjes_day for d in source_days):
+                self.conn.execute(
+                    "UPDATE plan_entries SET kind='cook', recipe_slug=NULL,"
+                    " source_slug=NULL WHERE plan_id=? AND day=?",
+                    (plan_id, row["day"]),
+                )
+                self.conn.execute(
+                    "DELETE FROM plan_approvals WHERE plan_id=? AND day=?",
+                    (plan_id, row["day"]),
+                )
+                self.conn.execute(
+                    "DELETE FROM plan_ordered WHERE plan_id=? AND day=?",
+                    (plan_id, row["day"]),
+                )
         self.conn.commit()
 
-    def move_day(self, plan_id: int, day: date, to: date) -> None:
-        """Move one evening's content to another position, shifting the
-        evenings in between by one — like dragging a row in the week table.
+    def add_restjes(self, plan_id: int, source_day: date, day: date) -> None:
+        """Plan the restjes of `source_day`'s dish on a later, empty day.
 
-        Picks, approvals and ordered-days travel with the dish they belong
-        to, exactly as in swap_days. Raises KeyError when a day is not part
-        of the plan.
+        The source must be a cooked evening with a dish, the target must be
+        later and still without a dish. Raises ValueError otherwise.
         """
-        if day == to:
-            return
         entries = {
             date.fromisoformat(r["day"]): r
             for r in self.conn.execute(
-                "SELECT day, kind, recipe_slug, source_slug, people"
-                " FROM plan_entries WHERE plan_id = ?",
+                "SELECT day, kind, recipe_slug, source_slug FROM plan_entries"
+                " WHERE plan_id=?",
                 (plan_id,),
             )
         }
-        if day not in entries or to not in entries:
-            missing = day if day not in entries else to
-            raise KeyError(f"plan {plan_id} has no day {missing.isoformat()}")
-        lo, hi = sorted((day, to))
-        span = [d for d in sorted(entries) if lo <= d <= hi]
-        # later: every content shifts one day up, the moved one lands on `to`;
-        # earlier: the mirror image
-        dest: dict[date, date] = {}
-        if to > day:
-            for i, d in enumerate(span):
-                dest[d] = span[i - 1] if i else span[-1]
-        else:
-            for i, d in enumerate(span):
-                dest[d] = span[i + 1] if i + 1 < len(span) else span[0]
-        cur = self.conn.cursor()
-        for src_day in span:
-            src = entries[src_day]
-            cur.execute(
-                "UPDATE plan_entries SET kind=?, recipe_slug=?, source_slug=?, people=?"
-                " WHERE plan_id=? AND day=?",
-                (
-                    src["kind"],
-                    src["recipe_slug"],
-                    src["source_slug"],
-                    src["people"],
-                    plan_id,
-                    dest[src_day].isoformat(),
-                ),
-            )
-        # day-keyed tables rotate their keys with the content; a tmp key per
-        # day keeps neighbours with rows from colliding
-        for table in ("plan_picks", "plan_approvals", "plan_ordered"):
-            marks = ",".join("?" * len(span))
-            rows = cur.execute(
-                f"SELECT day FROM {table} WHERE plan_id=? AND day IN ({marks})",
-                (plan_id, *(d.isoformat() for d in span)),
-            ).fetchall()
-            present = [date.fromisoformat(r["day"]) for r in rows]
-            for d in present:
-                cur.execute(
-                    f"UPDATE {table} SET day=? WHERE plan_id=? AND day=?",
-                    (f"__move_tmp__{d.isoformat()}", plan_id, d.isoformat()),
-                )
-            for d in present:
-                cur.execute(
-                    f"UPDATE {table} SET day=? WHERE plan_id=? AND day=?",
-                    (dest[d].isoformat(), plan_id, f"__move_tmp__{d.isoformat()}"),
-                )
+        source = entries.get(source_day)
+        target = entries.get(day)
+        if (
+            source is None
+            or source["kind"] != "cook"
+            or not source["recipe_slug"]
+            or target is None
+            or target["kind"] != "cook"
+            or target["recipe_slug"] is not None
+        ):
+            raise ValueError("restjes kan alleen op een latere, lege kookavond")
+        self.conn.execute(
+            "UPDATE plan_entries SET kind='leftovers', recipe_slug=NULL,"
+            " source_slug=? WHERE plan_id=? AND day=?",
+            (source["recipe_slug"], plan_id, day.isoformat()),
+        )
+        self.conn.execute(
+            "DELETE FROM plan_approvals WHERE plan_id=? AND day=?",
+            (plan_id, day.isoformat()),
+        )
+        self.conn.commit()
+
+    def clear_restjes_day(self, plan_id: int, day: date) -> None:
+        """Erase the restjes on `day`: the evening becomes empty again."""
+        self.conn.execute(
+            "UPDATE plan_entries SET kind='cook', recipe_slug=NULL, source_slug=NULL"
+            " WHERE plan_id=? AND day=?",
+            (plan_id, day.isoformat()),
+        )
+        self.conn.execute(
+            "DELETE FROM plan_approvals WHERE plan_id=? AND day=?",
+            (plan_id, day.isoformat()),
+        )
         self.conn.commit()
 
     def approve_plan(self, start: date, entries: list[PlanEntryRow]) -> int:

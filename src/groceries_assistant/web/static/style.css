@@ -340,6 +340,19 @@ table.order-links td.col-confirm { white-space: nowrap; }
   touch-action: none;
 }
 
+.restjes-chip {
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  display: inline-block;
+  padding: 0.05rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
+
 tr.drop-target td {
   background: var(--accent-soft);
 }

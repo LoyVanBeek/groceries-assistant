@@ -214,6 +214,7 @@ def plan_view(
                 "members": members,
                 "cooking": cooking,
                 "can_leftovers": (row.kind in ("cook", "no_cook") and last_cook_slug is not None),
+                "restjes_available": row.kind == "cook" and row.recipe_slug is not None,
                 "over_budget": row.kind == "cook" and minutes > budget,
                 "is_today": row.day == today,
                 "is_past": row.day < today,
