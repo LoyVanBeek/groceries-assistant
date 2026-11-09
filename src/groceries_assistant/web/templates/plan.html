@@ -291,11 +291,13 @@
         </form>
       </div>
       {% if e.restjes_portions %}
-      <span class="restjes-chip" data-restjes-source="{{ e.day_iso }}" title="Sleep naar een latere dag om de restjes te plannen">&#8618; restjes ({{ e.restjes_portions }})</span>
-      <form method="post" action="/plan/restjes-vriezer" class="inline restjes-freeze-form">
-        <input type="hidden" name="day" value="{{ e.day_iso }}">
-        <button class="restjes-freeze" title="Bewaar de overgebleven porties in de vriezer">&#10052;</button>
-      </form>
+      <span class="restjes-row">
+        <span class="restjes-chip" data-restjes-source="{{ e.day_iso }}" title="Sleep naar een latere dag om de restjes te plannen">&#8618; restjes ({{ e.restjes_portions }})</span>
+        <form method="post" action="/plan/restjes-vriezer" class="inline restjes-freeze-form">
+          <input type="hidden" name="day" value="{{ e.day_iso }}">
+          <button class="restjes-freeze" title="Bewaar de overgebleven porties in de vriezer">&#10052;</button>
+        </form>
+      </span>
       {% endif %}
       <details class="row-more">
         <summary aria-label="Meer instellingen voor {{ e.label }}">meer</summary>
