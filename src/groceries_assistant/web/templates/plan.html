@@ -234,7 +234,12 @@
         </span>
       </span>
       {% else %}
+      {% if e.kind == 'cook' and not e.slug %}
+      {# nog geen gerecht: de tekst zelf is de link naar de keuzepagina #}
+      <strong><a class="muted" href="/plan/select?day={{ e.day_iso }}" aria-label="Gerecht kiezen voor {{ e.label }}">{{ e.name }}</a></strong>
+      {% else %}
       <strong{% if e.kind == 'no_cook' or not e.slug %} class="muted"{% endif %}>{{ e.name }}</strong>
+      {% endif %}
       {% if e.frozen %} <span class="muted" title="Uit de vriezer">&#10052;</span>{% endif %}
       {% endif %}
       {% if not e.is_approved %}

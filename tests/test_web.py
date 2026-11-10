@@ -4792,3 +4792,23 @@ def test_restjes_chip_keeps_its_dish_across_a_cook_day(tmp_path):
         after = {r.day: r for r in store.plan_entries(plan_id)}
         assert after[days[3]].source_slug == "pasta"
         assert "Restjes (Pasta)" in client.get("/plan").text
+
+
+def test_empty_day_nog_te_kiezen_links_to_the_select_page(tmp_path):
+    """Een dag zonder gerecht maakt 'Nog te kiezen' zelf klikbaar: hij linkt
+    naar de keuzepagina van die dag; een dag met gerecht doet dat niet."""
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        seed_plan(client)
+        store = Store(tmp_path / "state.db")
+        plan_id, _start, _ = store.load_proposal()
+        rows = store.plan_entries(plan_id)
+        rebuilt = [
+            PlanEntryRow(day=r.day, kind="cook", recipe_slug=None, people=4) if i == 0 else r
+            for i, r in enumerate(rows)
+        ]
+        store.update_proposal_rows(plan_id, rebuilt)
+
+        page = client.get("/plan").text
+        pattern = rf'href="/plan/select\?day={rows[0].day.isoformat()}"[^>]*>Nog te kiezen</a>'
+        assert len(re.findall(pattern, page)) == 1
