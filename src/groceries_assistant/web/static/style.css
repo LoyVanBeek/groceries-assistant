@@ -246,16 +246,17 @@ tbody tr.over:hover { background: var(--over-bg); }
 tbody tr.today:hover { background: var(--accent-soft); }
 .passed { opacity: 0.55; }
 .passed .col-day strong { text-decoration: line-through; }
-.today-badge {
-  display: inline-block;
-  margin-left: 0.4rem;
-  padding: 0 0.45rem;
-  border-radius: 999px;
-  background: var(--accent);
-  color: var(--accent-ink);
-  font-size: 0.72rem;
-  font-weight: 600;
-  vertical-align: middle;
+/* vandaag: de dag-tegel ("Di 10-11") krijgt een kader — de ronde
+   'vandaag' pil duwde de compacte rij uit elkaar. De rij zelf blijft
+   groen getint met de kleurbalk links. */
+.day-tile {
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 0.1rem 0.3rem;
+}
+tr.today .day-tile {
+  border-color: var(--accent);
+  background: var(--accent-soft);
 }
 .col-approve { text-align: center; }
 .approved-badge {

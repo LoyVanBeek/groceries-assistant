@@ -542,7 +542,9 @@ def test_today_row_is_highlighted(tmp_path):
         assert page.status_code == 200
         first_row = re.search(r'<tr class="evening(.*?)"', page.text)
         assert first_row is not None and "today" in first_row.group(1)
-        assert "vandaag" in page.text
+        # de dag-tegel krijgt een kader (css) — de ronde 'vandaag' pil is weg
+        assert "today-badge" not in page.text
+        assert "vandaag" not in page.text
 
 
 def test_past_rows_are_struck_through(tmp_path):
