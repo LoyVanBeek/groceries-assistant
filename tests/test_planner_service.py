@@ -6,6 +6,7 @@ from groceries_assistant.ah.client import AHProduct
 from groceries_assistant.ah.matching import AHMappingStore, fact_from_unit_size
 from groceries_assistant.models import ComposedDish, ProductFact, Recipe
 from groceries_assistant.planner.availability import EveningAvailability
+from groceries_assistant.planner.engine import PlanEntry, WeeklyPlan
 from groceries_assistant.preferences import Person, Preferences
 from groceries_assistant.services.planner_service import (
     apply_absences,
@@ -83,6 +84,23 @@ def test_absence_reduces_portions():
     plan = plan_week([_recipe()], _four_people(), [evening])
     rows = plan_to_rows(plan)
     assert rows[0].people == 2
+
+
+def test_plan_to_rows_keeps_evenings_the_planner_could_not_fill():
+    """Een avond zonder voorstel blijft als lege kookavond in de reeks: de
+    week krimpt niet stilletjes in (bij een omgebouwd/older voorstel)."""
+    entry = PlanEntry(
+        date=D1,
+        recipe=_recipe(),
+        availability=EveningAvailability(date=D1, free_minutes=45),
+        score=1.0,
+        reason="past",
+    )
+    plan = WeeklyPlan(entries=[entry])
+    rows = plan_to_rows(plan, days=[D1, D2])
+    assert [r.day for r in rows] == [D1, D2]
+    assert rows[0].recipe_slug == "pasta"
+    assert rows[1].kind == "cook" and rows[1].recipe_slug is None
 
 
 def test_apply_absences_recomputes_counts_and_leftovers(tmp_path):

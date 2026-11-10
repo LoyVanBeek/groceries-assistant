@@ -828,6 +828,20 @@ def create_app(
         if delta:
             store().shift_proposal(plan_id, delta)
             start = start + timedelta(days=delta)
+        # Oudere voorstellen kunnen dagen missen: de planner liet avonden weg
+        # waar niets op paste (te weinig tijd, geen restjes meer). Met de
+        # verwachte reeks (start..start+6) aanvullen als lege kookavonden,
+        # zodat de week weer de volledige reeks telt.
+        expected = {start + timedelta(days=i) for i in range(7)}
+        rows = store().plan_entries(plan_id)
+        if missing := sorted(expected - {r.day for r in rows}):
+            store().update_proposal_rows(
+                plan_id,
+                sorted(
+                    [*rows, *(PlanEntryRow(day=day, kind="cook") for day in missing)],
+                    key=lambda r: r.day,
+                ),
+            )
         approved_days = store().plan_approvals(plan_id)
         ordered_days = store().plan_ordered(plan_id)
         evenings = plan_view(
@@ -885,7 +899,11 @@ def create_app(
                 bonus=bonus_counts(all_recipes, bonus_store()),
                 vriezer=vriezer().all(),
             )
-            store().save_proposal(start, plan_to_rows(plan), plan_to_picks(plan, dishes))
+            store().save_proposal(
+                start,
+                plan_to_rows(plan, days=[start + timedelta(days=i) for i in range(7)]),
+                plan_to_picks(plan, dishes),
+            )
         return RedirectResponse("/plan", status_code=303)
 
     @app.post("/plan/fill-remaining")
@@ -1501,7 +1519,11 @@ def create_app(
             bonus=bonus_counts(all_recipes, bonus_store()),
             vriezer=vriezer().all(),
         )
-        store().extend_proposal(plan_id, plan_to_rows(plan), plan_to_picks(plan, dishes))
+        store().extend_proposal(
+            plan_id,
+            plan_to_rows(plan, days=[start + timedelta(days=i) for i in range(7)]),
+            plan_to_picks(plan, dishes),
+        )
         return RedirectResponse("/plan", status_code=303)
 
     def _match(product_names: list[str]) -> dict[str, tuple[int, str]]:

@@ -4812,3 +4812,45 @@ def test_empty_day_nog_te_kiezen_links_to_the_select_page(tmp_path):
         page = client.get("/plan").text
         pattern = rf'href="/plan/select\?day={rows[0].day.isoformat()}"[^>]*>Nog te kiezen</a>'
         assert len(re.findall(pattern, page)) == 1
+
+
+def test_unfillable_evening_stays_in_the_week(tmp_path):
+    """De week telt altijd zeven dagen: ook de laatste avond (maandag, hier
+    maar 25 min) krijgt een rij — de planner vult haar met restjes of, te
+    kort van tijd, het kortste recept; hij mag nooit een dag laten vervallen."""
+    seed_recipe(tmp_path)  # pasta kookt 30 minuten
+    store = Store(tmp_path / "state.db")
+    store.set_evening(0, cook="", free_minutes=25, allow_leftovers=True)  # maandag: krap
+    with make_client(tmp_path) as client:
+        client.post("/plan/fill", follow_redirects=False)
+        fresh = Store(tmp_path / "state.db")
+        _plan_id, start, rows = fresh.load_proposal()
+        assert [r.day for r in rows] == [start + timedelta(days=i) for i in range(7)]
+        monday = start + timedelta(days=6)
+        row = next(r for r in rows if r.day == monday)
+        assert row.kind in ("cook", "leftovers")
+        page = client.get("/plan").text
+        assert f'href="/plan/select?day={monday.isoformat()}"' in page or "Restjes" in page
+
+
+def test_plan_page_heals_a_week_that_lost_days(tmp_path):
+    """Een voorstel dat dagen mist (uit oudere opslag) wordt bij het openen
+    van /plan binnen de verwachte reeks aangevuld met lege kookavonden."""
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        store = Store(tmp_path / "state.db")
+        start = date.today()
+        plan_id = store.save_proposal(
+            start,
+            [
+                PlanEntryRow(
+                    day=start + timedelta(days=i), kind="cook", recipe_slug="pasta", people=4
+                )
+                for i in range(6)
+            ],
+        )
+        client.get("/plan")
+        rows = store.plan_entries(plan_id)
+        assert len(rows) == 7
+        assert rows[-1].day == start + timedelta(days=6)
+        assert rows[-1].kind == "cook" and rows[-1].recipe_slug is None

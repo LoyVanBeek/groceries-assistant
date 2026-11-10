@@ -247,12 +247,18 @@ def apply_absences(
     return out
 
 
-def plan_to_rows(plan: WeeklyPlan, servings: int = DEFAULT_SERVINGS) -> list[PlanEntryRow]:
+def plan_to_rows(
+    plan: WeeklyPlan, servings: int = DEFAULT_SERVINGS, days: Sequence[date] | None = None
+) -> list[PlanEntryRow]:
     """Convert a WeeklyPlan to storable rows.
 
     A cook evening is planned for its joiners; a leftovers evening adds its
     joiners to the evening the dish was cooked on (cook once, eat twice). A
     composed dish is stored under its own slug, the same column a recipe uses.
+
+    Avonden uit `days` waar de planner niets op kon passen (te weinig tijd,
+    geen restjes) komen er als lege kookavond in — de week telt dan altijd
+    de volledige reeks dagen in plaats van stilletjes een dag in te krimpen.
     """
     rows: list[PlanEntryRow] = []
     for entry in sorted(plan.entries, key=lambda e: e.date):
@@ -288,6 +294,12 @@ def plan_to_rows(plan: WeeklyPlan, servings: int = DEFAULT_SERVINGS) -> list[Pla
                 people=_portions(entry, servings),
             )
         )
+    if days:
+        planned_days = {r.day for r in rows}
+        for day in sorted(days):
+            if day not in planned_days:
+                rows.append(PlanEntryRow(day=day, kind="cook"))
+        rows.sort(key=lambda r: r.day)
     return rows
 
 
