@@ -11,14 +11,18 @@
 //   * the 'restjes' chip: drags one day's leftovers onto a later day, which
 //     becomes a restjes evening (server-validated; the page reloads because
 //     the evening's kind changes).
+//   * the 'vriezer' chip: drags frozen leftovers onto any EMPTY day (no
+//     later-only rule — the dish was cooked weeks ago); the server refuses
+//     occupied days and the page reloads with the notice.
 (function () {
   const table = document.querySelector("table.plan");
   if (!table) return;
   const tbody = table.tBodies[0];
 
   let dragRow = null; // the row being dragged
-  let dragMode = null; // "swap" | "restjes"
+  let dragMode = null; // "swap" | "restjes" | "vriezer"
   let sourceDay = null; // the restjes chip's source day
+  let sourceSlug = null; // the vriezer chip's dish slug
   let hoverRow = null; // the row the drop would land on
   let ghost = null;
   let grabbedOffsetX = 0;
@@ -34,6 +38,7 @@
     dragRow = null;
     dragMode = null;
     sourceDay = null;
+    sourceSlug = null;
     hoverRow = null;
   }
 
@@ -50,11 +55,13 @@
     return label ? label.textContent.trim() : "";
   }
 
-  function makeGhost(row, x, y, mode) {
+  function makeGhost(row, x, y, mode, sourceEl) {
     ghost = document.createElement("div");
     ghost.className = "drag-ghost";
     if (mode === "restjes") {
       ghost.textContent = "Restjes van " + dishLabel(row);
+    } else if (mode === "vriezer") {
+      ghost.textContent = "\u2744 " + sourceEl.textContent.trim();
     } else {
       const day = document.createElement("strong");
       day.textContent = dayLabel(row);
@@ -129,6 +136,18 @@
           // gelukt: de DOM-wissel is de nieuwe stand; niets doen
         })
         .catch(() => window.location.reload());
+    } else if (dragMode === "vriezer") {
+      if (!hoverRow || !sourceSlug) return;
+      fetch("/plan/vriezer-eten", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ day: hoverRow.dataset.day, slug: sourceSlug }),
+      })
+        .then((response) => {
+          // de avond verandert van soort: de pagina rendert hem opnieuw
+          window.location.href = response.url;
+        })
+        .catch(() => window.location.reload());
     } else if (dragMode === "restjes") {
       const body = new URLSearchParams({
         source_day: sourceDay,
@@ -152,6 +171,7 @@
     if (!dragRow || !dragRow.dataset.day) return;
     dragMode = mode;
     sourceDay = mode === "restjes" ? sourceEl.dataset.restjesSource : null;
+    sourceSlug = mode === "vriezer" ? sourceEl.dataset.vriezerSlug : null;
     hoverRow = null;
     grabbedOffsetX = Math.min(event.clientX - dragRow.getBoundingClientRect().left, 40);
     try {
@@ -159,7 +179,7 @@
     } catch (err) {
       // zonder capture bereiken de events het element alsnog via bubbelen
     }
-    makeGhost(dragRow, event.clientX, event.clientY, mode);
+    makeGhost(dragRow, event.clientX, event.clientY, mode, sourceEl);
     dragRow.classList.add("dragging");
     // scroll-lock: de pagina scrollt niet onder de vinger/muis; de randen van
     // het scherm scrollen de pagina zelf (moveDrag)
@@ -204,10 +224,12 @@
   table.addEventListener("pointerdown", (event) => {
     const handle = event.target.closest(".drag-handle");
     const chip = event.target.closest(".restjes-chip");
-    if (!handle && !chip) return;
+    const vchip = event.target.closest(".vriezer-chip");
+    if (!handle && !chip && !vchip) return;
     if (event.pointerType === "mouse" && event.button !== 0) return;
     event.preventDefault();
     if (handle) startDrag(handle, "swap", event);
     else if (chip) startDrag(chip, "restjes", event);
+    else if (vchip) startDrag(vchip, "vriezer", event);
   });
 })();

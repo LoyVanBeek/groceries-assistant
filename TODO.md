@@ -138,7 +138,15 @@
       render as day-cards, the wide recipes/settings tables scroll sideways
       with the name column pinned. Bonus: the order page's week title is
       filled and 'voor <recept>' has its space back)
-- [ ] Add button to add 'remaining days' on week menu
-- [ ] On mobile, just have the recipe names and only show details in a dropdown on each row, so that the whole page fits a single screen., That makes drag and drop nicer on mobile, which also has pull to refresh which gets confused with drag and drop. 
+- [x] Add button to add 'remaining days' on week menu
+      ("Vul de lege dagen in" next to "Vul de week in" on /plan: the planner
+      runs over the empty evenings only, manual picks survive as 'planned',
+      goedkeuring stays; pressing again does nothing)
+- [x] On mobile, just have the recipe names and only show details in a dropdown on each row, so that the whole page fits a single screen., That makes drag and drop nicer on mobile, which also has pull to refresh which gets confused with drag and drop.
+      (compact per-evening rows: thumb + name on one line, kok/attendance/
+      goedkeuren/parts move into a 'meer' expander, reorder via up/down
+      arrows that post the same day exchange -- no HTML5-drag, so pull to
+      refresh never fights it. One line per row: name ellipsizes, restjes
+      chip and arrows share the line)
 - [ ] Keep all data in Postgress or sqlite, not yaml files.
     - [ ] But allow recipe export end import of recipe yaml files, via a standardized format/schema

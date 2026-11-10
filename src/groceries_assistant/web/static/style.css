@@ -374,6 +374,22 @@ table.plan .restjes-freeze {
 }
 table.plan .restjes-freeze:hover { border-color: var(--accent); color: var(--accent); }
 
+.vriezer-chip {
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.05rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  background: var(--accent-soft);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+
 tr.drop-target td {
   background: var(--accent-soft);
 }

@@ -4695,10 +4695,11 @@ def test_restjes_chip_of_a_dish_freezes_its_component(tmp_path):
         vriezer = VriezerStore(tmp_path / "vriezer.yaml")
         vriezer.load()
         assert vriezer.all() == {"aardappels-uit-de-oven": 4}
-        # de porties zitten nu in de vriezer: de chip verdwijnt, de regel blijft
+        # de porties zitten nu in de vriezer: de chip verdwijnt en de
+        # vriezer-chip van het onderdeel komt ervoor in de plaats
         page = client.get("/plan").text
         assert "restjes (4)" not in page
-        assert "in de vriezer: 4 porties" in page
+        assert 'data-vriezer-slug="aardappels-uit-de-oven"' in page
 
 
 def test_frozen_restjes_keep_their_source_across_swaps(tmp_path):
@@ -4856,3 +4857,68 @@ def test_plan_page_heals_a_week_that_lost_days(tmp_path):
         assert len(rows) == 7
         assert rows[-1].day == start + timedelta(days=6)
         assert rows[-1].kind == "cook" and rows[-1].recipe_slug is None
+
+
+def test_vriezer_chip_drag_eats_frozen_portions(tmp_path):
+    """De ❄-chip in de expander is versleepbaar: op een lege dag ontstaat een
+    vriezer-restjes avond (frozen-vlag) en de porties gaan van de voorraad;
+    een bezette dag wordt geweigerd."""
+    seed_recipe(tmp_path)
+    (tmp_path / "recipes" / "pasta.yaml").write_text(
+        PASTA.replace("servings: 4", "servings: 6"), encoding="utf-8"
+    )
+    with make_client(tmp_path) as client:
+        seed_plan(client)
+        store = Store(tmp_path / "state.db")
+        plan_id, _start, _ = store.load_proposal()
+        days = [r.day for r in store.plan_entries(plan_id)]
+        rebuilt = [
+            PlanEntryRow(
+                day=d,
+                kind="cook",
+                recipe_slug="pasta" if i in (0, 1) else None,
+                people=2 if i == 0 else 6,
+            )
+            for i, d in enumerate(days)
+        ]
+        store.update_proposal_rows(plan_id, rebuilt)
+        # invriezen: 4 porties pasta
+        client.post(
+            "/plan/restjes-vriezer", data={"day": days[0].isoformat()}, follow_redirects=False
+        )
+
+        # de chip hangt aan de kookrij
+        page = client.get("/plan").text
+        assert 'class="vriezer-chip" data-vriezer-slug="pasta"' in page
+
+        # een bezette dag: geweigerd
+        resp = client.post(
+            "/plan/vriezer-eten",
+            data={"day": days[1].isoformat(), "slug": "pasta"},
+            follow_redirects=False,
+        )
+        assert resp.headers["location"] == "/plan?error=vriezer-bezet"
+
+        # een lege dag: de avond wordt een vriezer-restjes avond
+        resp = client.post(
+            "/plan/vriezer-eten",
+            data={"day": days[2].isoformat(), "slug": "pasta"},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        after = {r.day: r for r in store.plan_entries(plan_id)}
+        assert after[days[2]].kind == "leftovers"
+        assert after[days[2]].source_slug == "pasta"
+        assert after[days[2]].frozen is True
+        assert after[days[2]].people == 4
+        vriezer = VriezerStore(tmp_path / "vriezer.yaml")
+        vriezer.load()
+        assert vriezer.portions("pasta") == 0
+
+        # de vriezer is leeg: geweigerd
+        resp = client.post(
+            "/plan/vriezer-eten",
+            data={"day": days[3].isoformat(), "slug": "pasta"},
+            follow_redirects=False,
+        )
+        assert resp.headers["location"] == "/plan?error=restjes-geen"

@@ -115,6 +115,9 @@
 {% if request.query_params.error == 'restjes-bezet' %}
 <p class="warnings">Restjes kan alleen op een lege, latere dag — die dag heeft al een gerecht.</p>
 {% endif %}
+{% if request.query_params.error == 'vriezer-bezet' %}
+<p class="warnings">Vriezer-restjes kunnen alleen op een lege dag &mdash; die dag heeft al een gerecht.</p>
+{% endif %}
 {% if request.query_params.error == 'restjes-geen' %}
 <p class="warnings">Dit gerecht levert geen porties over — niets om in te vriezen.</p>
 {% endif %}
@@ -308,7 +311,11 @@
       <details class="row-more">
         <summary aria-label="Meer instellingen voor {{ e.label }}">meer</summary>
         <div class="row-more-body">
-          {% if e.restjes_frozen %}
+          {% if e.frozen_chips %}
+          {% for c in e.frozen_chips %}
+          <span class="vriezer-chip" data-vriezer-slug="{{ c.slug }}" title="Sleep naar een lege dag om de bevroren restjes te eten">&#10052; {{ c.name }} ({{ c.portions }} porties)</span>
+          {% endfor %}
+          {% elif e.restjes_frozen %}
           <span class="muted">&#10052; in de vriezer: {{ e.restjes_frozen }} porties</span>
           {% endif %}
           {{ row_more(e, row) }}

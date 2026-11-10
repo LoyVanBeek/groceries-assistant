@@ -1236,6 +1236,46 @@ def create_app(
         vriezer().add(slug, portions)
         return RedirectResponse("/plan", status_code=303)
 
+    @app.post("/plan/vriezer-eten")
+    def plan_vriezer_eten(day: str = Form(...), slug: str = Form(...)):
+        """Eet de bevroren restjes van `slug` op `day`.
+
+        De sleep van de ❄-chip posts hier. Alleen een lege kookavond mag de
+        porties opnemen (bezette dagen worden geweigerd, net als bij de
+        restjes-chip); de avond wordt een vriezer-restjes rij (frozen: de
+        bron schuift nooit mee) en de porties gaan van de voorraad af.
+        """
+        proposal = store().load_proposal()
+        if proposal is None:
+            raise HTTPException(404, "Geen voorstel")
+        plan_id = proposal[0]
+        target = date.fromisoformat(day)
+        rows = store().plan_entries(plan_id)
+        row = next((r for r in rows if r.day == target), None)
+        if row is None or row.kind != "cook" or row.recipe_slug is not None:
+            return RedirectResponse("/plan?error=vriezer-bezet", status_code=303)
+        portions = vriezer().portions(slug)
+        if portions <= 0:
+            return RedirectResponse("/plan?error=restjes-geen", status_code=303)
+        new_rows = [
+            (
+                PlanEntryRow(
+                    day=r.day,
+                    kind="leftovers",
+                    source_slug=slug,
+                    people=portions,
+                    frozen=True,
+                )
+                if r.day == target
+                else r
+            )
+            for r in rows
+        ]
+        vriezer().take(slug, portions)
+        new_rows = _repoint_leftovers(plan_id, new_rows)
+        store().update_proposal_rows(plan_id, new_rows)
+        return RedirectResponse("/plan", status_code=303)
+
     def _row_dish_slug(rows: list[PlanEntryRow], day: date) -> str:
         """The composed dish (if any) an evening had before the swap."""
         row = next((r for r in rows if r.day == day), None)

@@ -246,6 +246,24 @@ def plan_view(
             )
         else:
             restjes_frozen = vriezer.portions(row.recipe_slug) if vriezer and row.recipe_slug else 0
+        # de versleepbare ❄-chips: bij een gewoon recept het recept zelf, bij
+        # een dag-gerecht elk gekozen onderdeel dat ingevroren voorraad heeft
+        frozen_slugs: list[str] = []
+        if vriezer and row.kind == "cook" and row.recipe_slug:
+            if row.recipe_slug in dishes_by_slug:
+                frozen_slugs = [
+                    s for s in dict.fromkeys(picks.get(row.day, {}).values()) if vriezer.portions(s)
+                ]
+            elif vriezer.portions(row.recipe_slug):
+                frozen_slugs = [row.recipe_slug]
+        frozen_chips = [
+            {
+                "slug": s,
+                "name": by_slug[s].name if s in by_slug else s,
+                "portions": vriezer.portions(s),
+            }
+            for s in frozen_slugs
+        ]
         view.append(
             {
                 "day_iso": row.day.isoformat(),
@@ -275,6 +293,7 @@ def plan_view(
                 "can_leftovers": (row.kind in ("cook", "no_cook") and last_cook_slug is not None),
                 "restjes_portions": restjes_portions,
                 "restjes_frozen": restjes_frozen,
+                "frozen_chips": frozen_chips,
                 "frozen": row.frozen,
                 "over_budget": row.kind == "cook" and minutes > budget,
                 "is_today": row.day == today,

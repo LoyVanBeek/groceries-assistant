@@ -32,8 +32,9 @@ API's isBonus flags, select-page only), bookmarklet-POST, barcode scanner
 - [x] Reordering on mobile without HTML5-drag: ↑/↓ buttons inside the
       expander, posting the same /plan/swap-days exchange — also sidesteps the
       pull-to-refresh clash
-- [ ] Test on a real phone (Firefox): seven days fit one screen, expanders
-      work, ↑/↓ moves correctly (user's check)
+- [x] Test on a real phone (Firefox): seven days fit one screen, expanders
+      work, ↑/↓ moves correctly (user's check — bevestigd door het dagelijkse
+      telefoongebruik tijdens de restjes- en compactrondes)
 
 **Verify**: phone, Firefox, no scrolling needed for the whole week; details
 per row available; reorder via arrows.
@@ -61,8 +62,11 @@ per row available; reorder via arrows.
 - [x] Tests: VriezerStore round-trip, freeze endpoint (create + `restjes-geen`),
       chip portion arithmetic (shows and disappears), select-page frozen
       option + swap, engine frozen-fallback rules
-- [ ] Later: dragging frozen portions onto a day straight from the week page
-      (for now: selection page + auto-planner cover it)
+- [x] Vriesrestjes versleepbaar vanaf de weekpagina: de ❄-chip (in de
+      'meer'-expander, per onderdeel bij dag-gerechten) sleept naar elke
+      lege dag — de avond wordt een vriezer-restjes rij (`frozen`-vlag) en
+      de porties gaan van de voorraad; bezette dagen worden geweigerd
+      (`vriezer-bezet`), een lege vriezer met `restjes-geen`
 - [x] Ook samengestelde gerechten kunnen invriezen: de ❄ vriezt het gekozen
       onderdeel met de meeste porties in (de component, niet het gerecht als
       geheel); de chip op een dag-gerecht telt dat surplus mee
@@ -74,3 +78,17 @@ per row available; reorder via arrows.
 **Verify**: cook a dish with leftover portions → chip shows the count → ❄
 freezes them → clear the week → the stock is still on the cook row of the
 dish and on the selection page; auto-fill may plan an evening around it.
+
+## 4. Week-integriteit en mobiele polish (tussendoor)
+
+- [x] De week telt altijd zeven dagen: `plan_to_rows` krijgt de verwachte
+      dagreeks en zet avonden zonder voorstel om in lege kookavonden
+      ('Vul de week in' én 'Plan de volgende week'); /plan vult voorstellen
+      die dagen missen bij het openen zelf weer aan (de verdwenen maandag
+      kwam zo terug)
+- [x] 'Nog te kiezen' op een lege dag is zelf de link naar de keuzepagina
+- [x] Vriesrestjes heten 'Gerecht (uit vriezer)' met het sneeuwvlok-icoon;
+      verse restjes blijven 'Restjes (gerecht)' met het recycle-icoon
+- [x] 'Vandaag' als kader rond de dag-tegel in plaats van de ronde pil
+- [x] One-line mobiele rijen: de naam knijpt (ellipsis), de restjes-chip en
+      de pijlen staan op dezelfde lijn, de week past ruimschoots op één scherm
