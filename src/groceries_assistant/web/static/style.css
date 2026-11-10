@@ -794,8 +794,8 @@ table.plan .col-attend .cell-name { display: none; }
   }
   .day-tile .day-abbr { font-weight: 700; }
   .day-tile .day-date { font-size: 0.7rem; color: var(--muted); white-space: nowrap; }
-  .move-arrows { display: flex; gap: 0.25rem; margin: 0 0 0 auto; }
-  .move-arrows button { padding: 0.2rem 0.5rem; }
+  .move-arrows { display: flex; gap: 0.25rem; margin: 0; }
+  table.plan .move-arrows button { padding: 0.15rem 0.4rem; min-width: 0; }
   .row-more { display: block; flex: 0 0 100%; min-width: 0; margin: 0.1rem 0 0 0; }
   .row-more summary { cursor: pointer; color: var(--muted); }
   .row-more-label { display: block; margin: 0.25rem 0; }
