@@ -67,6 +67,12 @@
     <label>Prep (min)</label> <input type="number" name="prep" value="{{ prep_value }}" min="0" size="3">
     <label>Cook (min)</label> <input type="number" name="cook" value="{{ cook_value }}" min="0" size="3">
     <label>Protein</label> <input type="text" name="protein" value="{{ protein_value }}" placeholder="kip, rund, vis, vegetarisch">
+    <label>Gang</label>
+    <select name="course">
+      {% for c in courses %}
+      <option value="{{ c }}" {% if c == course_value %}selected{% endif %}>{{ c|capitalize }}</option>
+      {% endfor %}
+    </select>
   </p>
   <p><label>Tags (komma-gescheiden)</label><br>
      <input type="text" name="tags" value="{{ tags_value }}" size="60"

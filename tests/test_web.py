@@ -3448,7 +3448,12 @@ def test_a_dish_can_be_planned_and_its_parts_chosen(tmp_path):
         )
 
         # the row shows the parts joined with ' + ', under the dish name
-        assert "Aardappels uit de oven + Sperziebonen + Kipdoner" in client.get("/plan").text
+        parts_row = (
+            '<a href="/recipes/aardappels-uit-de-oven">Aardappels uit de oven</a>'
+            ' + <a href="/recipes/sperziebonen">Sperziebonen</a>'
+            ' + <a href="/recipes/kip-doner">Kipdoner</a>'
+        )
+        assert parts_row in client.get("/plan").text
 
 
 def test_picking_partly_shows_only_the_chosen_parts(tmp_path):
@@ -3556,7 +3561,10 @@ def test_picking_one_part_leaves_the_others_alone(tmp_path):
             "vlees": "kipfilet",
         }
         seed_plan(client)
-        assert "Sperziebonen + Kipfilet" in client.get("/plan").text
+        assert (
+            '<a href="/recipes/sperziebonen">Sperziebonen</a>'
+            ' + <a href="/recipes/kipfilet">Kipfilet</a>'
+        ) in client.get("/plan").text
 
 
 def test_the_part_picker_can_clear_a_part(tmp_path):
@@ -4231,7 +4239,12 @@ def test_the_planner_fills_a_dish_and_the_week_view_shows_it_filled(tmp_path):
             "groente": "sperziebonen",
             "vlees": "kip-doner",
         }
-        assert "Aardappels uit de oven + Sperziebonen + Kipdoner" in client.get("/plan").text
+        parts_row = (
+            '<a href="/recipes/aardappels-uit-de-oven">Aardappels uit de oven</a>'
+            ' + <a href="/recipes/sperziebonen">Sperziebonen</a>'
+            ' + <a href="/recipes/kip-doner">Kipdoner</a>'
+        )
+        assert parts_row in client.get("/plan").text
 
 
 def test_approving_a_planned_dish_buys_its_parts(tmp_path):
@@ -4946,3 +4959,125 @@ def test_recipe_page_tools_at_the_top_and_yaml_export(tmp_path):
         assert "pasta.yaml" in resp.headers["content-disposition"]
         assert "name: Pasta" in resp.text
         assert client.get("/recipes/onbestaand/export").status_code == 404
+
+
+def test_week_links_recipes_dishes_and_restjes(tmp_path):
+    """De weekweergave linkt naar wat je kookt: het recept bij een gewone dag,
+    het gerecht plus de onderdelen bij een dag-gerecht, de bron bij restjes."""
+    seed_part_recipes(tmp_path)
+    seed_dish(tmp_path)
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        seed_plan(client)
+        store = Store(tmp_path / "state.db")
+        plan_id, _start, rows = store.load_proposal()
+        days = [r.day for r in rows]
+        rebuilt = [
+            PlanEntryRow(day=days[0], kind="cook", recipe_slug="aardappel-groente-vlees", people=4),
+            PlanEntryRow(day=days[1], kind="cook", recipe_slug="pasta", people=4),
+            PlanEntryRow(day=days[2], kind="leftovers", source_slug="pasta", people=4),
+            *[PlanEntryRow(day=d, kind="cook", people=4) for d in days[3:]],
+        ]
+        store.update_proposal_rows(plan_id, rebuilt)
+        pick(
+            client,
+            days[0],
+            aardappels="aardappels-uit-de-oven",
+            groente="sperziebonen",
+            vlees="kip-doner",
+        )
+
+        page = client.get("/plan").text
+        assert 'href="/dishes/aardappel-groente-vlees"' in page
+        assert 'href="/recipes/aardappels-uit-de-oven"' in page
+        assert 'href="/recipes/kip-doner"' in page
+        assert 'href="/recipes/pasta"' in page
+
+
+def test_select_page_filters_by_course(tmp_path):
+    """De keuzepagina toont standaard alleen hoofdgerechten; course=soep de
+    soep, course=alle alles."""
+    seed_recipe(tmp_path)
+    seed_soep(tmp_path)
+    (tmp_path / "recipes" / "bonensoep.yaml").write_text(SOEP + "course: soep\n", encoding="utf-8")
+    with make_client(tmp_path) as client:
+        seed_plan(client)
+        store = Store(tmp_path / "state.db")
+        plan_id, _start, rows = store.load_proposal()
+        days = [r.day for r in rows]
+        rebuilt = [
+            PlanEntryRow(day=days[0], kind="cook", recipe_slug="bonensoep", people=4),
+            *[PlanEntryRow(day=d, kind="cook", people=4) for d in days[1:]],
+        ]
+        store.update_proposal_rows(plan_id, rebuilt)
+
+        page = client.get(f"/plan/select?day={days[1].isoformat()}").text
+        assert "Pasta" in page
+        assert "Bonensoep" not in page
+        page = client.get(f"/plan/select?day={days[1].isoformat()}&course=soep").text
+        assert "Bonensoep" in page
+        assert "Pasta" not in page
+        page = client.get(f"/plan/select?day={days[1].isoformat()}&course=alle").text
+        assert "Pasta" in page
+        assert "Bonensoep" in page
+
+
+def test_recipe_editor_saves_the_course(tmp_path):
+    """De editor heeft een Gang-select: de waarde wordt getoond, opgeslagen
+    in de yaml en bij het heropenen weer geselecteerd; onbekende gangen
+    vallen terug op hoofdgerecht."""
+    from groceries_assistant.models import Recipe
+
+    assert (
+        Recipe(slug="x", name="X", servings=4, ingredients=[{"product": "x", "amount": 1}]).course
+        == "hoofdgerecht"
+    )
+    assert (
+        Recipe(
+            slug="x",
+            name="X",
+            servings=4,
+            course="SOEP",
+            ingredients=[{"product": "x", "amount": 1}],
+        ).course
+        == "soep"
+    )
+    assert (
+        Recipe(
+            slug="x",
+            name="X",
+            servings=4,
+            course="onzin",
+            ingredients=[{"product": "x", "amount": 1}],
+        ).course
+        == "hoofdgerecht"
+    )
+
+    seed_recipe(tmp_path)
+    (tmp_path / "recipes" / "pasta.yaml").write_text(PASTA + "course: soep\n", encoding="utf-8")
+    with make_client(tmp_path) as client:
+        page = client.get("/recipes/pasta/edit").text
+        assert 'value="soep" selected' in page
+        resp = client.post(
+            "/recipes/save",
+            data={
+                "original_slug": "pasta",
+                "name": "Pasta",
+                "servings": "4",
+                "prep": "0",
+                "cook": "30",
+                "prep_ahead": "0",
+                "protein": "",
+                "url": "",
+                "tags": "",
+                "course": "hoofdgerecht",
+                "ingredients": "500 g spaghetti",
+                "steps": "Kook de spaghetti.",
+            },
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        saved = (tmp_path / "recipes" / "pasta.yaml").read_text(encoding="utf-8")
+        assert "course: hoofdgerecht" in saved
+        page = client.get("/recipes/pasta/edit").text
+        assert 'value="hoofdgerecht" selected' in page

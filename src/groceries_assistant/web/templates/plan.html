@@ -199,7 +199,7 @@
       {% endif %}
       {% endif %}
       {% if e.is_dish %}
-      <span class="dish-label">{% if e.slug %}<a href="/recipes/{{ e.slug }}">{{ e.name }}</a>{% else %}{{ e.name }}{% endif %}</span>
+      <span class="dish-label">{% if e.slug %}<a href="/dishes/{{ e.slug }}">{{ e.name }}</a>{% else %}{{ e.name }}{% endif %}</span>
       <span class="parts-label">{{ e.parts_label or 'nog te kiezen' }}</span>
       {% else %}<strong>{% if e.slug %}<a href="/recipes/{{ e.slug }}">{{ e.name }}</a>{% else %}{{ e.name }}{% endif %}</strong>{% endif %}
       {% elif e.kind == 'leftovers' %}
@@ -211,9 +211,9 @@
       </span>
       {% endif %}
       {% if e.is_dish %}
-      <span class="dish-label">{{ e.name }}</span>
+      <span class="dish-label">{% if e.source_slug %}<a href="/dishes/{{ e.source_slug }}">{{ e.name }}</a>{% else %}{{ e.name }}{% endif %}</span>
       <span class="parts-label">{{ e.parts_label or 'nog te kiezen' }}</span>
-      {% else %}<strong>{{ e.name }}</strong>{% endif %}
+      {% else %}<strong>{% if e.source_slug %}<a href="/recipes/{{ e.source_slug }}">{{ e.name }}</a>{% else %}{{ e.name }}{% endif %}</strong>{% endif %}
       {% if not e.is_approved %}
       <form method="post" action="/plan/swap" class="inline">
         <input type="hidden" name="day" value="{{ e.day_iso }}">
@@ -225,10 +225,10 @@
       {% if e.image %}<img class="thumb" src="{{ e.image }}" alt="">{% endif %}
       {% if e.is_dish %}
       <span class="dish-combo">
-        <span class="dish-label">{{ e.name }}</span>
+        <span class="dish-label">{% if e.slug %}<a href="/dishes/{{ e.slug }}">{{ e.name }}</a>{% else %}{{ e.name }}{% endif %}</span>
         <span class="parts-label">
-          {% if e.parts_label %}
-          <strong>{{ e.parts_label }}</strong>
+          {% if e.parts %}
+          {% for p in e.parts %}{% if p.slug %}<a href="/recipes/{{ p.slug }}">{{ p.name }}</a>{% else %}{{ p.name }}{% endif %}{% if not loop.last %} + {% endif %}{% endfor %}
           {% if e.unfilled %}<span class="muted"> + nog te kiezen: {{ e.unfilled|join(', ') }}</span>{% endif %}
           {% else %}
           <strong class="muted">nog te kiezen</strong>
@@ -240,7 +240,7 @@
       {# nog geen gerecht: de tekst zelf is de link naar de keuzepagina #}
       <strong><a class="muted" href="/plan/select?day={{ e.day_iso }}" aria-label="Gerecht kiezen voor {{ e.label }}">{{ e.name }}</a></strong>
       {% else %}
-      <strong{% if e.kind == 'no_cook' or not e.slug %} class="muted"{% endif %}>{{ e.name }}</strong>
+      <strong{% if e.kind == 'no_cook' %} class="muted"{% endif %}>{% if e.slug %}<a href="/recipes/{{ e.slug }}">{{ e.name }}</a>{% else %}{{ e.name }}{% endif %}</strong>
       {% endif %}
       {% if e.frozen %} <span class="muted" title="Uit de vriezer">&#10052;</span>{% endif %}
       {% endif %}

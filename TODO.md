@@ -150,3 +150,17 @@
       chip and arrows share the line)
 - [ ] Keep all data in Postgress or sqlite, not yaml files.
     - [ ] But allow recipe export end import of recipe yaml files, via a standardized format/schema
+- [x] Include tags and categories for recipes. Soups are eg not a main course, neither are deserts.
+      (a `course` field on recipes and dishes -- hoofdgerecht (default), soep,
+      voorgerecht, nagerecht, bijgerecht -- editable via a Gang-select in the
+      editor; unknown values fall back to hoofdgerecht)
+- [x] When selecting a recipe, by default only show main courses. Optionally, add multiple courses, like soup and desert on a day.
+      (/plan/select filters to hoofdgerecht by default, with a course chooser
+      next to the tag filter; sort links keep the course. Multiple courses on
+      one day are still open -- see PLAN.md §5)
+- [ ] Optionally, add multiple courses on a day (soep + hoofdgerecht + nagerecht):
+      a course column on the plan rows, grouped in the week view, groceries
+      summed per day; the planner keeps filling main courses only for now
+- [x] On the week view, include a link to the actual recipe so I can use that to make the dish
+      (plain days link the recipe, composed dishes link /dishes plus each
+      chosen part's own recipe page, restjes/vriezer link their source)

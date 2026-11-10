@@ -92,3 +92,22 @@ dish and on the selection page; auto-fill may plan an evening around it.
 - [x] 'Vandaag' als kader rond de dag-tegel in plaats van de ronde pil
 - [x] One-line mobiele rijen: de naam knijpt (ellipsis), de restjes-chip en
       de pijlen staan op dezelfde lijn, de week past ruimschoots op één scherm
+- [x] Receptpagina: beheer-werkbalk bovenaan (wijzig, origineel recept,
+      yaml-download, verwijderen met bevestiging)
+
+## 5. Gangen (courses) en weekweergave-links
+
+- [x] Weekweergave linkt naar wat je kookt: het recept bij een gewone dag,
+      het dag-gerecht naar /dishes met elk gekozen onderdeel gelinkt naar
+      zijn receptpagina, restjes/vriezer naar hun bron
+- [x] `course` op recept én dag-gerecht (COURSES: hoofdgerecht, soep,
+      voorgerecht, nagerecht, bijgerecht; standaard hoofdgerecht, onbekende
+      waarden vallen daar op terug) — het bewerken gebeurt in de editor met
+      een Gang-select
+- [x] De keuzepagina toont standaard alleen hoofdgerechten; een
+      gangen-kiezer (alle gangen / soep / …) staat naast de tagfilter en de
+      sorteerlinks houden de gang vast
+- [ ] Meerdere gangen op een dag (soep + hoofdgerecht + nagerecht): een
+      course-kolom op de planrijen, gegroepeerd in de weekweergave,
+      boodschappen per dag sommeren — de planner vult voorlopig alleen
+      hoofdgerechten

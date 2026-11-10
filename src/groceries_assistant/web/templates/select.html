@@ -39,13 +39,19 @@
     {% endfor %}
   </select>
   {% endif %}
+  <select name="course" aria-label="Filter op gang">
+    <option value="alle" {% if course == 'alle' %}selected{% endif %}>alle gangen</option>
+    {% for c in all_courses %}
+    <option value="{{ c }}" {% if c == course %}selected{% endif %}>{{ c }}</option>
+    {% endfor %}
+  </select>
   <button type="submit">Zoek</button>
 </form>
 <p class="muted">
   Sorteer:
-  {% if sort != 'score' %}<a href="/plan/select?day={{ day }}&amp;sort=score{% if q %}&amp;q={{ q | urlencode }}{% endif %}{% if tag %}&amp;tag={{ tag | urlencode }}{% endif %}">scores</a>{% else %}<strong>scores</strong>{% endif %}
+  {% if sort != 'score' %}<a href="/plan/select?day={{ day }}&amp;sort=score{% if q %}&amp;q={{ q | urlencode }}{% endif %}{% if tag %}&amp;tag={{ tag | urlencode }}{% endif %}{% if course %}&amp;course={{ course | urlencode }}{% endif %}">scores</a>{% else %}<strong>scores</strong>{% endif %}
   &middot;
-  {% if sort != 'recent' %}<a href="/plan/select?day={{ day }}&amp;sort=recent{% if q %}&amp;q={{ q | urlencode }}{% endif %}{% if tag %}&amp;tag={{ tag | urlencode }}{% endif %}">laatst gebruikt</a>{% else %}<strong>laatst gebruikt</strong>{% endif %}
+  {% if sort != 'recent' %}<a href="/plan/select?day={{ day }}&amp;sort=recent{% if q %}&amp;q={{ q | urlencode }}{% endif %}{% if tag %}&amp;tag={{ tag | urlencode }}{% endif %}{% if course %}&amp;course={{ course | urlencode }}{% endif %}">laatst gebruikt</a>{% else %}<strong>laatst gebruikt</strong>{% endif %}
 </p>
 <table class="select-table">
   <tr>

@@ -15,6 +15,10 @@ def slugify(text: str) -> str:
     return slug or "recipe"
 
 
+COURSES = ("hoofdgerecht", "soep", "voorgerecht", "nagerecht", "bijgerecht")
+"""The meal courses a recipe or dish can be for; drives the course filter."""
+
+
 class Ingredient(BaseModel):
     product: str
     amount: float = Field(gt=0)
@@ -56,6 +60,9 @@ class Recipe(BaseModel):
     """
     time: TimeInfo = Field(default_factory=TimeInfo)
     tags: list[str] = Field(default_factory=list)
+    course: str = "hoofdgerecht"
+    """The meal course this recipe is for (see COURSES); drives the default
+    filter on the selection page -- a soep is not a main course."""
     protein: str | None = None
     """Main protein tag (e.g. 'kip', 'rund', 'vis', 'vegetarisch')."""
     steps: list[str] = Field(default_factory=list)
@@ -77,6 +84,12 @@ class Recipe(BaseModel):
         if not value.startswith(("http://", "https://")):
             raise ValueError("must be an http(s) url")
         return value
+
+    @field_validator("course")
+    @classmethod
+    def _course_known(cls, value: str) -> str:
+        value = (value or "").strip().lower()
+        return value if value in COURSES else "hoofdgerecht"
 
     @field_validator("name")
     @classmethod
@@ -178,6 +191,8 @@ class ComposedDish(BaseModel):
     slug: str
     name: str
     parts: list[DishPart] = Field(min_length=1)
+    course: str = "hoofdgerecht"
+    """The meal course (see COURSES); a dish is a main course unless said otherwise."""
     notes: str | None = None
 
     @model_validator(mode="after")
@@ -193,6 +208,12 @@ class ComposedDish(BaseModel):
         if not value.strip():
             raise ValueError("must not be empty")
         return value.strip()
+
+    @field_validator("course")
+    @classmethod
+    def _course_known(cls, value: str) -> str:
+        value = (value or "").strip().lower()
+        return value if value in COURSES else "hoofdgerecht"
 
     @property
     def option_slugs(self) -> set[str]:

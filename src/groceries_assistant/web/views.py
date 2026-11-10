@@ -264,6 +264,13 @@ def plan_view(
             }
             for s in frozen_slugs
         ]
+        # de gekozen onderdelen als {slug, naam}: de weekweergave linkt ze naar
+        # de receptpagina's (dat is wat je kookt bij een dag-gerecht)
+        parts_linked = [
+            {"slug": p["chosen"], "name": p["chosen_name"]}
+            for p in part_options
+            if p["chosen_name"]
+        ]
         view.append(
             {
                 "day_iso": row.day.isoformat(),
@@ -272,6 +279,8 @@ def plan_view(
                 "day_date": row.day.strftime("%d-%m"),
                 "kind": row.kind,
                 "slug": row.recipe_slug,
+                "source_slug": row.source_slug,
+                "parts": parts_linked,
                 "name": name,
                 "minutes": minutes,
                 "total_minutes": total_minutes,
@@ -367,6 +376,8 @@ def select_options(
     sort: str = "score",
     tags_by_slug: Mapping[str, Sequence[str]] | None = None,
     tag: str = "",
+    course: str = "",
+    course_by_slug: Mapping[str, str] | None = None,
     bonus: Mapping[str, int] | None = None,
     bonus_store=None,
 ) -> list[SelectOption]:
@@ -416,6 +427,11 @@ def select_options(
     if tag and tags_by_slug:
         wanted = tag.strip().lower()
         rows = [row for row in rows if wanted in tags_by_slug.get(row["slug"], ())]
+    if course and course != "alle":
+        # standaard alleen hoofdgerechten: een soep is geen hoofdgerecht
+        rows = [
+            row for row in rows if (course_by_slug or {}).get(row["slug"], "hoofdgerecht") == course
+        ]
     if sort == "recent":
         # usable rows first, then blocked; within each, most recently planned
         # first so the repeat is visible; never-used rows sink to the bottom

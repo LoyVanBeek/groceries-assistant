@@ -44,6 +44,7 @@ from groceries_assistant.dishes.loader import (
     save_dish,
 )
 from groceries_assistant.models import (
+    COURSES,
     Component,
     ComposedDish,
     DishOption,
@@ -965,7 +966,12 @@ def create_app(
 
     @app.get("/plan/select", response_class=HTMLResponse)
     def plan_select(
-        request: Request, day: str = "", q: str = "", sort: str = "score", tag: str = ""
+        request: Request,
+        day: str = "",
+        q: str = "",
+        sort: str = "score",
+        tag: str = "",
+        course: str = "hoofdgerecht",
     ):
         """Pick one evening's dish on its own page.
 
@@ -1000,6 +1006,8 @@ def create_app(
                 for opt in part.options:
                     dish_tags.update(tags_by_slug.get(opt.slug, ()))
             tags_by_slug[dish.slug] = sorted(dish_tags)
+        course_by_slug = {slug: obj.course for slug, obj in known.items()}
+        course_by_slug.update({slug: d.course for slug, d in dishes_by_slug().items()})
         options = select_options(
             all_recipes,
             prefs,
@@ -1016,6 +1024,8 @@ def create_app(
             sort=sort,
             tags_by_slug=tags_by_slug,
             tag=tag,
+            course=course,
+            course_by_slug=course_by_slug,
             bonus=bonus_counts(all_recipes, bonus_store()),
             bonus_store=bonus_store(),
         )
@@ -1064,6 +1074,8 @@ def create_app(
             tag=tag,
             restjes_option=restjes_option,
             frozen_options=frozen_options,
+            course=course,
+            all_courses=list(COURSES),
             all_tags=sorted({t for tags in tags_by_slug.values() for t in tags}),
             label=f"{WEEKDAYS[target.weekday()].capitalize()} {target.strftime('%d-%m')}",
             options=options,
@@ -2697,6 +2709,8 @@ def create_app(
             "protein_value": "",
             "url_value": "",
             "tags_value": "",
+            "course_value": "hoofdgerecht",
+            "courses": list(COURSES),
             "ingredient_lines": "",
             "steps_text": "",
             "parsed": None,
@@ -2735,6 +2749,7 @@ def create_app(
                 protein_value=recipe.protein or "",
                 url_value=recipe.url or "",
                 tags_value=", ".join(recipe.tags),
+                course_value=recipe.course,
                 ingredient_lines="\n".join(
                     f"{i.amount:g} {i.unit} {i.product}" for i in recipe.ingredients
                 ),
@@ -2876,6 +2891,7 @@ def create_app(
         protein: str = Form(""),
         url: str = Form(""),
         tags: str = Form(""),
+        course: str = Form("hoofdgerecht"),
         ingredients: str = Form(""),
         steps: str = Form(""),
         image: Annotated[list[UploadFile] | None, File()] = None,
@@ -2908,6 +2924,7 @@ def create_app(
                     protein_value=protein,
                     url_value=url,
                     tags_value=tags,
+                    course_value=course,
                     ingredient_lines=ingredients,
                     steps_text=steps,
                     staged_photo=ocr_staged_url(ocr_stage),
@@ -2925,6 +2942,7 @@ def create_app(
             protein=protein.strip() or None,
             url=url.strip() or None,
             tags=tags_list,
+            course=course,
             steps=number_steps(steps.splitlines()),
             ingredients=parsed_ingredients,
         )
