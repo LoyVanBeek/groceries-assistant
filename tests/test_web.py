@@ -4922,3 +4922,27 @@ def test_vriezer_chip_drag_eats_frozen_portions(tmp_path):
             follow_redirects=False,
         )
         assert resp.headers["location"] == "/plan?error=restjes-geen"
+
+
+def test_recipe_page_tools_at_the_top_and_yaml_export(tmp_path):
+    """De beheer-acties (wijzig/origineel/yaml/verwijder) staan bovenaan de
+    receptpagina, vóór de ingrediënten; de yaml-download serveert het bestand
+    1-op-1 en een onbekende slug is 404."""
+    seed_recipe(tmp_path)
+    (tmp_path / "recipes" / "pasta.yaml").write_text(
+        PASTA + "url: https://example.com/recept\n", encoding="utf-8"
+    )
+    with make_client(tmp_path) as client:
+        page = client.get("/recipes/pasta").text
+        assert page.index('class="recipe-tools"') < page.index("Ingredi")
+        assert "/recipes/pasta/edit" in page
+        assert "/recipes/pasta/delete" in page
+        assert 'href="https://example.com/recept"' in page
+        assert 'href="/recipes/pasta/export"' in page
+
+        resp = client.get("/recipes/pasta/export")
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("application/x-yaml")
+        assert "pasta.yaml" in resp.headers["content-disposition"]
+        assert "name: Pasta" in resp.text
+        assert client.get("/recipes/onbestaand/export").status_code == 404

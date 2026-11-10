@@ -259,6 +259,16 @@ tr.today .day-tile {
   background: var(--accent-soft);
 }
 .col-approve { text-align: center; }
+
+/* de beheer-acties bovenaan de receptpagina */
+.recipe-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+  margin: 0.3rem 0 0.7rem;
+}
+.recipe-tools .danger { color: var(--warn); border-color: var(--warn); }
 .approved-badge {
   color: var(--accent);
   font-weight: 700;

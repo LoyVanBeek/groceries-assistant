@@ -2,6 +2,15 @@
 {% block title %}{{ recipe.name }}{% endblock %}
 {% block content %}
 <h1>{{ recipe.name }}</h1>
+<p class="recipe-tools">
+  <a class="btn-small" href="/recipes/{{ recipe.slug }}/edit">wijzig</a>
+  {% if recipe.url %}<a class="btn-small" href="{{ recipe.url }}" target="_blank" rel="noopener">Originele recept &#8599;</a>{% endif %}
+  <a class="btn-small" href="/recipes/{{ recipe.slug }}/export" title="Download dit recept als yaml">yaml &#10515;</a>
+  <form method="post" action="/recipes/{{ recipe.slug }}/delete" class="inline"
+        onsubmit="return confirm('Recept &#39;{{ recipe.name }}&#39; verwijderen?')">
+    <button class="btn-small danger">verwijder</button>
+  </form>
+</p>
 {% if image_url %}
 <img class="recipe-img" src="{{ image_url }}" alt="{{ recipe.name }}">
 {% endif %}
@@ -11,9 +20,6 @@
   {% if recipe.time.prep_ahead %} &middot; {{ recipe.time.prep_ahead }} min al eerder doen{% endif %}
   {% if recipe.protein %} &middot; {{ recipe.protein }}{% endif %}
 </p>
-{% if recipe.url %}
-<p><a class="source-link" href="{{ recipe.url }}" target="_blank" rel="noopener">Originele recept &#8599;</a></p>
-{% endif %}
 <h2>Ingredi&euml;nten</h2>
 <ul class="plain">
   {% for line in ingredients %}
@@ -26,5 +32,4 @@
   <li class="item">{{ step }}</li>
   {% endfor %}
 </ul>
-<p><a href="/recipes/{{ recipe.slug }}/edit">wijzig</a></p>
 {% endblock %}

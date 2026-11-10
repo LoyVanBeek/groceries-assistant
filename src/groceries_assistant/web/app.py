@@ -3005,6 +3005,14 @@ def create_app(
         _set_verdict(slug, person, verdict)
         return RedirectResponse("/recipes", status_code=303)
 
+    @app.get("/recipes/{slug}/export")
+    def recipe_export(slug: str):
+        """Download the recipe as a yaml file (1-op-1 de bron op schijf)."""
+        path = data / "recipes" / f"{slug}.yaml"
+        if not path.is_file():
+            raise HTTPException(404, "Onbekend recept")
+        return FileResponse(path, media_type="application/x-yaml", filename=f"{slug}.yaml")
+
     @app.post("/recipes/{slug}/delete")
     def recipe_delete(slug: str):
         path = data / "recipes" / f"{slug}.yaml"
