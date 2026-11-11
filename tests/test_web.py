@@ -5203,7 +5203,7 @@ def test_full_backup_export_and_import_round_trip(tmp_path):
         store.upsert_person("loy", "Loy", "adult", 1.0)
         store.set_setting("week_start_weekday", "1")
         VriezerStore(tmp_path / "vriezer.yaml").add("pasta", 2)
-        plan_id, _start, rows = store.load_proposal()
+        _plan_id, _start, rows = store.load_proposal()
         first = rows[0].day
         resp = client.get("/settings/export")
         assert resp.status_code == 200
