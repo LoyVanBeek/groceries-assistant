@@ -246,6 +246,22 @@
           <button>toch koken</button>
         </form>
         {% endif %}
+        {% if loop.first %}
+        <div class="move-arrows">
+          <form method="post" action="/plan/swap-days" class="inline">
+            <input type="hidden" name="day" value="{{ d.day_iso }}">
+            <input type="hidden" name="swap_to" value="{{ d.prev_day_iso or '' }}">
+            <button class="link" aria-label="Ruil {{ d.label }} met de avond ervoor"
+                    {% if not d.prev_day_iso %}disabled{% endif %}>&uarr;</button>
+          </form>
+          <form method="post" action="/plan/swap-days" class="inline">
+            <input type="hidden" name="day" value="{{ d.day_iso }}">
+            <input type="hidden" name="swap_to" value="{{ d.next_day_iso or '' }}">
+            <button class="link" aria-label="Ruil {{ d.label }} met de avond erna"
+                    {% if not d.next_day_iso %}disabled{% endif %}>&darr;</button>
+          </form>
+        </div>
+        {% endif %}
         {% endif %}
       </div>
       {% endfor %}
@@ -302,20 +318,6 @@
       {% elif d.is_dish and d.unfilled and not d.part_options %}
       <div class="muted">Nog te kiezen: {{ d.unfilled|join(', ') }}</div>
       {% endif %}
-      <div class="move-arrows">
-        <form method="post" action="/plan/swap-days" class="inline">
-          <input type="hidden" name="day" value="{{ d.day_iso }}">
-          <input type="hidden" name="swap_to" value="{{ d.prev_day_iso or '' }}">
-          <button class="link" aria-label="Ruil {{ d.label }} met de avond ervoor"
-                  {% if not d.prev_day_iso %}disabled{% endif %}>&uarr;</button>
-        </form>
-        <form method="post" action="/plan/swap-days" class="inline">
-          <input type="hidden" name="day" value="{{ d.day_iso }}">
-          <input type="hidden" name="swap_to" value="{{ d.next_day_iso or '' }}">
-          <button class="link" aria-label="Ruil {{ d.label }} met de avond erna"
-                  {% if not d.next_day_iso %}disabled{% endif %}>&darr;</button>
-        </form>
-      </div>
       {% endif %}
       <details class="row-more">
         <summary aria-label="Meer instellingen voor {{ d.label }}">meer</summary>
