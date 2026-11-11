@@ -112,6 +112,7 @@ LEFTOVERS_CHOICE = "__leftovers__"
 COOK_CHOICE = "__cook__"
 NO_COOK_CHOICE = "__no_cook__"
 VRIEZER_CHOICE = "__vriezer__:"
+WEG_CHOICE = "__weg__"
 
 # Bookmarklet for ah.nl recipe pages: copies 'URL\nJSON-LD' to the clipboard.
 # ah.nl's bot protection only lets a real browser through, so the JSON is
@@ -989,8 +990,13 @@ def create_app(
         except ValueError:
             raise HTTPException(400, "Ongeldige datum") from None
         rows = store().plan_entries(plan_id)
-        current = next((r for r in rows if r.day == target), None)
-        if current is None:
+        # de gang is tegelijk filter en slot: 'hoofdgerecht'/''
+        # = de hoofdrij van de dag, 'soep' e.d. = dat gangen-slot
+        slot_course = "" if course in ("", "hoofdgerecht") else course
+        current = next(
+            (r for r in rows if r.day == target and (r.course or "") == slot_course), None
+        )
+        if current is None and not any(r.day == target for r in rows):
             raise HTTPException(404, "Geen avond die dag")
         all_recipes, errors = load_all()
         prefs = preferences_from_store(store())
@@ -1013,8 +1019,10 @@ def create_app(
             prefs,
             evening,
             image_url_for,
-            list(dishes_by_slug().values()),
-            current.recipe_slug or current.source_slug or "",
+            # een gangen-slot vult geen dag-gerecht (zijn parts-keuze hoort bij
+            # het hoofdslot); het slots' huidige gerecht valt weg
+            list(dishes_by_slug().values()) if not slot_course else [],
+            (current.recipe_slug or current.source_slug or "") if current else "",
             by_slug=known,
             history=store().history(),
             verdicts_by_slug=store().verdicts(),
@@ -1074,17 +1082,19 @@ def create_app(
             tag=tag,
             restjes_option=restjes_option,
             frozen_options=frozen_options,
-            course=course,
             all_courses=list(COURSES),
             all_tags=sorted({t for tags in tags_by_slug.values() for t in tags}),
             label=f"{WEEKDAYS[target.weekday()].capitalize()} {target.strftime('%d-%m')}",
             options=options,
             confirmed=target in store().plan_ordered(plan_id),
-            is_no_cook=current.kind == "no_cook",
+            course=course,
+            slot_course=slot_course,
+            is_no_cook=(current.kind == "no_cook") if current else False,
             bonus_count=len(bonus_store().products),
             bonus_fetched=bonus_store().fetched_at,
             can_leftovers=(
-                current.kind in ("cook", "no_cook")
+                (current is None or current.kind in ("cook", "no_cook"))
+                and not slot_course
                 and _previous_cook_slug(rows, target) is not None
             ),
             errors=errors,
@@ -1095,6 +1105,7 @@ def create_app(
         request: Request,
         day: str = Form(...),
         choice: str = Form(""),
+        course: str = Form(""),
         force: str = Form(""),
     ):
         """Swap one evening's dish; empty/'__keep__' keeps the current pick.
@@ -1103,6 +1114,10 @@ def create_app(
         allowed, but only with the extra `force` confirmation: the day
         unlocks and the previously bought products are marked 'in huis' so
         they are not bought twice.
+
+        With `course` set, only that course slot of the day changes (a soep-,
+        nagerecht-... row, created on the fly): the day's main row and its
+        other courses stay. '__weg__' removes the course slot again.
 
         Note: the default must be Form('') — FastAPI treats an empty form
         value as missing, and the browser posts an empty value when the
@@ -1114,7 +1129,7 @@ def create_app(
         plan_id = proposal[0]
         rows = store().plan_entries(plan_id)
         target = date.fromisoformat(day)
-        if choice in (KEEP_CHOICE, "__keep__"):
+        if choice in (KEEP_CHOICE, "__keep__") and not course:
             return RedirectResponse("/plan", status_code=303)
         confirmed = store().plan_ordered(plan_id)
         was_confirmed = target in confirmed
@@ -1132,43 +1147,61 @@ def create_app(
         if was_confirmed:
             freed = _day_ordered_products(plan_id, target)
         new_rows: list[PlanEntryRow] = []
-        for row in rows:
-            if row.day != target:
-                new_rows.append(row)
-                continue
-            if choice == COOK_CHOICE:
-                new_rows.append(_best_cook_row(rows, target))
-            elif choice == LEFTOVERS_CHOICE:
-                source = _previous_cook_slug(rows, target)
-                if source is None:
-                    raise HTTPException(400, "Geen gerecht op de avond ervoor")
-                new_rows.append(
-                    PlanEntryRow(day=target, kind="leftovers", source_slug=source, people=4)
-                )
-            elif choice.startswith(VRIEZER_CHOICE):
-                # restjes uit de vriezer eten: de porties gaan van de voorraad af
-                slug = choice[len(VRIEZER_CHOICE) :]
-                portions = vriezer().portions(slug)
-                if portions <= 0:
-                    raise HTTPException(400, "Geen restjes van dit gerecht in de vriezer")
+        if course:
+            # een gangen-slot: alleen die rij verandert; de hoofdrij en de
+            # andere gangen van de dag blijven staan. '__weg__' haalt de gang
+            # weg; de speciale hoofdslot-keuzes doen hier niets (een
+            # receptslug begint nooit met '__').
+            new_rows.extend(r for r in rows if r.day != target or r.course != course)
+            if choice not in (KEEP_CHOICE, "__keep__", WEG_CHOICE) and not choice.startswith("__"):
                 new_rows.append(
                     PlanEntryRow(
-                        day=target,
-                        kind="leftovers",
-                        source_slug=slug,
-                        people=portions,
-                        frozen=True,
+                        day=target, kind="cook", recipe_slug=choice, people=4, course=course
                     )
                 )
-                vriezer().take(slug, portions)
-            elif choice == NO_COOK_CHOICE:
-                # eating elsewhere: no dish, no groceries, no cook needed
-                new_rows.append(PlanEntryRow(day=target, kind="no_cook", people=0))
-            else:
-                new_rows.append(PlanEntryRow(day=target, kind="cook", recipe_slug=choice, people=4))
+        else:
+            new_rows.extend(r for r in rows if r.day != target or r.course)
+            for row in rows:
+                if row.day != target or row.course:
+                    continue
+                if choice == COOK_CHOICE:
+                    new_rows.append(_best_cook_row(rows, target))
+                elif choice == LEFTOVERS_CHOICE:
+                    source = _previous_cook_slug(rows, target)
+                    if source is None:
+                        raise HTTPException(400, "Geen gerecht op de avond ervoor")
+                    new_rows.append(
+                        PlanEntryRow(day=target, kind="leftovers", source_slug=source, people=4)
+                    )
+                elif choice.startswith(VRIEZER_CHOICE):
+                    # restjes uit de vriezer eten: de porties gaan van de voorraad af
+                    slug = choice[len(VRIEZER_CHOICE) :]
+                    portions = vriezer().portions(slug)
+                    if portions <= 0:
+                        raise HTTPException(400, "Geen restjes van dit gerecht in de vriezer")
+                    new_rows.append(
+                        PlanEntryRow(
+                            day=target,
+                            kind="leftovers",
+                            source_slug=slug,
+                            people=portions,
+                            frozen=True,
+                        )
+                    )
+                    vriezer().take(slug, portions)
+                elif choice == NO_COOK_CHOICE:
+                    # eating elsewhere: no dish, no groceries, no cook needed
+                    new_rows.append(PlanEntryRow(day=target, kind="no_cook", people=0))
+                else:
+                    new_rows.append(
+                        PlanEntryRow(day=target, kind="cook", recipe_slug=choice, people=4)
+                    )
+        new_rows.sort(key=lambda r: (r.day, r.course))
         new_rows = _repoint_leftovers(plan_id, new_rows)
         store().update_proposal_rows(plan_id, new_rows)
-        _reconcile_picks(plan_id, new_rows, target, _row_dish_slug(rows, target))
+        if not course:
+            # picks horen bij het hoofdslot; een gangen-slot heeft geen parts
+            _reconcile_picks(plan_id, new_rows, target, _row_dish_slug(rows, target))
         if was_confirmed:
             store().set_day_ordered(plan_id, target, False)
             for product, unit in freed:
@@ -1289,8 +1322,8 @@ def create_app(
         return RedirectResponse("/plan", status_code=303)
 
     def _row_dish_slug(rows: list[PlanEntryRow], day: date) -> str:
-        """The composed dish (if any) an evening had before the swap."""
-        row = next((r for r in rows if r.day == day), None)
+        """The composed dish (if any) an evening's main slot had before the swap."""
+        row = next((r for r in rows if r.day == day and not r.course), None)
         return (row.recipe_slug or row.source_slug or "") if row else ""
 
     def _reconcile_picks(plan_id: int, rows: list[PlanEntryRow], day: date, was: str) -> None:

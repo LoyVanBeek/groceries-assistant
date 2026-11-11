@@ -73,7 +73,8 @@ CREATE TABLE IF NOT EXISTS plan_entries (
     source_slug TEXT,                     -- leftovers source
     people INTEGER NOT NULL DEFAULT 4,
     frozen INTEGER NOT NULL DEFAULT 0,    -- restjes uit de vriezer: bron is leidend
-    PRIMARY KEY (plan_id, day)
+    course TEXT NOT NULL DEFAULT '',      -- '' = hoofdgerecht-slot; soep/nagerecht/... = extra gang
+    PRIMARY KEY (plan_id, day, course)
 );
 
 CREATE INDEX IF NOT EXISTS idx_plan_entries_slug ON plan_entries(recipe_slug);
@@ -159,6 +160,10 @@ class PlanEntryRow:
     frozen: bool = False
     """True for leftovers evenings that eat freezer stock: their source is
     leading and never follows the nearest cook."""
+    course: str = ""
+    """Which course slot this row fills: '' = the day's main course (the slot
+    'Vul de week in' fills); 'soep'/'nagerecht'/... = an extra course on the
+    same day. A day always keeps its main row; extra courses are extra rows."""
 
 
 @dataclass
@@ -198,6 +203,43 @@ class Store:
             for name, kind in columns:
                 if name not in have:
                     self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
+        self.conn.commit()
+        self._migrate_plan_entries_for_courses()
+
+    def _migrate_plan_entries_for_courses(self) -> None:
+        """Widen the plan_entries key from (plan_id, day) to (plan_id, day, course).
+
+        A day can hold several courses (soep + hoofdgerecht + nagerecht), one
+        row each; the main-course slot keeps course ''. SQLite cannot change a
+        primary key in place, so the table is rebuilt once.
+        """
+        have = {row["name"] for row in self.conn.execute("PRAGMA table_info(plan_entries)")}
+        if "course" in have:
+            return
+        self.conn.execute("ALTER TABLE plan_entries RENAME TO plan_entries_old")
+        self.conn.execute(
+            """CREATE TABLE plan_entries (
+                plan_id INTEGER NOT NULL REFERENCES plans(id) ON DELETE CASCADE,
+                day TEXT NOT NULL,
+                kind TEXT NOT NULL DEFAULT 'cook',
+                recipe_slug TEXT,
+                source_slug TEXT,
+                people INTEGER NOT NULL DEFAULT 4,
+                frozen INTEGER NOT NULL DEFAULT 0,
+                course TEXT NOT NULL DEFAULT '',
+                PRIMARY KEY (plan_id, day, course)
+            )"""
+        )
+        self.conn.execute(
+            "INSERT INTO plan_entries"
+            " (plan_id, day, kind, recipe_slug, source_slug, people, frozen, course)"
+            " SELECT plan_id, day, kind, recipe_slug, source_slug, people, frozen, ''"
+            " FROM plan_entries_old"
+        )
+        self.conn.execute("DROP TABLE plan_entries_old")
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_plan_entries_slug ON plan_entries(recipe_slug)"
+        )
         self.conn.commit()
 
     def _ensure_default_template(self) -> None:
@@ -436,8 +478,8 @@ class Store:
         for entry in entries:
             cur.execute(
                 "INSERT INTO plan_entries"
-                "(plan_id, day, kind, recipe_slug, source_slug, people, frozen)"
-                " VALUES (?,?,?,?,?,?,?)",
+                "(plan_id, day, kind, recipe_slug, source_slug, people, frozen, course)"
+                " VALUES (?,?,?,?,?,?,?,?)",
                 (
                     plan_id,
                     entry.day.isoformat(),
@@ -446,6 +488,7 @@ class Store:
                     entry.source_slug,
                     entry.people,
                     int(entry.frozen),
+                    entry.course,
                 ),
             )
         for day, day_picks in (picks or {}).items():
@@ -493,8 +536,8 @@ class Store:
         for entry in entries:
             cur.execute(
                 "INSERT INTO plan_entries"
-                "(plan_id, day, kind, recipe_slug, source_slug, people, frozen)"
-                " VALUES (?,?,?,?,?,?,?)",
+                "(plan_id, day, kind, recipe_slug, source_slug, people, frozen, course)"
+                " VALUES (?,?,?,?,?,?,?,?)",
                 (
                     plan_id,
                     entry.day.isoformat(),
@@ -503,6 +546,7 @@ class Store:
                     entry.source_slug,
                     entry.people,
                     int(entry.frozen),
+                    entry.course,
                 ),
             )
         self.conn.commit()
@@ -556,8 +600,8 @@ class Store:
         for entry in entries:
             cur.execute(
                 "INSERT INTO plan_entries"
-                "(plan_id, day, kind, recipe_slug, source_slug, people, frozen)"
-                " VALUES (?,?,?,?,?,?,?)",
+                "(plan_id, day, kind, recipe_slug, source_slug, people, frozen, course)"
+                " VALUES (?,?,?,?,?,?,?,?)",
                 (
                     plan_id,
                     entry.day.isoformat(),
@@ -566,6 +610,7 @@ class Store:
                     entry.source_slug,
                     entry.people,
                     int(entry.frozen),
+                    entry.course,
                 ),
             )
         for day, day_picks in (picks or {}).items():
@@ -640,44 +685,24 @@ class Store:
     def swap_days(self, plan_id: int, day_a: date, day_b: date) -> None:
         """Exchange the full content of two evenings.
 
-        The dishes, part picks, approval and order-confirmation all travel
-        with the day they belong to, so a confirmed recipe keeps its bought
-        groceries no matter which date it ends up on. Raises KeyError when a
-        day is not part of the plan.
+        Every row of the day travels — the dish, any extra courses, part
+        picks, approval and order-confirmation — so a confirmed recipe keeps
+        its bought groceries no matter which date it ends up on. The rows move
+        as wholes (via a temporary day, so the (plan, day, course) key never
+        collides). Raises KeyError when a day is not part of the plan.
         """
         if day_a == day_b:
             return
         cur = self.conn.cursor()
-        entries = {
-            date.fromisoformat(r["day"]): r
-            for r in cur.execute(
-                "SELECT day, kind, recipe_slug, source_slug, people, frozen"
-                " FROM plan_entries WHERE plan_id = ?",
-                (plan_id,),
-            )
+        days = {
+            r["day"]
+            for r in cur.execute("SELECT day FROM plan_entries WHERE plan_id = ?", (plan_id,))
         }
-        if day_a not in entries or day_b not in entries:
-            missing = day_a if day_a not in entries else day_b
+        if day_a.isoformat() not in days or day_b.isoformat() not in days:
+            missing = day_a if day_a.isoformat() not in days else day_b
             raise KeyError(f"plan {plan_id} has no day {missing.isoformat()}")
-        a, b = entries[day_a], entries[day_b]
-        for day, other in ((day_a, b), (day_b, a)):
-            cur.execute(
-                "UPDATE plan_entries SET kind=?, recipe_slug=?, source_slug=?, people=?, frozen=?"
-                " WHERE plan_id=? AND day=?",
-                (
-                    other["kind"],
-                    other["recipe_slug"],
-                    other["source_slug"],
-                    other["people"],
-                    other["frozen"],
-                    plan_id,
-                    day.isoformat(),
-                ),
-            )
-        # Picks/approvals/ordered are keyed to (plan, day): move one day's
-        # rows aside first so the exchange never collides on a shared key.
         tmp = "__swap_tmp__"
-        for table in ("plan_picks", "plan_approvals", "plan_ordered"):
+        for table in ("plan_entries", "plan_picks", "plan_approvals", "plan_ordered"):
             cur.execute(
                 f"UPDATE {table} SET day=? WHERE plan_id=? AND day=?",
                 (tmp, plan_id, day_a.isoformat()),
@@ -713,7 +738,7 @@ class Store:
             if source_days and all(d > restjes_day for d in source_days):
                 self.conn.execute(
                     "UPDATE plan_entries SET kind='cook', recipe_slug=NULL,"
-                    " source_slug=NULL WHERE plan_id=? AND day=?",
+                    " source_slug=NULL WHERE plan_id=? AND day=? AND course=''",
                     (plan_id, row["day"]),
                 )
                 self.conn.execute(
@@ -735,7 +760,8 @@ class Store:
         entries = {
             date.fromisoformat(r["day"]): r
             for r in self.conn.execute(
-                "SELECT day, kind, recipe_slug, source_slug FROM plan_entries WHERE plan_id=?",
+                "SELECT day, kind, recipe_slug, source_slug FROM plan_entries"
+                " WHERE plan_id=? AND course=''",
                 (plan_id,),
             )
         }
@@ -752,7 +778,7 @@ class Store:
             raise ValueError("restjes kan alleen op een latere, lege kookavond")
         self.conn.execute(
             "UPDATE plan_entries SET kind='leftovers', recipe_slug=NULL,"
-            " source_slug=? WHERE plan_id=? AND day=?",
+            " source_slug=? WHERE plan_id=? AND day=? AND course=''",
             (source["recipe_slug"], plan_id, day.isoformat()),
         )
         self.conn.execute(
@@ -765,7 +791,7 @@ class Store:
         """Erase the restjes on `day`: the evening becomes empty again."""
         self.conn.execute(
             "UPDATE plan_entries SET kind='cook', recipe_slug=NULL, source_slug=NULL"
-            " WHERE plan_id=? AND day=?",
+            " WHERE plan_id=? AND day=? AND course=''",
             (plan_id, day.isoformat()),
         )
         self.conn.execute(
@@ -782,8 +808,8 @@ class Store:
         for entry in entries:
             cur.execute(
                 "INSERT INTO plan_entries"
-                "(plan_id, day, kind, recipe_slug, source_slug, people, frozen)"
-                " VALUES (?,?,?,?,?,?,?)",
+                "(plan_id, day, kind, recipe_slug, source_slug, people, frozen, course)"
+                " VALUES (?,?,?,?,?,?,?,?)",
                 (
                     plan_id,
                     entry.day.isoformat(),
@@ -792,6 +818,7 @@ class Store:
                     entry.source_slug,
                     entry.people,
                     int(entry.frozen),
+                    entry.course,
                 ),
             )
         self.conn.commit()
@@ -847,8 +874,9 @@ class Store:
 
     def plan_entries(self, plan_id: int) -> list[PlanEntryRow]:
         rows = self.conn.execute(
-            "SELECT day, kind, recipe_slug, source_slug, people, frozen FROM plan_entries"
-            " WHERE plan_id = ? ORDER BY day",
+            "SELECT day, kind, recipe_slug, source_slug, people, frozen, course"
+            " FROM plan_entries"
+            " WHERE plan_id = ? ORDER BY day, course",
             (plan_id,),
         ).fetchall()
         return [
@@ -859,6 +887,7 @@ class Store:
                 source_slug=row["source_slug"],
                 people=row["people"],
                 frozen=bool(row["frozen"]),
+                course=row["course"],
             )
             for row in rows
         ]

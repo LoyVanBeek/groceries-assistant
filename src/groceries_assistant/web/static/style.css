@@ -400,6 +400,17 @@ table.plan .restjes-freeze:hover { border-color: var(--accent); color: var(--acc
   white-space: nowrap;
 }
 
+/* extra gangen op een dag: de vervolgrijen sluiten visueel aan bij de
+   hoofdrij, de dagcel toont alleen het gangenlabel */
+table.plan tr.followup { border-top: none; }
+.course-label { color: var(--muted); font-size: 0.8rem; white-space: nowrap; }
+.add-course {
+  display: inline-block;
+  margin-top: 0.15rem;
+  font-size: 0.75rem;
+  color: var(--accent);
+}
+
 tr.drop-target td {
   background: var(--accent-soft);
 }

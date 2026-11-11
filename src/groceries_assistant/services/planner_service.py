@@ -146,7 +146,7 @@ def fill_remaining(
     with restjes. Returns (new rows, new picks) — merge with
     update_proposal_rows/set_picks; goedkeuring stays as it is.
     """
-    empty = [r for r in rows if r.kind == "cook" and r.recipe_slug is None]
+    empty = [r for r in rows if r.kind == "cook" and r.recipe_slug is None and not r.course]
     if not empty:
         return rows, {}
 

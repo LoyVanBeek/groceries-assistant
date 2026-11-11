@@ -4851,7 +4851,8 @@ def test_unfillable_evening_stays_in_the_week(tmp_path):
 
 def test_plan_page_heals_a_week_that_lost_days(tmp_path):
     """Een voorstel dat dagen mist (uit oudere opslag) wordt bij het openen
-    van /plan binnen de verwachte reeks aangevuld met lege kookavonden."""
+    van /plan binnen de verwachte reeks aangevuld met lege kookavonden; de
+    re-anker op de weekdag blijft gewoon werken."""
     seed_recipe(tmp_path)
     with make_client(tmp_path) as client:
         store = Store(tmp_path / "state.db")
@@ -4868,7 +4869,9 @@ def test_plan_page_heals_a_week_that_lost_days(tmp_path):
         client.get("/plan")
         rows = store.plan_entries(plan_id)
         assert len(rows) == 7
-        assert rows[-1].day == start + timedelta(days=6)
+        first = rows[0].day
+        assert first.weekday() == store.week_start_weekday()  # op de weekdag geankerd
+        assert [r.day for r in rows] == [first + timedelta(days=i) for i in range(7)]
         assert rows[-1].kind == "cook" and rows[-1].recipe_slug is None
 
 
@@ -5081,3 +5084,69 @@ def test_recipe_editor_saves_the_course(tmp_path):
         assert "course: hoofdgerecht" in saved
         page = client.get("/recipes/pasta/edit").text
         assert 'value="hoofdgerecht" selected' in page
+
+
+def test_multi_course_day_round_trip(tmp_path):
+    """Een dag kan meerdere gangen hebben: de soep komt erbij als eigen rij
+    (de weekweergave groepeert haar bij de dag), de boodschappen sommeren
+    beide gangen, een dagsruil verplaatst alle gangen mee en 'weg' haalt de
+    gang weer af."""
+    seed_recipe(tmp_path)
+    seed_soep(tmp_path)
+    with make_client(tmp_path) as client:
+        seed_plan(client)
+        store = Store(tmp_path / "state.db")
+        plan_id, _start, rows = store.load_proposal()
+        days = [r.day for r in rows]
+        rebuilt = [
+            PlanEntryRow(day=days[0], kind="cook", recipe_slug="pasta", people=4),
+            *[PlanEntryRow(day=d, kind="cook", people=4) for d in days[1:]],
+        ]
+        store.update_proposal_rows(plan_id, rebuilt)
+
+        # de soep komt erbij als eigen gangenrij; de hoofdrij blijft staan
+        resp = client.post(
+            "/plan/swap",
+            data={"day": days[0].isoformat(), "course": "soep", "choice": "bonensoep"},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        day_rows = [r for r in store.plan_entries(plan_id) if r.day == days[0]]
+        assert [(r.course, r.recipe_slug) for r in day_rows] == [
+            ("", "pasta"),
+            ("soep", "bonensoep"),
+        ]
+
+        # de weekweergave: één handvat per dag en het gangenlabel op de soeprij
+        page = client.get("/plan").text
+        assert 'class="course-label">Soep<' in page
+        assert page.count('class="drag-handle"') == len(days)
+
+        # de boodschappen sommeren beide gangen
+        client.post("/plan/approve", data={"day": days[0].isoformat()}, follow_redirects=False)
+        client.post("/plan/order", follow_redirects=False)
+        order_page = client.get("/order").text
+        assert "spaghetti" in order_page
+        assert "witte bonen" in order_page
+
+        # een dagsruil verplaatst alle gangen mee
+        store.swap_days(plan_id, days[0], days[1])
+        day_rows = [r for r in store.plan_entries(plan_id) if r.day == days[1]]
+        assert [(r.course, r.recipe_slug) for r in day_rows] == [
+            ("", "pasta"),
+            ("soep", "bonensoep"),
+        ]
+        day_rows = [r for r in store.plan_entries(plan_id) if r.day == days[0]]
+        assert len(day_rows) == 1 and day_rows[0].recipe_slug is None
+
+        # 'weg' haalt de gang er weer af (de goedkeuring reisde mee met de
+        # dagsruil en moet eerst worden ingetrokken)
+        store.set_day_approved(plan_id, days[1], False)
+        resp = client.post(
+            "/plan/swap",
+            data={"day": days[1].isoformat(), "course": "soep", "choice": "__weg__"},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        day_rows = [r for r in store.plan_entries(plan_id) if r.day == days[1]]
+        assert [(r.course, r.recipe_slug) for r in day_rows] == [("", "pasta")]

@@ -107,7 +107,12 @@ dish and on the selection page; auto-fill may plan an evening around it.
 - [x] De keuzepagina toont standaard alleen hoofdgerechten; een
       gangen-kiezer (alle gangen / soep / …) staat naast de tagfilter en de
       sorteerlinks houden de gang vast
-- [ ] Meerdere gangen op een dag (soep + hoofdgerecht + nagerecht): een
-      course-kolom op de planrijen, gegroepeerd in de weekweergave,
-      boodschappen per dag sommeren — de planner vult voorlopig alleen
-      hoofdgerechten
+- [x] Meerdere gangen op een dag: de plan_entries-sleutel is verbreed naar
+      (plan, dag, gang) — de hoofdrij (course='') blijft de dagcel, handvat
+      en goedkeuring dragen, extra gangenrijen (soep/nagerecht/...) tonen
+      hun gangenlabel, een ✕ (weg) en een eigen 'gerecht kiezen' met het
+      gangen-slot. Boodschappen sommeren alle gangen van de dag; een
+      dagsruil verplaatst alle gangen mee; restjes/vriezer blijven
+      hoofdslot-zaken; de planner vult alleen hoofdgerechten. Beperkingen:
+      gangen-slots vullen geen dag-gerechten (geen parts-kiezer daar), en
+      partpicks blijven per (plan, dag) — één dag-gerecht per dag.

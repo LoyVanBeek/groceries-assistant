@@ -158,9 +158,13 @@
       (/plan/select filters to hoofdgerecht by default, with a course chooser
       next to the tag filter; sort links keep the course. Multiple courses on
       one day are still open -- see PLAN.md §5)
-- [ ] Optionally, add multiple courses on a day (soep + hoofdgerecht + nagerecht):
-      a course column on the plan rows, grouped in the week view, groceries
-      summed per day; the planner keeps filling main courses only for now
+- [x] Optionally, add multiple courses on a day (soep + hoofdgerecht + nagerecht):
+      the plan-entries key widened to (plan, day, course) -- the main row
+      carries the day cell, extra course rows their own label, remove button
+      and gerecht-kiezen for that course slot; groceries sum the day's
+      courses, a day swap moves them all. Limits: course slots take plain
+      recipes (no composed dishes), part picks stay per day, the planner
+      fills main courses only
 - [x] On the week view, include a link to the actual recipe so I can use that to make the dish
       (plain days link the recipe, composed dishes link /dishes plus each
       chosen part's own recipe page, restjes/vriezer link their source)

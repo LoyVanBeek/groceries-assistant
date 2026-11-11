@@ -67,6 +67,7 @@
       {% if not o.problem %}
       <form method="post" action="/plan/swap">
         <input type="hidden" name="day" value="{{ day }}">
+        <input type="hidden" name="course" value="{{ slot_course }}">
         <input type="hidden" name="choice" value="{{ o.slug }}">
         <button class="btn-small" type="submit">kies</button>
         {% if confirmed %}<label class="confirm-force"><input type="checkbox" name="force" required> boodschappen al besteld &mdash; ik maak de items vrij</label>{% endif %}
@@ -106,7 +107,17 @@
   <tr><td colspan="5" class="muted">Geen recepten gevonden{% if q %} voor &lsquo;{{ q }}&rsquo;{% endif %}.</td></tr>
   {% endfor %}
 </table>
-{% if can_leftovers or not is_no_cook %}
+{% if slot_course %}
+<p class="special-actions">
+  <form method="post" action="/plan/swap" class="inline">
+    <input type="hidden" name="day" value="{{ day }}">
+    <input type="hidden" name="course" value="{{ slot_course }}">
+    <input type="hidden" name="choice" value="__weg__">
+    {% if confirmed %}<label class="confirm-force"><input type="checkbox" name="force" required> boodschappen al besteld</label>{% endif %}
+    <button>deze gang ({{ slot_course }}) weg van de dag</button>
+  </form>
+</p>
+{% elif can_leftovers or not is_no_cook %}
 <p class="special-actions">
   {% if can_leftovers %}
   <form method="post" action="/plan/swap" class="inline">
@@ -127,7 +138,7 @@
   {% endif %}
 </p>
 {% endif %}
-{% if frozen_options %}
+{% if frozen_options and not slot_course %}
 <p class="special-actions frozen-actions">
   {% for f in frozen_options %}
   <form method="post" action="/plan/swap" class="inline">
@@ -143,6 +154,7 @@
   <a class="big-link" href="/plan">Terug naar het weekplan</a>
   <form method="post" action="/plan/swap" class="inline">
     <input type="hidden" name="day" value="{{ day }}">
+    <input type="hidden" name="course" value="{{ slot_course }}">
     <input type="hidden" name="choice" value="__keep__">
     <button class="link">laten staan</button>
   </form>

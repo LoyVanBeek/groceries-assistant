@@ -169,8 +169,9 @@
   <tbody>
   {% for e in evenings %}
   {% set row = loop.index %}
-  <tr class="evening {% if e.over_budget %}over{% endif %} {% if e.is_past %}passed{% endif %} {% if e.is_today %}today{% endif %}" data-day="{{ e.day_iso }}">
+  <tr class="evening{% if not e.is_first_of_day %} followup{% endif %} {% if e.over_budget %}over{% endif %} {% if e.is_past %}passed{% endif %} {% if e.is_today %}today{% endif %}" data-day="{{ e.day_iso }}">
     <td class="col-day">
+      {% if e.is_first_of_day %}
       <span class="drag-handle" title="Sleep om deze dag te verplaatsen" aria-label="Sleep om deze dag te verplaatsen">&#8942;&#8942;</span>
       <strong>{{ e.label }}</strong>
       <span class="day-tile">
@@ -185,6 +186,14 @@
         {% else %}{{ e.minutes }}/{{ e.budget }} min &middot; {{ e.people }} p{% endif %}
       </span>
       {% if e.over_budget %}<div class="warnings">over!</div>{% endif %}
+      {% if not e.is_approved %}
+      {% for c in e.add_courses %}
+      <a class="add-course" href="/plan/select?day={{ e.day_iso }}&amp;course={{ c }}" aria-label="Voeg {{ c }} toe aan {{ e.label }}">+ {{ c }}</a>
+      {% endfor %}
+      {% endif %}
+      {% else %}
+      <span class="course-label">{{ e.course_label }}</span>
+      {% endif %}
     </td>
     <td class="col-dish">
       {% if e.is_ordered %}
@@ -244,8 +253,16 @@
       {% endif %}
       {% if e.frozen %} <span class="muted" title="Uit de vriezer">&#10052;</span>{% endif %}
       {% endif %}
+      {% if e.course %}
+      <form method="post" action="/plan/swap" class="inline">
+        <input type="hidden" name="day" value="{{ e.day_iso }}">
+        <input type="hidden" name="course" value="{{ e.course }}">
+        <input type="hidden" name="choice" value="__weg__">
+        <button class="btn-icon" title="Deze gang van de dag af" aria-label="Verwijder {{ e.course_label }} van {{ e.label }}">&#10005;</button>
+      </form>
+      {% endif %}
       {% if not e.is_approved %}
-      <div><a class="btn-small" href="/plan/select?day={{ e.day_iso }}" aria-label="Gerecht kiezen voor {{ e.label }}">gerecht kiezen</a></div>
+      <div><a class="btn-small" href="/plan/select?day={{ e.day_iso }}{% if e.course %}&amp;course={{ e.course }}{% endif %}" aria-label="Gerecht kiezen voor {{ e.label }}{% if e.course %} ({{ e.course_label }}){% endif %}">gerecht kiezen</a></div>
       {% endif %}
       {% endif %}
       {% if not e.is_ordered and not e.is_approved and e.is_dish and e.editable_parts and e.part_options %}
@@ -308,6 +325,12 @@
         </form>
       </span>
       {% endif %}
+      {% if e.frozen_chips and not e.is_first_of_day %}
+      {% for c in e.frozen_chips %}
+      <span class="vriezer-chip" data-vriezer-slug="{{ c.slug }}" title="Sleep naar een lege dag om de bevroren restjes te eten">&#10052; {{ c.name }} ({{ c.portions }} porties)</span>
+      {% endfor %}
+      {% endif %}
+      {% if e.is_first_of_day %}
       <details class="row-more">
         <summary aria-label="Meer instellingen voor {{ e.label }}">meer</summary>
         <div class="row-more-body">
@@ -321,6 +344,7 @@
           {{ row_more(e, row) }}
         </div>
       </details>
+      {% endif %}
     </td>
     <td class="col-cook">
       {% if e.is_ordered %}
