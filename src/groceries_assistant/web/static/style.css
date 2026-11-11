@@ -259,6 +259,7 @@ tr.today .day-tile {
   background: var(--accent-soft);
 }
 .col-approve { text-align: center; }
+table.plan td.col-day { vertical-align: top; }
 
 /* de beheer-acties bovenaan de receptpagina */
 .recipe-tools {
@@ -799,7 +800,7 @@ table.plan .col-attend .cell-name { display: none; }
     display: grid;
     grid-template-columns: auto 1fr;
     column-gap: 0.5rem;
-    align-items: center;
+    align-items: start; /* de dag-tegel bovenaan, ook bij meerdere gangen */
   }
   table.plan tr.evening > td { width: auto; min-width: 0; border: none; padding: 0.1rem 0; }
   table.plan .thumb { width: 2.5rem; height: 2.5rem; }

@@ -246,7 +246,7 @@
           <button>toch koken</button>
         </form>
         {% endif %}
-        {% if loop.first %}
+        {% if not c.course %}
         <div class="move-arrows">
           <form method="post" action="/plan/swap-days" class="inline">
             <input type="hidden" name="day" value="{{ d.day_iso }}">
