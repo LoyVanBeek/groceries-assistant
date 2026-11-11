@@ -116,3 +116,22 @@ dish and on the selection page; auto-fill may plan an evening around it.
       hoofdslot-zaken; de planner vult alleen hoofdgerechten. Beperkingen:
       gangen-slots vullen geen dag-gerechten (geen parts-kiezer daar), en
       partpicks blijven per (plan, dag) — één dag-gerecht per dag.
+
+## 6. Backup: alles exporteren en importeren
+
+- [x] `GET /settings/export`: één zip met de hele receptbibliotheek (yaml +
+      afbeeldingen), de plandatabase `state.db` (mensen, oordelen,
+      instellingen, weeksjabloon, alle weekplannen, bestellingen) en de
+      losse winkels (vriezer, bonus, koppelingen, barcodes); WAL wordt
+      gecheckpoint zodat de database 1-op-1 in de zip staat
+- [x] `POST /settings/import`: de zip wordt uitgepakt en leidend — yaml's en
+      afbeeldingen worden weggeschreven, recepten die niet in de backup
+      zitten verdwijnen mee, de plandatabase wordt vervangen (verbinding
+      dicht, WAL/SHM weg, bestand terug, caches leeg) en de pagina's lezen
+      de teruggezette data
+- [x] De knoppen staan onderaan /settings, met een bevestiging voor het
+      overschrijvende importeren; de round-trip is getest (export →
+      andere installatie → import → recepten, plannen, instellingen en
+      vriezer zijn terug)
+- [ ] De receptbibliotheek (recepten, onderdelen, gerechten) verhuizen naar
+      sqlite zodat yaml alleen nog het exportformaat is (zie TODO)

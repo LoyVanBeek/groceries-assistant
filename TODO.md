@@ -149,7 +149,14 @@
       refresh never fights it. One line per row: name ellipsizes, restjes
       chip and arrows share the line)
 - [ ] Keep all data in Postgress or sqlite, not yaml files.
-    - [ ] But allow recipe export end import of recipe yaml files, via a standardized format/schema
+    (the plan/people/verdicts/settings/orders database already is sqlite;
+    the recipe library -- recipes, components, dishes -- is still yaml)
+    - [x] But allow recipe export end import of recipe yaml files, via a standardized format/schema
+          (every recipe has a yaml download on its page, and /settings has a
+          full backup: one zip with the whole library (yaml + images), the
+          plan database (mensen, oordelen, instellingen, weken,
+          bestellingen) and vriezer/bonus/koppelingen/barcodes -- importing
+          replaces everything and resets the caches)
 - [x] Include tags and categories for recipes. Soups are eg not a main course, neither are deserts.
       (a `course` field on recipes and dishes -- hoofdgerecht (default), soep,
       voorgerecht, nagerecht, bijgerecht -- editable via a Gang-select in the
