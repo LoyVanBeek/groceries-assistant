@@ -5186,3 +5186,67 @@ def test_add_course_plus_link(tmp_path):
         client.post("/plan/approve", data={"day": days[0].isoformat()}, follow_redirects=False)
         page = client.get("/plan").text
         assert page.count('class="add-course"') == 0
+
+
+def test_full_backup_export_and_import_round_trip(tmp_path):
+    """De backup-knop: exporteren geeft een zip met recepten, de
+    plandatabase en de vriezer; importeren zet alles terug — recepten,
+    plannen en instellingen — en de pagina's lezen de teruggezette data."""
+    import io
+    import zipfile
+
+    seed_recipe(tmp_path)
+    (tmp_path / "recipes" / "pasta.yaml").write_text(PASTA + "course: soep\n", encoding="utf-8")
+    with make_client(tmp_path) as client:
+        seed_plan(client)
+        store = Store(tmp_path / "state.db")
+        store.upsert_person("loy", "Loy", "adult", 1.0)
+        store.set_setting("week_start_weekday", "1")
+        VriezerStore(tmp_path / "vriezer.yaml").add("pasta", 2)
+        plan_id, _start, rows = store.load_proposal()
+        first = rows[0].day
+        resp = client.get("/settings/export")
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("application/zip")
+        zip_bytes = resp.content
+
+        zf = zipfile.ZipFile(io.BytesIO(zip_bytes))
+        assert "recipes/pasta.yaml" in zf.namelist()
+        assert "state.db" in zf.namelist()
+        assert "vriezer.yaml" in zf.namelist()
+        assert "course: soep" in zf.read("recipes/pasta.yaml").decode("utf-8")
+
+    # een tweede installatie met ANDERE data: de backup wordt daar
+    # teruggezet en overschrijft wat er was
+    other = tmp_path / "andere-installatie"
+    other.mkdir()
+    (other / "recipes").mkdir()
+    (other / "recipes" / "anders.yaml").write_text(
+        "name: Anders\nservings: 2\ntime: {cook: 10}\ningredients:\n  - {product: x, amount: 1}\n",
+        encoding="utf-8",
+    )
+    with make_client(other) as client2:
+        seed_plan(client2)  # eigen week + instellingen
+        resp = client2.post(
+            "/settings/import",
+            files={"backup": ("backup.zip", zip_bytes, "application/zip")},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        assert resp.headers["location"].startswith("/settings?imported=")
+        # de receptbibliotheek is vervangen (losse recepten verdwijnen mee)
+        page = client2.get("/recipes").text
+        assert "Pasta" in page
+        assert "Anders" not in page
+        # de plandatabase is vervangen: de geplande week en instellingen terug
+        fresh = Store(other / "state.db")
+        _plan_id2, _start2, rows2 = fresh.load_proposal()
+        assert rows2[0].day == first
+        assert fresh.people()[0]["name"] == "Loy"
+        assert fresh.week_start_weekday() == 1
+        vriezer_back = VriezerStore(other / "vriezer.yaml")
+        vriezer_back.load()
+        assert vriezer_back.portions("pasta") == 2
+        # de pagina's lezen de teruggezette data
+        assert "Pasta" in client2.get("/recipes/pasta").text
+        assert client2.get("/plan").status_code == 200

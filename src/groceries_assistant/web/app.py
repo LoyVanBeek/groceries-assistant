@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import io
 import os
 import re
 import subprocess
 import tempfile
+import zipfile
 from collections.abc import Mapping
 from datetime import date, timedelta
 from pathlib import Path
@@ -14,7 +16,7 @@ from urllib.parse import quote, urlparse
 from uuid import uuid4
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
@@ -670,6 +672,16 @@ def create_app(
     _mappings_cache: list[AHMappingStore] = []
     _bonus_cache: list[BonusStore] = []
     _barcode_cache: list[BarcodeStore] = []
+
+    def _reset_data_caches() -> None:
+        """Sluit de plandatabase en leeg de singletons zodat na een import de
+        teruggezette bestanden opnieuw worden ingelezen."""
+        if holder:
+            holder[0].conn.close()
+            holder.clear()
+        _mappings_cache.clear()
+        _bonus_cache.clear()
+        _barcode_cache.clear()
 
     def mappings() -> AHMappingStore:
         if not _mappings_cache:
@@ -3297,6 +3309,73 @@ def create_app(
             staples=store().staples(),
             facts=sorted(store().product_facts().values(), key=lambda f: f.product.lower()),
         )
+
+    @app.get("/settings/export")
+    def settings_export():
+        """Download alle data als zip-backup: de receptbibliotheek (yaml +
+        afbeeldingen), de plandatabase (mensen, oordelen, instellingen,
+        weken, bestellingen) en de losse winkels (vriezer, bonus,
+        koppelingen, barcodes)."""
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for sub in ("recipes", "components", "dishes"):
+                d = data / sub
+                if d.is_dir():
+                    for f in sorted(d.rglob("*")):
+                        if f.is_file():
+                            zf.write(f, arcname=f"{sub}/{f.relative_to(d)}")
+            store().conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            db_path = data / "state.db"
+            if db_path.is_file():
+                zf.write(db_path, arcname="state.db")
+            for name in ("vriezer.yaml", "bonus.yaml", "ah_mappings.yaml", "barcodes.yaml"):
+                p = data / name
+                if p.is_file():
+                    zf.write(p, arcname=name)
+        stamp = date.today().isoformat()
+        return Response(
+            buf.getvalue(),
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="assistent-backup-{stamp}.zip"'},
+        )
+
+    @app.post("/settings/import")
+    async def settings_import(backup: Annotated[UploadFile, File()]):
+        """Zet een zip-backup terug: yaml-bestanden + afbeeldingen worden
+        weggeschreven, de plandatabase wordt vervangen en alle caches worden
+        opnieuw geopend. Een restorerende import vervangt alles wat er nu is."""
+        payload = await backup.read()
+        try:
+            zf = zipfile.ZipFile(io.BytesIO(payload))
+        except zipfile.BadZipFile:
+            raise HTTPException(400, "Geen geldige zip") from None
+        names = [n for n in zf.namelist() if not n.endswith("/")]
+        if "state.db" not in names:
+            raise HTTPException(400, "De backup mist state.db")
+        for n in names:
+            if n.startswith("/") or ".." in Path(n).parts:
+                raise HTTPException(400, f"Onveilig pad in backup: {n}")
+        # de bibliotheken eerst leegmaken: de backup is leidend, losse
+        # recepten die er niet in zitten verdwijnen mee
+        for sub in ("recipes", "components", "dishes"):
+            d = data / sub
+            if d.is_dir():
+                for f in sorted(d.rglob("*")):
+                    if f.is_file() and f"{sub}/{f.relative_to(d)}" not in names:
+                        f.unlink()
+        for n in names:
+            if n == "state.db":
+                continue
+            target = data / n
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(zf.read(n))
+        store().conn.close()
+        db_path = data / "state.db"
+        for suffix in ("-wal", "-shm"):
+            Path(str(db_path) + suffix).unlink(missing_ok=True)
+        db_path.write_bytes(zf.read("state.db"))
+        _reset_data_caches()
+        return RedirectResponse("/settings?imported=1", status_code=303)
 
     @app.post("/settings/template")
     async def save_template(request: Request):

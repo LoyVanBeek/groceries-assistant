@@ -2,6 +2,12 @@
 {% block title %}Instellingen{% endblock %}
 {% block content %}
 <h1>Weekschema</h1>
+{% if request.query_params.imported %}
+<p class="warnings">Backup teruggezet: recepten, instellingen en plannen zijn vervangen door de backup.</p>
+{% endif %}
+{% if request.query_params.import_error %}
+<p class="warnings">Importeren mislukt: {{ request.query_params.import_error }}</p>
+{% endif %}
 <form method="post" action="/settings/template">
   <p class="muted">
     <label for="week_start">De week begint op
@@ -124,6 +130,19 @@
   <input type="number" name="shelf_life_days" value="3" min="0" max="365" size="3">
   <span class="muted">dagen houdbaar</span>
   <button>Toevoegen</button>
+</form>
+
+<h2>Backup</h2>
+<p>
+  <a class="btn-small" href="/settings/export">Alle data exporteren (zip)</a>
+  &mdash; recepten, afbeeldingen, instellingen, familie, weekplannen,
+  bestellingen, vriezer, bonus, koppelingen en barcodes.
+</p>
+<form method="post" action="/settings/import" enctype="multipart/form-data"
+      onsubmit="return confirm('Dit vervangt de huidige recepten, instellingen en plannen door de backup. Doorgaan?')">
+  <input type="file" name="backup" accept=".zip" required>
+  <button>Backup importeren</button>
+  <span class="muted">vervangt alles wat er nu is</span>
 </form>
 {% endblock %}
 {% block scripts %}
