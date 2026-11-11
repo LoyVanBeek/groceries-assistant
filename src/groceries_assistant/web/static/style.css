@@ -832,7 +832,13 @@ table.plan .col-attend .cell-name { display: none; }
   table.plan .col-day .budget, table.plan .col-day .warnings { display: none; }
   table.plan .col-day > strong { display: none; }
   table.plan .col-dish .parts-label { display: none; }
-  table.plan .course-row { flex: 1 1 0; min-width: 0; }
+  table.plan .course-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    flex: 1 1 0;
+    min-width: 0;
+  }
   table.plan .col-dish > div > .btn-small { display: none; }
   table.plan .col-dish > form.inline { display: none; }
   table.plan .restjes-freeze-form { display: inline-flex; margin: 0; }
