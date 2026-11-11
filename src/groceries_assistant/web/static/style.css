@@ -406,9 +406,17 @@ table.plan tr.followup { border-top: none; }
 .course-label { color: var(--muted); font-size: 0.8rem; white-space: nowrap; }
 .add-course {
   display: inline-block;
-  margin-top: 0.15rem;
-  font-size: 0.75rem;
+  margin-left: 0.3rem;
+  padding: 0 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.9rem;
+  color: var(--muted);
+  line-height: 1.4;
+}
+.add-course:hover {
   color: var(--accent);
+  border-color: var(--accent);
 }
 
 tr.drop-target td {

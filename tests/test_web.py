@@ -5150,3 +5150,33 @@ def test_multi_course_day_round_trip(tmp_path):
         assert resp.status_code == 303
         day_rows = [r for r in store.plan_entries(plan_id) if r.day == days[1]]
         assert [(r.course, r.recipe_slug) for r in day_rows] == [("", "pasta")]
+
+
+def test_add_course_plus_link(tmp_path):
+    """De + in de gerechtkolom verschijnt zodra de dag een hoofdgerecht (of
+    restjes) heeft — standaard richtend op een soep — en niet op lege of
+    goedgekeurde dagen."""
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        seed_plan(client)
+        store = Store(tmp_path / "state.db")
+        plan_id, _start, rows = store.load_proposal()
+        days = [r.day for r in rows]
+        rebuilt = [
+            PlanEntryRow(day=days[0], kind="cook", recipe_slug="pasta", people=4),
+            PlanEntryRow(day=days[1], kind="cook", people=4),
+            *[PlanEntryRow(day=d, kind="cook", people=4) for d in days[2:]],
+        ]
+        store.update_proposal_rows(plan_id, rebuilt)
+
+        page = client.get("/plan").text
+        plus = re.search(
+            rf'href="/plan/select\?day={days[0].isoformat()}&amp;course=soep"[^>]*>\+</a>', page
+        )
+        assert plus is not None
+        assert page.count('class="add-course"') == 1  # de lege dag krijgt geen +
+
+        # een goedgekeurde dag is dicht: geen +
+        client.post("/plan/approve", data={"day": days[0].isoformat()}, follow_redirects=False)
+        page = client.get("/plan").text
+        assert page.count('class="add-course"') == 0

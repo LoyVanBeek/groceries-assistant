@@ -7,7 +7,7 @@ from datetime import date
 from pathlib import Path
 from typing import TypedDict
 
-from groceries_assistant.models import COURSES, ComposedDish, Recipe
+from groceries_assistant.models import ComposedDish, Recipe
 from groceries_assistant.planner.availability import EveningAvailability
 from groceries_assistant.planner.engine import DEFAULT_REPEAT_WINDOW_DAYS
 from groceries_assistant.preferences import Preferences
@@ -184,7 +184,6 @@ def plan_view(
         # meerdere gangen per dag: elke rij is een gang, de eerste van de dag
         # draagt de dagcel (tegel, handvat, budget); de rest een ganglabel
         first_of_day = row.day != prev_day
-        day_courses = [r.course for r in all_rows if r.day == row.day]
         prev_day = row.day
         evening = planner.evenings_for(store, row.day, days=1)[0]
         budget = evening.free_minutes
@@ -312,9 +311,6 @@ def plan_view(
                 "frozen": row.frozen,
                 "is_first_of_day": first_of_day,
                 "course_label": row.course.capitalize() if row.course else "",
-                "add_courses": [c for c in COURSES if c != "hoofdgerecht" and c not in day_courses]
-                if first_of_day
-                else [],
                 "over_budget": row.kind == "cook" and minutes > budget,
                 "is_today": row.day == today,
                 "is_past": row.day < today,

@@ -186,11 +186,6 @@
         {% else %}{{ e.minutes }}/{{ e.budget }} min &middot; {{ e.people }} p{% endif %}
       </span>
       {% if e.over_budget %}<div class="warnings">over!</div>{% endif %}
-      {% if not e.is_approved %}
-      {% for c in e.add_courses %}
-      <a class="add-course" href="/plan/select?day={{ e.day_iso }}&amp;course={{ c }}" aria-label="Voeg {{ c }} toe aan {{ e.label }}">+ {{ c }}</a>
-      {% endfor %}
-      {% endif %}
       {% else %}
       <span class="course-label">{{ e.course_label }}</span>
       {% endif %}
@@ -252,6 +247,9 @@
       <strong{% if e.kind == 'no_cook' %} class="muted"{% endif %}>{% if e.slug %}<a href="/recipes/{{ e.slug }}">{{ e.name }}</a>{% else %}{{ e.name }}{% endif %}</strong>
       {% endif %}
       {% if e.frozen %} <span class="muted" title="Uit de vriezer">&#10052;</span>{% endif %}
+      {% endif %}
+      {% if e.is_first_of_day and (e.slug or e.source_slug) and not e.is_approved %}
+      <a class="add-course" href="/plan/select?day={{ e.day_iso }}&amp;course=soep" title="Extra gang toevoegen &mdash; standaard een soep; op de keuzepagina kies je bij Gang een andere (bv. nagerecht)">+</a>
       {% endif %}
       {% if e.course %}
       <form method="post" action="/plan/swap" class="inline">

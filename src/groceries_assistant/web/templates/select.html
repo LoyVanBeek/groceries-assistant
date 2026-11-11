@@ -2,6 +2,9 @@
 {% block title %}Gerecht kiezen{% endblock %}
 {% block content %}
 <h1>Gerecht kiezen &mdash; {{ label }}</h1>
+{% if slot_course %}
+<p class="muted">Je vult de gang <strong>{{ slot_course }}</strong> van deze dag. Via <strong>Gang</strong> in het zoekformulier hieronder kies je een andere gang (bijvoorbeeld nagerecht); de gang weer weg? Gebruik de knop onderaan.</p>
+{% endif %}
 {% if errors %}<p class="warnings">Ongeldige receptbestanden: {{ errors|join('; ') }}</p>{% endif %}
 {% if confirmed %}
 <p class="warnings">
