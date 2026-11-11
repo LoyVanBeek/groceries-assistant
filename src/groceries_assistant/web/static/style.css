@@ -811,8 +811,11 @@ table.plan .col-attend .cell-name { display: none; }
     gap: 0.5rem;
   }
   table.plan td.col-dish > strong,
+  table.plan td.col-dish > .course-row > strong,
   table.plan td.col-dish > .dish-label,
-  table.plan td.col-dish > .dish-combo {
+  table.plan td.col-dish > .course-row > .dish-label,
+  table.plan td.col-dish > .dish-combo,
+  table.plan td.col-dish > .course-row > .dish-combo {
     /* basis 0: de naam claimt alleen de ruimte die over is, zodat de
        restjes-chip en de pijlen op dezelfde lijk passen en de naam
        zelf afkapt met … */
@@ -828,10 +831,12 @@ table.plan .col-attend .cell-name { display: none; }
   table.plan .col-day .budget, table.plan .col-day .warnings { display: none; }
   table.plan .col-day > strong { display: none; }
   table.plan .col-dish .parts-label { display: none; }
+  table.plan .course-row { flex: 0 0 100%; min-width: 0; }
   table.plan .col-dish > div > .btn-small { display: none; }
   table.plan .col-dish > form.inline { display: none; }
   table.plan .restjes-freeze-form { display: inline-flex; margin: 0; }
   table.plan .restjes-freeze { padding: 0.15rem 0.45rem; }
+  table.plan .course-row { flex: 0 0 100%; min-width: 0; }
   .day-tile {
     display: inline-flex;
     flex-direction: column;

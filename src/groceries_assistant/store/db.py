@@ -876,7 +876,9 @@ class Store:
         rows = self.conn.execute(
             "SELECT day, kind, recipe_slug, source_slug, people, frozen, course"
             " FROM plan_entries"
-            " WHERE plan_id = ? ORDER BY day, course",
+            " WHERE plan_id = ? ORDER BY day,"
+            " CASE course WHEN 'soep' THEN 0 WHEN 'voorgerecht' THEN 1"
+            " WHEN '' THEN 2 WHEN 'bijgerecht' THEN 3 WHEN 'nagerecht' THEN 4 ELSE 5 END",
             (plan_id,),
         ).fetchall()
         return [

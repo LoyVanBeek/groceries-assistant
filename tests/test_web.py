@@ -3653,7 +3653,10 @@ def test_a_leftovers_evening_of_a_dish_copies_its_picks(tmp_path):
         seed_plan(client)
         text = client.get("/plan").text
         assert "Restjes (Aardappel-groente-vlees)" in text
-        assert "Aardappels uit de oven + Sperziebonen" in text
+        assert (
+            '<a href="/recipes/aardappels-uit-de-oven">Aardappels uit de oven</a>'
+            ' + <a href="/recipes/sperziebonen">Sperziebonen</a>'
+        ) in text
 
 
 def test_leftovers_follow_a_swapped_source_recipe(tmp_path):
@@ -3697,7 +3700,10 @@ def test_leftovers_follow_the_sources_part_picks(tmp_path):
             follow_redirects=False,
         )
         seed_plan(client)
-        assert "Aardappels uit de oven + Sperziebonen" in client.get("/plan").text
+        assert (
+            '<a href="/recipes/aardappels-uit-de-oven">Aardappels uit de oven</a>'
+            ' + <a href="/recipes/sperziebonen">Sperziebonen</a>'
+        ) in client.get("/plan").text
 
         # the source drops the groente pick: the restjes show it too
         pick(client, day, aardappels="aardappels-uit-de-oven")
@@ -5113,13 +5119,13 @@ def test_multi_course_day_round_trip(tmp_path):
         assert resp.status_code == 303
         day_rows = [r for r in store.plan_entries(plan_id) if r.day == days[0]]
         assert [(r.course, r.recipe_slug) for r in day_rows] == [
-            ("", "pasta"),
             ("soep", "bonensoep"),
+            ("", "pasta"),
         ]
 
         # de weekweergave: één handvat per dag en het gangenlabel op de soeprij
         page = client.get("/plan").text
-        assert 'class="course-label">Soep<' in page
+        assert 'class="course-label">Soep:<' in page
         assert page.count('class="drag-handle"') == len(days)
 
         # de boodschappen sommeren beide gangen
@@ -5133,8 +5139,8 @@ def test_multi_course_day_round_trip(tmp_path):
         store.swap_days(plan_id, days[0], days[1])
         day_rows = [r for r in store.plan_entries(plan_id) if r.day == days[1]]
         assert [(r.course, r.recipe_slug) for r in day_rows] == [
-            ("", "pasta"),
             ("soep", "bonensoep"),
+            ("", "pasta"),
         ]
         day_rows = [r for r in store.plan_entries(plan_id) if r.day == days[0]]
         assert len(day_rows) == 1 and day_rows[0].recipe_slug is None

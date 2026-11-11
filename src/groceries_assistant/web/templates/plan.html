@@ -167,107 +167,109 @@
     </tr>
   </thead>
   <tbody>
-  {% for e in evenings %}
+  {% for d in evenings %}
   {% set row = loop.index %}
-  <tr class="evening{% if not e.is_first_of_day %} followup{% endif %} {% if e.over_budget %}over{% endif %} {% if e.is_past %}passed{% endif %} {% if e.is_today %}today{% endif %}" data-day="{{ e.day_iso }}">
+  <tr class="evening {% if d.over_budget %}over{% endif %} {% if d.is_past %}passed{% endif %} {% if d.is_today %}today{% endif %}" data-day="{{ d.day_iso }}">
     <td class="col-day">
-      {% if e.is_first_of_day %}
       <span class="drag-handle" title="Sleep om deze dag te verplaatsen" aria-label="Sleep om deze dag te verplaatsen">&#8942;&#8942;</span>
-      <strong>{{ e.label }}</strong>
+      <strong>{{ d.label }}</strong>
       <span class="day-tile">
-        <strong class="day-abbr">{{ e.day_abbr }}</strong>
-        <span class="day-date">{{ e.day_date }}</span>
+        <strong class="day-abbr">{{ d.day_abbr }}</strong>
+        <span class="day-date">{{ d.day_date }}</span>
       </span>
       <br>
       <span class="budget">
-        {% if e.kind == 'leftovers' %}restjes
-        {% elif e.kind == 'no_cook' %}niet koken
-        {% elif e.is_dish and e.unfilled %}nog te kiezen{% if e.minutes %} &middot; {{ e.minutes }} min al{% endif %}
-        {% else %}{{ e.minutes }}/{{ e.budget }} min &middot; {{ e.people }} p{% endif %}
+        {% if d.kind == 'leftovers' %}restjes
+        {% elif d.kind == 'no_cook' %}niet koken
+        {% elif d.is_dish and d.unfilled %}nog te kiezen{% if d.minutes %} &middot; {{ d.minutes }} min al{% endif %}
+        {% else %}{{ d.minutes }}/{{ d.budget }} min &middot; {{ d.people }} p{% endif %}
       </span>
-      {% if e.over_budget %}<div class="warnings">over!</div>{% endif %}
-      {% else %}
-      <span class="course-label">{{ e.course_label }}</span>
-      {% endif %}
+      {% if d.over_budget %}<div class="warnings">over!</div>{% endif %}
     </td>
     <td class="col-dish">
-      {% if e.is_ordered %}
-      {% if e.image %}
-      {% if e.kind == 'leftovers' %}
-      <span class="restjes-thumb">
-        <img class="thumb" src="{{ e.image }}" alt="">
-        <span class="restjes-icon" aria-label="restjes" title="Restjes">&#9851;</span>
-      </span>
-      {% else %}
-      <img class="thumb" src="{{ e.image }}" alt="">
-      {% endif %}
-      {% endif %}
-      {% if e.is_dish %}
-      <span class="dish-label">{% if e.slug %}<a href="/dishes/{{ e.slug }}">{{ e.name }}</a>{% else %}{{ e.name }}{% endif %}</span>
-      <span class="parts-label">{{ e.parts_label or 'nog te kiezen' }}</span>
-      {% else %}<strong>{% if e.slug %}<a href="/recipes/{{ e.slug }}">{{ e.name }}</a>{% else %}{{ e.name }}{% endif %}</strong>{% endif %}
-      {% elif e.kind == 'leftovers' %}
-      {% if e.image %}
-      <span class="restjes-thumb">
-        <img class="thumb" src="{{ e.image }}" alt="">
-        {% if e.frozen %}<span class="restjes-icon" aria-label="vriezer" title="Uit de vriezer">&#10052;</span>
-        {% else %}<span class="restjes-icon" aria-label="restjes" title="Restjes">&#9851;</span>{% endif %}
-      </span>
-      {% endif %}
-      {% if e.is_dish %}
-      <span class="dish-label">{% if e.source_slug %}<a href="/dishes/{{ e.source_slug }}">{{ e.name }}</a>{% else %}{{ e.name }}{% endif %}</span>
-      <span class="parts-label">{{ e.parts_label or 'nog te kiezen' }}</span>
-      {% else %}<strong>{% if e.source_slug %}<a href="/recipes/{{ e.source_slug }}">{{ e.name }}</a>{% else %}{{ e.name }}{% endif %}</strong>{% endif %}
-      {% if not e.is_approved %}
-      <form method="post" action="/plan/swap" class="inline">
-        <input type="hidden" name="day" value="{{ e.day_iso }}">
-        <input type="hidden" name="choice" value="__cook__">
-        <button>toch koken</button>
-      </form>
-      {% endif %}
-      {% else %}
-      {% if e.image %}<img class="thumb" src="{{ e.image }}" alt="">{% endif %}
-      {% if e.is_dish %}
-      <span class="dish-combo">
-        <span class="dish-label">{% if e.slug %}<a href="/dishes/{{ e.slug }}">{{ e.name }}</a>{% else %}{{ e.name }}{% endif %}</span>
-        <span class="parts-label">
-          {% if e.parts %}
-          {% for p in e.parts %}{% if p.slug %}<a href="/recipes/{{ p.slug }}">{{ p.name }}</a>{% else %}{{ p.name }}{% endif %}{% if not loop.last %} + {% endif %}{% endfor %}
-          {% if e.unfilled %}<span class="muted"> + nog te kiezen: {{ e.unfilled|join(', ') }}</span>{% endif %}
-          {% else %}
-          <strong class="muted">nog te kiezen</strong>
+      {% for c in d.courses %}
+      <div class="course-row">
+        {% if c.course %}<span class="course-label">{{ c.course_label }}:</span>{% endif %}
+        {% if c.image %}
+        <span class="restjes-thumb">
+          <img class="thumb" src="{{ c.image }}" alt="">
+          {% if c.kind == 'leftovers' %}
+          {% if c.frozen %}<span class="restjes-icon" aria-label="vriezer" title="Uit de vriezer">&#10052;</span>
+          {% else %}<span class="restjes-icon" aria-label="restjes" title="Restjes">&#9851;</span>{% endif %}
           {% endif %}
         </span>
+        {% endif %}
+        {% if d.is_ordered %}
+        {% if c.is_dish %}
+        <span class="dish-label">{% if c.slug %}<a href="/dishes/{{ c.slug }}">{{ c.name }}</a>{% else %}{{ c.name }}{% endif %}</span>
+        <span class="parts-label">{{ c.parts_label or 'nog te kiezen' }}</span>
+        {% else %}<strong>{% if c.slug %}<a href="/recipes/{{ c.slug }}">{{ c.name }}</a>{% else %}{{ c.name }}{% endif %}</strong>{% endif %}
+        {% else %}
+        {% if c.is_dish %}
+        <span class="dish-combo">
+          <span class="dish-label">{% if c.slug %}<a href="/dishes/{{ c.slug }}">{{ c.name }}</a>{% else %}{{ c.name }}{% endif %}</span>
+          <span class="parts-label">
+            {% if c.parts %}
+            {% for p in c.parts %}{% if p.slug %}<a href="/recipes/{{ p.slug }}">{{ p.name }}</a>{% else %}{{ p.name }}{% endif %}{% if not loop.last %} + {% endif %}{% endfor %}
+            {% if c.unfilled %}<span class="muted"> + nog te kiezen: {{ c.unfilled|join(', ') }}</span>{% endif %}
+            {% else %}
+            <strong class="muted">nog te kiezen</strong>
+            {% endif %}
+          </span>
+        </span>
+        {% else %}
+        {% if c.kind == 'cook' and not c.slug %}
+        {# nog geen gerecht: de tekst zelf is de link naar de keuzepagina #}
+        <strong><a class="muted" href="/plan/select?day={{ c.day_iso }}" aria-label="Gerecht kiezen voor {{ d.label }}">{{ c.name }}</a></strong>
+        {% else %}
+        <strong{% if c.kind == 'no_cook' %} class="muted"{% endif %}>{% if c.slug %}<a href="/recipes/{{ c.slug }}">{{ c.name }}</a>{% else %}{{ c.name }}{% endif %}</strong>
+        {% endif %}
+        {% if c.frozen %} <span class="muted" title="Uit de vriezer">&#10052;</span>{% endif %}
+        {% endif %}
+        {% if c.frozen_chips %}
+        {% for f in c.frozen_chips %}
+        <span class="vriezer-chip" data-vriezer-slug="{{ f.slug }}" title="Sleep naar een lege dag om de bevroren restjes te eten">&#10052; {{ f.name }} ({{ f.portions }} porties)</span>
+        {% endfor %}
+        {% endif %}
+        {% if c.course %}
+        <form method="post" action="/plan/swap" class="inline">
+          <input type="hidden" name="day" value="{{ c.day_iso }}">
+          <input type="hidden" name="course" value="{{ c.course }}">
+          <input type="hidden" name="choice" value="__weg__">
+          <button class="btn-icon" title="Deze gang van de dag af" aria-label="Verwijder {{ c.course_label }} van {{ d.label }}">&#10005;</button>
+        </form>
+        {% endif %}
+        {% if c.kind == 'leftovers' and not d.is_approved %}
+        <form method="post" action="/plan/swap" class="inline">
+          <input type="hidden" name="day" value="{{ c.day_iso }}">
+          <input type="hidden" name="choice" value="__cook__">
+          <button>toch koken</button>
+        </form>
+        {% endif %}
+        {% endif %}
+      </div>
+      {% endfor %}
+      {% if not d.is_ordered %}
+      {% if d.restjes_portions %}
+      <span class="restjes-row">
+        <span class="restjes-chip" data-restjes-source="{{ d.day_iso }}" title="Sleep naar een latere dag om de restjes te plannen">&#8618; restjes ({{ d.restjes_portions }})</span>
+        <form method="post" action="/plan/restjes-vriezer" class="inline restjes-freeze-form">
+          <input type="hidden" name="day" value="{{ d.day_iso }}">
+          <button class="restjes-freeze" title="Bewaar de overgebleven porties in de vriezer">&#10052;</button>
+        </form>
       </span>
-      {% else %}
-      {% if e.kind == 'cook' and not e.slug %}
-      {# nog geen gerecht: de tekst zelf is de link naar de keuzepagina #}
-      <strong><a class="muted" href="/plan/select?day={{ e.day_iso }}" aria-label="Gerecht kiezen voor {{ e.label }}">{{ e.name }}</a></strong>
-      {% else %}
-      <strong{% if e.kind == 'no_cook' %} class="muted"{% endif %}>{% if e.slug %}<a href="/recipes/{{ e.slug }}">{{ e.name }}</a>{% else %}{{ e.name }}{% endif %}</strong>
       {% endif %}
-      {% if e.frozen %} <span class="muted" title="Uit de vriezer">&#10052;</span>{% endif %}
+      {% if d.has_main_dish and not d.is_approved %}
+      <a class="add-course" href="/plan/select?day={{ d.day_iso }}&amp;course=soep" title="Extra gang toevoegen &mdash; standaard een soep; op de keuzepagina kies je bij Gang een andere (bv. nagerecht)">+</a>
       {% endif %}
-      {% if e.is_first_of_day and (e.slug or e.source_slug) and not e.is_approved %}
-      <a class="add-course" href="/plan/select?day={{ e.day_iso }}&amp;course=soep" title="Extra gang toevoegen &mdash; standaard een soep; op de keuzepagina kies je bij Gang een andere (bv. nagerecht)">+</a>
+      {% if not d.is_approved %}
+      <div><a class="btn-small" href="/plan/select?day={{ d.day_iso }}" aria-label="Gerecht kiezen voor {{ d.label }}">gerecht kiezen</a></div>
       {% endif %}
-      {% if e.course %}
-      <form method="post" action="/plan/swap" class="inline">
-        <input type="hidden" name="day" value="{{ e.day_iso }}">
-        <input type="hidden" name="course" value="{{ e.course }}">
-        <input type="hidden" name="choice" value="__weg__">
-        <button class="btn-icon" title="Deze gang van de dag af" aria-label="Verwijder {{ e.course_label }} van {{ e.label }}">&#10005;</button>
-      </form>
-      {% endif %}
-      {% if not e.is_approved %}
-      <div><a class="btn-small" href="/plan/select?day={{ e.day_iso }}{% if e.course %}&amp;course={{ e.course }}{% endif %}" aria-label="Gerecht kiezen voor {{ e.label }}{% if e.course %} ({{ e.course_label }}){% endif %}">gerecht kiezen</a></div>
-      {% endif %}
-      {% endif %}
-      {% if not e.is_ordered and not e.is_approved and e.is_dish and e.editable_parts and e.part_options %}
+      {% if d.is_dish and d.editable_parts and d.part_options %}
       <div class="parts-form">
-        {% for part in e.part_options %}
+        {% for part in d.part_options %}
         <details class="part-picker">
-          <summary aria-label="{{ part.label }} {{ e.label }} kiezen">
+          <summary aria-label="{{ part.label }} {{ d.label }} kiezen">
             {% if part.chosen_image %}<img class="thumb" src="{{ part.chosen_image }}" alt="">{% endif %}
             <span class="part-label">{{ part.label }}</span>
             <span class="part-choice">{{ part.chosen_label or 'nog te kiezen' }}</span>
@@ -275,8 +277,8 @@
           <div class="part-options">
             {% for opt in part.options %}
             <form method="post" action="/plan/picks">
-              <input type="hidden" name="day" value="{{ e.day_iso }}">
-              {% for sibling in e.part_options if sibling.key != part.key %}
+              <input type="hidden" name="day" value="{{ d.day_iso }}">
+              {% for sibling in d.part_options if sibling.key != part.key %}
               <input type="hidden" name="part_{{ sibling.key }}" value="{{ sibling.chosen }}">
               {% endfor %}
               <button class="dish-option{% if part.chosen == opt.slug %} chosen{% endif %}"
@@ -287,8 +289,8 @@
             </form>
             {% endfor %}
             <form method="post" action="/plan/picks">
-              <input type="hidden" name="day" value="{{ e.day_iso }}">
-              {% for sibling in e.part_options if sibling.key != part.key %}
+              <input type="hidden" name="day" value="{{ d.day_iso }}">
+              {% for sibling in d.part_options if sibling.key != part.key %}
               <input type="hidden" name="part_{{ sibling.key }}" value="{{ sibling.chosen }}">
               {% endfor %}
               <button class="dish-option muted" name="part_{{ part.key }}" value="">nog te kiezen</button>
@@ -297,127 +299,108 @@
         </details>
         {% endfor %}
       </div>
-      {% elif not e.is_ordered and not e.is_approved and e.is_dish and e.unfilled and not e.part_options %}
-      <div class="muted">Nog te kiezen: {{ e.unfilled|join(', ') }}</div>
+      {% elif d.is_dish and d.unfilled and not d.part_options %}
+      <div class="muted">Nog te kiezen: {{ d.unfilled|join(', ') }}</div>
       {% endif %}
       <div class="move-arrows">
         <form method="post" action="/plan/swap-days" class="inline">
-          <input type="hidden" name="day" value="{{ e.day_iso }}">
-          <input type="hidden" name="swap_to" value="{{ e.prev_day_iso or '' }}">
-          <button class="link" aria-label="Ruil {{ e.label }} met de avond ervoor"
-                  {% if not e.prev_day_iso %}disabled{% endif %}>&uarr;</button>
+          <input type="hidden" name="day" value="{{ d.day_iso }}">
+          <input type="hidden" name="swap_to" value="{{ d.prev_day_iso or '' }}">
+          <button class="link" aria-label="Ruil {{ d.label }} met de avond ervoor"
+                  {% if not d.prev_day_iso %}disabled{% endif %}>&uarr;</button>
         </form>
         <form method="post" action="/plan/swap-days" class="inline">
-          <input type="hidden" name="day" value="{{ e.day_iso }}">
-          <input type="hidden" name="swap_to" value="{{ e.next_day_iso or '' }}">
-          <button class="link" aria-label="Ruil {{ e.label }} met de avond erna"
-                  {% if not e.next_day_iso %}disabled{% endif %}>&darr;</button>
+          <input type="hidden" name="day" value="{{ d.day_iso }}">
+          <input type="hidden" name="swap_to" value="{{ d.next_day_iso or '' }}">
+          <button class="link" aria-label="Ruil {{ d.label }} met de avond erna"
+                  {% if not d.next_day_iso %}disabled{% endif %}>&darr;</button>
         </form>
       </div>
-      {% if e.restjes_portions %}
-      <span class="restjes-row">
-        <span class="restjes-chip" data-restjes-source="{{ e.day_iso }}" title="Sleep naar een latere dag om de restjes te plannen">&#8618; restjes ({{ e.restjes_portions }})</span>
-        <form method="post" action="/plan/restjes-vriezer" class="inline restjes-freeze-form">
-          <input type="hidden" name="day" value="{{ e.day_iso }}">
-          <button class="restjes-freeze" title="Bewaar de overgebleven porties in de vriezer">&#10052;</button>
-        </form>
-      </span>
       {% endif %}
-      {% if e.frozen_chips and not e.is_first_of_day %}
-      {% for c in e.frozen_chips %}
-      <span class="vriezer-chip" data-vriezer-slug="{{ c.slug }}" title="Sleep naar een lege dag om de bevroren restjes te eten">&#10052; {{ c.name }} ({{ c.portions }} porties)</span>
-      {% endfor %}
-      {% endif %}
-      {% if e.is_first_of_day %}
       <details class="row-more">
-        <summary aria-label="Meer instellingen voor {{ e.label }}">meer</summary>
+        <summary aria-label="Meer instellingen voor {{ d.label }}">meer</summary>
         <div class="row-more-body">
-          {% if e.frozen_chips %}
-          {% for c in e.frozen_chips %}
-          <span class="vriezer-chip" data-vriezer-slug="{{ c.slug }}" title="Sleep naar een lege dag om de bevroren restjes te eten">&#10052; {{ c.name }} ({{ c.portions }} porties)</span>
-          {% endfor %}
-          {% elif e.restjes_frozen %}
-          <span class="muted">&#10052; in de vriezer: {{ e.restjes_frozen }} porties</span>
+          {% if d.restjes_frozen %}
+          <span class="muted">&#10052; in de vriezer: {{ d.restjes_frozen }} porties</span>
           {% endif %}
-          {{ row_more(e, row) }}
+          {{ row_more(d, row) }}
         </div>
       </details>
-      {% endif %}
     </td>
     <td class="col-cook">
-      {% if e.is_ordered %}
-      {% if e.kind != 'no_cook' and e.cooking.effective_cook %}
-      <span class="muted">{{ e.cooking.effective_cook }}</span>
+      {% if d.is_ordered %}
+      {% if d.kind != 'no_cook' and d.cooking.effective_cook %}
+      <span class="muted">{{ d.cooking.effective_cook }}</span>
       {% else %}
       <span class="muted" aria-label="Geen kok">&mdash;</span>
       {% endif %}
-      {% elif e.kind == 'no_cook' %}
+      {% elif d.kind == 'no_cook' %}
       <span class="muted" aria-label="Geen kok nodig">&mdash;</span>
       {% else %}
       <form method="post" action="/plan/evening" id="evening-{{ row }}">
-        <input type="hidden" name="day" value="{{ e.day_iso }}">
-        <input type="number" name="minutes" value="{{ e.budget }}" min="0" max="300"
-               aria-label="Minuten {{ e.label }}" onchange="this.form.requestSubmit()">
-        {% if e.cooking.no_cook_available %}
+        <input type="hidden" name="day" value="{{ d.day_iso }}">
+        <input type="number" name="minutes" value="{{ d.budget }}" min="0" max="300"
+               aria-label="Minuten {{ d.label }}" onchange="this.form.requestSubmit()">
+        {% if d.cooking.no_cook_available %}
         <span class="warnings">&#9888; geen kok</span>
         {% else %}
-        <select name="cook" aria-label="Kok {{ e.label }}" onchange="this.form.requestSubmit()">
-          <option value="" {% if not e.cooking.stored_valid %}selected{% endif %}>
-            {%- if e.cooking.auto_cook -%}
-            auto: {{ e.cooking.auto_cook }}
+        <select name="cook" aria-label="Kok {{ d.label }}" onchange="this.form.requestSubmit()">
+          <option value="" {% if not d.cooking.stored_valid %}selected{% endif %}>
+            {%- if d.cooking.auto_cook -%}
+            auto: {{ d.cooking.auto_cook }}
             {%- else -%}
-            ?{% if e.cooking.cook_unset_label %} ({{ e.cooking.cook_unset_label }}){% endif %}
+            ?{% if d.cooking.cook_unset_label %} ({{ d.cooking.cook_unset_label }}){% endif %}
             {%- endif -%}
           </option>
-          {% for opt in e.cooking.cook_options %}
-          <option value="{{ opt.id }}" {% if e.cooking.stored_valid and e.cooking.stored_cook == opt.id %}selected{% endif %}>{{ opt.name }}</option>
+          {% for opt in d.cooking.cook_options %}
+          <option value="{{ opt.id }}" {% if d.cooking.stored_valid and d.cooking.stored_cook == opt.id %}selected{% endif %}>{{ opt.name }}</option>
           {% endfor %}
         </select>
         {% endif %}
       </form>
       {% endif %}
     </td>
-    {% for p in e.members %}
+    {% for p in d.members %}
     <td class="col-attend">
-      {% if e.is_ordered %}
+      {% if d.is_ordered %}
       <span class="cell-name muted{% if p.absent %} absent{% endif %}">{{ p.name }}</span>
-      {% elif e.kind == 'no_cook' %}
+      {% elif d.kind == 'no_cook' %}
       <span class="muted" aria-label="Niet van toepassing">&mdash;</span>
       {% else %}
       <span class="cell-name">{{ p.name }}</span>
       <input type="checkbox" form="evening-{{ row }}" name="joined" value="{{ p.id }}"
              {% if not p.absent %}checked{% endif %} onchange="this.form.requestSubmit()"
-             aria-label="Eet mee {{ p.name }} {{ e.label }}">
+             aria-label="Eet mee {{ p.name }} {{ d.label }}">
       {% endif %}
     </td>
     {% endfor %}
     <td class="col-approve">
-      {% if e.is_past %}
+      {% if d.is_past %}
       <span class="muted" aria-label="Al geweest">&mdash;</span>
-      {% elif e.is_ordered %}
+      {% elif d.is_ordered %}
       <details class="locked-actions">
         <summary class="besteld-tag" aria-label="Toon of verberg de acties voor deze bestelde dag">&#10003; besteld</summary>
         <div class="locked-actions-body">
           <form method="post" action="/plan/swap-days" class="inline ruil-form">
-            <input type="hidden" name="day" value="{{ e.day_iso }}">
+            <input type="hidden" name="day" value="{{ d.day_iso }}">
             <select name="swap_to" aria-label="Ruil dit gerecht naar een andere dag">
-              {% for o in e.swap_targets %}<option value="{{ o.day_iso }}">{{ o.label }}</option>{% endfor %}
+              {% for o in d.swap_targets %}<option value="{{ o.day_iso }}">{{ o.label }}</option>{% endfor %}
             </select>
             <button class="link" aria-label="Ruil de gerechten van deze en de gekozen dag">ruil dag</button>
           </form>
-          <a class="btn-small" href="/plan/select?day={{ e.day_iso }}" aria-label="Gerecht wisselen voor {{ e.label }}">gerecht wisselen <span class="muted">(boodschappen al besteld)</span></a>
+          <a class="btn-small" href="/plan/select?day={{ d.day_iso }}" aria-label="Gerecht wisselen voor {{ d.label }}">gerecht wisselen <span class="muted">(boodschappen al besteld)</span></a>
         </div>
       </details>
-      {% elif e.is_approved %}
+      {% elif d.is_approved %}
       <span class="approved-badge" aria-label="Goedgekeurd">&#10003;</span>
       <form method="post" action="/plan/unapprove" class="inline">
-        <input type="hidden" name="day" value="{{ e.day_iso }}">
-        <button class="link" aria-label="Goedkeuring intrekken voor {{ e.label }}">intrekken</button>
+        <input type="hidden" name="day" value="{{ d.day_iso }}">
+        <button class="link" aria-label="Goedkeuring intrekken voor {{ d.label }}">intrekken</button>
       </form>
       {% else %}
       <form method="post" action="/plan/approve" class="inline">
-        <input type="hidden" name="day" value="{{ e.day_iso }}">
-        <button aria-label="Goedkeuren {{ e.label }}">goedkeuren</button>
+        <input type="hidden" name="day" value="{{ d.day_iso }}">
+        <button aria-label="Goedkeuren {{ d.label }}">goedkeuren</button>
       </form>
       {% endif %}
     </td>

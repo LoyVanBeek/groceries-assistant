@@ -153,7 +153,9 @@ def plan_view(
     ordered_days: set[date] | None = None,
     vriezer=None,
 ) -> list[dict]:
-    """Per-evening view model: label, dish, cook, joiners, swap options.
+    """Per-day view model: label, kok, joiners, the day's courses (in course
+    order: soep, voorgerecht, hoofdgerecht, bijgerecht, nagerecht), swap
+    options.
 
     `by_slug` includes all recipes and component-as-recipe objects for
     resolving dish part picks.
@@ -180,13 +182,62 @@ def plan_view(
         if r.kind == "leftovers" and r.source_slug:
             restjes_gepland[r.source_slug] = restjes_gepland.get(r.source_slug, 0) + (r.people or 0)
     prev_day: date | None = None
+    day_entry: dict | None = None
     for index, row in enumerate(all_rows):
-        # meerdere gangen per dag: elke rij is een gang, de eerste van de dag
-        # draagt de dagcel (tegel, handvat, budget); de rest een ganglabel
         first_of_day = row.day != prev_day
         prev_day = row.day
-        evening = planner.evenings_for(store, row.day, days=1)[0]
-        budget = evening.free_minutes
+        if first_of_day:
+            evening = planner.evenings_for(store, row.day, days=1)[0]
+            absent = {p["id"] for p in people} - set(evening.joiners or ())
+            members = [
+                {
+                    "id": p["id"],
+                    "name": p["name"] or p["id"],
+                    "role": p["role"],
+                    "absent": p["id"] in absent,
+                }
+                for p in people
+            ]
+            cooking = cook_view(evening.cook or "", members, list(evening.joiners or ()))
+            day_entry = {
+                "day_iso": row.day.isoformat(),
+                "label": f"{WEEKDAYS[row.day.weekday()].capitalize()} {row.day.strftime('%d-%m')}",
+                "day_abbr": WEEKDAYS[row.day.weekday()][:2].capitalize(),
+                "day_date": row.day.strftime("%d-%m"),
+                "kind": row.kind,
+                "budget": evening.free_minutes,
+                "minutes": 0,
+                "total_minutes": 0,
+                "people": (len(evening.joiners) if evening.joiners is not None else row.people),
+                "members": members,
+                "cooking": cooking,
+                "is_dish": False,
+                "editable_parts": False,
+                "part_options": [],
+                "unfilled": [],
+                "can_leftovers": (row.kind in ("cook", "no_cook") and last_cook_slug is not None),
+                "restjes_portions": 0,
+                "restjes_frozen": 0,
+                "over_budget": False,
+                "has_main_dish": False,
+                "is_today": row.day == today,
+                "is_past": row.day < today,
+                "is_approved": row.day in approved_days,
+                "is_ordered": row.day in ordered_days,
+                "prev_day_iso": (all_rows[index - 1].day.isoformat() if index else None),
+                "next_day_iso": (
+                    all_rows[index + 1].day.isoformat() if index + 1 < len(all_rows) else None
+                ),
+                "swap_targets": [
+                    {"day_iso": iso, "label": label}
+                    for iso, label in day_targets
+                    if iso != row.day.isoformat()
+                ],
+                "courses": [],
+            }
+            view.append(day_entry)
+        assert day_entry is not None
+        evening_free = day_entry["budget"]
         name = ""
         minutes = 0
         total_minutes = 0
@@ -230,17 +281,6 @@ def plan_view(
                 parts_label = " + ".join(
                     part["chosen_name"] for part in part_options if part["chosen_name"]
                 )
-        absent = {p["id"] for p in people} - set(evening.joiners or ())
-        members = [
-            {
-                "id": p["id"],
-                "name": p["name"] or p["id"],
-                "role": p["role"],
-                "absent": p["id"] in absent,
-            }
-            for p in people
-        ]
-        cooking = cook_view(evening.cook or "", members, list(evening.joiners or ()))
         restjes_portions, _freeze_slug = restjes_surplus(
             row, picks.get(row.day, {}), by_slug, dishes_by_slug, restjes_gepland, vriezer
         )
@@ -276,57 +316,49 @@ def plan_view(
             for p in part_options
             if p["chosen_name"]
         ]
-        view.append(
-            {
-                "day_iso": row.day.isoformat(),
-                "label": f"{WEEKDAYS[row.day.weekday()].capitalize()} {row.day.strftime('%d-%m')}",
-                "day_abbr": WEEKDAYS[row.day.weekday()][:2].capitalize(),
-                "day_date": row.day.strftime("%d-%m"),
-                "kind": row.kind,
-                "slug": row.recipe_slug,
-                "source_slug": row.source_slug,
-                "parts": parts_linked,
-                "name": name,
-                "minutes": minutes,
-                "total_minutes": total_minutes,
-                "budget": budget,
-                "is_dish": (row.kind == "cook" and row.recipe_slug in dishes_by_slug)
-                or (row.kind == "leftovers" and row.source_slug in dishes_by_slug),
-                "editable_parts": row.kind == "cook" and row.recipe_slug in dishes_by_slug,
-                "parts_label": parts_label,
-                "part_options": part_options,
-                "unfilled": unfilled,
-                "people": (len(evening.joiners) if evening.joiners is not None else row.people),
-                "image": (
-                    image_for(row.source_slug)
-                    if image_for and row.kind == "leftovers" and row.source_slug
-                    else (image_for(row.recipe_slug) if image_for and row.recipe_slug else None)
-                ),
-                "members": members,
-                "cooking": cooking,
-                "can_leftovers": (row.kind in ("cook", "no_cook") and last_cook_slug is not None),
-                "restjes_portions": restjes_portions,
-                "restjes_frozen": restjes_frozen,
-                "frozen_chips": frozen_chips,
-                "frozen": row.frozen,
-                "is_first_of_day": first_of_day,
-                "course_label": row.course.capitalize() if row.course else "",
-                "over_budget": row.kind == "cook" and minutes > budget,
-                "is_today": row.day == today,
-                "is_past": row.day < today,
-                "is_approved": row.day in approved_days,
-                "is_ordered": row.day in ordered_days,
-                "prev_day_iso": (all_rows[index - 1].day.isoformat() if index else None),
-                "next_day_iso": (
-                    all_rows[index + 1].day.isoformat() if index + 1 < len(all_rows) else None
-                ),
-                "swap_targets": [
-                    {"day_iso": iso, "label": label}
-                    for iso, label in day_targets
-                    if iso != row.day.isoformat()
-                ],
-            }
-        )
+        course_entry = {
+            "course": row.course,
+            "course_label": row.course.capitalize() if row.course else "",
+            "kind": row.kind,
+            "slug": row.recipe_slug,
+            "source_slug": row.source_slug,
+            "name": name,
+            "minutes": minutes,
+            "total_minutes": total_minutes,
+            "is_dish": (row.kind == "cook" and row.recipe_slug in dishes_by_slug)
+            or (row.kind == "leftovers" and row.source_slug in dishes_by_slug),
+            "editable_parts": row.kind == "cook" and row.recipe_slug in dishes_by_slug,
+            "parts": parts_linked,
+            "parts_label": parts_label,
+            "part_options": part_options,
+            "unfilled": unfilled,
+            "image": (
+                image_for(row.source_slug)
+                if image_for and row.kind == "leftovers" and row.source_slug
+                else (image_for(row.recipe_slug) if image_for and row.recipe_slug else None)
+            ),
+            "frozen": row.frozen,
+            "frozen_chips": frozen_chips,
+            "over_budget": row.kind == "cook" and minutes > evening_free,
+            "day_iso": row.day.isoformat(),
+        }
+        day_entry["courses"].append(course_entry)
+        if not row.course:
+            # het hoofdslot voorziet de dagteksten en de hoofdslot-acties
+            day_entry["kind"] = row.kind
+            day_entry["minutes"] = minutes
+            day_entry["total_minutes"] = total_minutes
+            day_entry["is_dish"] = course_entry["is_dish"]
+            day_entry["editable_parts"] = course_entry["editable_parts"]
+            day_entry["part_options"] = part_options
+            day_entry["unfilled"] = unfilled
+            day_entry["restjes_portions"] = restjes_portions
+            day_entry["restjes_frozen"] = restjes_frozen
+            day_entry["over_budget"] = course_entry["over_budget"]
+            day_entry["has_main_dish"] = bool(row.recipe_slug or row.source_slug)
+            day_entry["can_leftovers"] = (
+                row.kind in ("cook", "no_cook") and last_cook_slug is not None
+            )
         if row.kind == "cook":
             last_cook_slug = row.recipe_slug
     return view
