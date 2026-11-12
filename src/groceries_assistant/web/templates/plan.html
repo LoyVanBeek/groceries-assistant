@@ -227,11 +227,11 @@
         {% endif %}
         {% if c.frozen_chips %}
         {% for f in c.frozen_chips %}
-        <span class="vriezer-chip" data-vriezer-slug="{{ f.slug }}" title="Sleep naar een lege dag om de bevroren restjes te eten">&#10052; {{ f.name }} ({{ f.portions }} porties)</span>
+        <span class="vriezer-chip" data-vriezer-slug="{{ f.slug }}" title="{{ f.name }}: {{ f.portions }} porties in de vriezer (sleep naar een lege dag om ze te eten)">&#10052; {{ f.portions }} porties</span>
         {% endfor %}
         {% endif %}
         {% if c.course %}
-        <form method="post" action="/plan/swap" class="inline">
+        <form method="post" action="/plan/swap" class="inline course-weg">
           <input type="hidden" name="day" value="{{ c.day_iso }}">
           <input type="hidden" name="course" value="{{ c.course }}">
           <input type="hidden" name="choice" value="__weg__">

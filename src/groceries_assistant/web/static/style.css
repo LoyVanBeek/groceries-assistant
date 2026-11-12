@@ -420,6 +420,7 @@ table.plan .restjes-freeze:hover { border-color: var(--accent); color: var(--acc
   font-size: 0.75rem;
 }
 .course-row .restjes-thumb { flex: 0 0 2.1rem; }
+.course-row .course-weg { margin-left: auto; }
 table.plan tr.followup { border-top: none; }
 .add-course {
   display: inline-block;
