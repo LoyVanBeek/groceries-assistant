@@ -148,15 +148,13 @@
       arrows that post the same day exchange -- no HTML5-drag, so pull to
       refresh never fights it. One line per row: name ellipsizes, restjes
       chip and arrows share the line)
-- [ ] Keep all data in Postgress or sqlite, not yaml files.
-    (the plan/people/verdicts/settings/orders database already is sqlite;
-    the recipe library -- recipes, components, dishes -- is still yaml)
-    - [x] But allow recipe export end import of recipe yaml files, via a standardized format/schema
-          (every recipe has a yaml download on its page, and /settings has a
-          full backup: one zip with the whole library (yaml + images), the
-          plan database (mensen, oordelen, instellingen, weken,
-          bestellingen) and vriezer/bonus/koppelingen/barcodes -- importing
-          replaces everything and resets the caches)
+- [x] Keep all data in Postgress or sqlite, not yaml files.
+      (the plan database carries mensen, oordelen, instellingen, alle
+      weekplannen, bestellingen, bonus, AH-koppelingen, barcodes en de
+      vriezer; alleen de receptbibliotheek zelf -- recepten, onderdelen,
+      gerechten -- blijft yaml, met de gestandaardiseerde export/import
+      eronder. Postgres kan later via dezelfde store-laag als het ooit
+      nodig wordt)
 - [x] Include tags and categories for recipes. Soups are eg not a main course, neither are deserts.
       (a `course` field on recipes and dishes -- hoofdgerecht (default), soep,
       voorgerecht, nagerecht, bijgerecht -- editable via a Gang-select in the

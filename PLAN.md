@@ -138,3 +138,22 @@ dish and on the selection page; auto-fill may plan an evening around it.
       vriezer zijn terug)
 - [ ] De receptbibliotheek (recepten, onderdelen, gerechten) verhuizen naar
       sqlite zodat yaml alleen nog het exportformaat is (zie TODO)
+
+## 7. Vriezer in de database: pagina, sleepzone en slimme suggesties
+
+- [x] Bonus, AH-koppelingen, barcodes en de vriezer verhuizen naar de
+      plandatabase (één-time yaml-import bij het opstarten/importeren; de
+      yamls worden daarna niet meer gelezen). De backup-zip bevat daarmee
+      alleen de receptbibliotheek + state.db; oude backups met losse
+      yaml-winkels worden nog steeds teruggezet (vervangend in hun
+      tabellen geïmporteerd)
+- [x] De vriezer-tabel bewaart per gerecht de porties én de datum van de
+      oudste portie ('sinds' — bijvullen verschuift haar niet)
+- [x] /vriezer: het langst ingevroren eerst met de leeftijd erbij (waarschuwing
+      vanaf 60 dagen), handmatig +/− per portie, weggooien en een
+      toevoegformulier over alle recepten/onderdelen/gerechten
+- [x] Sleepzone onder de weektabel: de ⇛-chip, een geplande restjes-avond
+      (wordt leeg) of een gekookte dag erin slepen vriezt de porties in
+- [x] De keuzepagina: suggesties langst ingevroren eerst, met leeftijd en
+      een waarschuwing als de porties niet genoeg zijn voor de eters; eten
+      uit de vriezer neemt min(porties, eters) — de rest blijft liggen
