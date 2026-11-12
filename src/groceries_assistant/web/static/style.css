@@ -401,6 +401,26 @@ table.plan .restjes-freeze:hover { border-color: var(--accent); color: var(--acc
   white-space: nowrap;
 }
 
+/* de vriezerpagina */
+.vriezer-table { width: 100%; max-width: 40rem; }
+.vriezer-table th,
+.vriezer-table td {
+  padding: 0.3rem 0.5rem;
+  text-align: left;
+  border-bottom: 1px solid var(--rule);
+}
+.vriezer-table td:nth-child(2) { white-space: nowrap; }
+.vriezer-table .old td { background: var(--over-bg); }
+.portions { font-weight: 600; padding: 0 0.4rem; }
+.vriezer-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  max-width: 40rem;
+}
+.vriezer-add select { flex: 1 1 12rem; min-width: 0; max-width: 100%; }
+
 /* extra gangen op een dag: elke course-row dezelfde kolommen (gang-label,
    thumbnail, naam, acties) zodat thumb, naam en ✕ verticaal uitlijnen */
 .course-row {
