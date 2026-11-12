@@ -1,9 +1,11 @@
-"""AH bonus (aanbieding) products: a cached, hand-editable list plus the
-ingredient matching that feeds the planner's bonus preference.
+"""AH bonus (aanbieding) products: a cached list plus the ingredient matching
+that feeds the planner's bonus preference.
 
 The list comes from the anonymous mobile API (bonuspage/v1: periods ->
-sections -> products and bonus groups) and is cached to data/bonus.yaml with
-its fetch date; without a cache the bonus preference is simply off.
+sections -> products and bonus groups) and is kept in the plandatabase
+(tabel bonus_products) with its fetch date; without a cache the bonus
+preference is simply off. Oude backups met data/bonus.yaml worden bij het
+opstarten/importeren één keer in de tabel ingelezen.
 """
 
 from __future__ import annotations
@@ -11,53 +13,48 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 from datetime import date
-from pathlib import Path
-
-import yaml
 
 from groceries_assistant.ah.matching import normalize
+from groceries_assistant.store.db import Store
 
 
 class BonusStore:
-    """The bonus list in data/bonus.yaml, fetched on demand, hand-editable."""
+    """The bonus list in the plandatabase, fetched on demand."""
 
-    def __init__(self, path: Path) -> None:
-        self._path = path
+    def __init__(self, store: Store) -> None:
+        self._store = store
         self._products: list[tuple[int, str]] = []
         self._normalized_titles: list[str] = []
         self._fetched_at: date | None = None
         self._counts: dict[str, int] = {}
+        self.load()
 
     def load(self) -> None:
-        """Read the cache; a missing or broken file simply means 'no bonus'."""
-        try:
-            raw = yaml.safe_load(self._path.read_text(encoding="utf-8")) or {}
-        except (OSError, yaml.YAMLError):
-            raw = {}
-        products: list[tuple[int, str]] = []
-        for item in raw.get("products") or []:
-            try:
-                products.append((int(item["webshop_id"]), str(item["title"])))
-            except (KeyError, TypeError, ValueError):
-                continue
-        self._set(products, _parse_date(raw.get("fetched_at")))
+        """Read the cache; an empty table simply means 'no bonus'."""
+        products: list[tuple[int, str]] = [
+            (int(row["webshop_id"]), str(row["title"]))
+            for row in self._store.conn.execute(
+                "SELECT webshop_id, title FROM bonus_products ORDER BY title"
+            )
+        ]
+        meta = self._store.conn.execute(
+            "SELECT value FROM bonus_meta WHERE key = 'fetched_at'"
+        ).fetchone()
+        self._set(products, _parse_date(meta["value"] if meta else None))
 
     def save(self, products: Iterable[tuple[int, str]], fetched: date) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
         products = list(products)
-        self._path.write_text(
-            yaml.safe_dump(
-                {
-                    "fetched_at": fetched.isoformat(),
-                    "products": [
-                        {"webshop_id": webshop_id, "title": title} for webshop_id, title in products
-                    ],
-                },
-                allow_unicode=True,
-                sort_keys=False,
-            ),
-            encoding="utf-8",
+        self._store.conn.execute("DELETE FROM bonus_products")
+        for webshop_id, title in products:
+            self._store.conn.execute(
+                "INSERT INTO bonus_products(webshop_id, title) VALUES (?,?)",
+                (webshop_id, title),
+            )
+        self._store.conn.execute(
+            "INSERT OR REPLACE INTO bonus_meta(key, value) VALUES ('fetched_at', ?)",
+            (fetched.isoformat(),),
         )
+        self._store.conn.commit()
         self._set(products, fetched)
 
     def _set(self, products: list[tuple[int, str]], fetched: date | None) -> None:

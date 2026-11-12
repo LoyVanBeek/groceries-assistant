@@ -685,29 +685,23 @@ def create_app(
 
     def mappings() -> AHMappingStore:
         if not _mappings_cache:
-            _mappings_cache.append(AHMappingStore(data / "ah_mappings.yaml"))
+            _mappings_cache.append(AHMappingStore(store()))
         return _mappings_cache[0]
 
     def bonus_store() -> BonusStore:
         """The bonus list singleton: load once, refreshed by the button."""
         if not _bonus_cache:
-            store_instance = BonusStore(data / "bonus.yaml")
-            store_instance.load()
-            _bonus_cache.append(store_instance)
+            _bonus_cache.append(BonusStore(store()))
         return _bonus_cache[0]
 
     def vriezer() -> VriezerStore:
-        """The freezer: a small yaml, re-read per request so hand edits land."""
-        store_instance = VriezerStore(data / "vriezer.yaml")
-        store_instance.load()
-        return store_instance
+        """De vriezer: een dunne leeslaag over de vriezer-tabel (live)."""
+        return VriezerStore(store())
 
     def barcodes() -> BarcodeStore:
         """The barcode registry singleton: learns from every scan."""
         if not _barcode_cache:
-            barcode_store_instance = BarcodeStore(data / "barcodes.yaml")
-            barcode_store_instance.load()
-            _barcode_cache.append(barcode_store_instance)
+            _barcode_cache.append(BarcodeStore(store()))
         return _barcode_cache[0]
 
     def load_all() -> tuple[list[Recipe], list[str]]:
@@ -3325,13 +3319,11 @@ def create_app(
                         if f.is_file():
                             zf.write(f, arcname=f"{sub}/{f.relative_to(d)}")
             store().conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            # vriezer/bonus/koppelingen/barcodes zitten in state.db: de zip
+            # hoeft alleen de bibliotheek (yaml + afbeeldingen) erbij
             db_path = data / "state.db"
             if db_path.is_file():
                 zf.write(db_path, arcname="state.db")
-            for name in ("vriezer.yaml", "bonus.yaml", "ah_mappings.yaml", "barcodes.yaml"):
-                p = data / name
-                if p.is_file():
-                    zf.write(p, arcname=name)
         stamp = date.today().isoformat()
         return Response(
             buf.getvalue(),
@@ -3375,6 +3367,13 @@ def create_app(
             Path(str(db_path) + suffix).unlink(missing_ok=True)
         db_path.write_bytes(zf.read("state.db"))
         _reset_data_caches()
+        # een OUDE backup bevat nog yaml-winkels (vriezer/bonus/...): die
+        # worden vervangend in hun tabellen geïmporteerd; nieuwe backups
+        # dragen die data al in state.db en worden met rust gelaten
+        if any(
+            n in names for n in ("vriezer.yaml", "bonus.yaml", "ah_mappings.yaml", "barcodes.yaml")
+        ):
+            store().import_yaml_side_stores(replace=True)
         return RedirectResponse("/settings?imported=1", status_code=303)
 
     @app.post("/settings/template")

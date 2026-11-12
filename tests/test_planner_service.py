@@ -322,7 +322,7 @@ def test_plain_recipes_keep_their_entry_shape():
 
 def test_a_fresh_match_keeps_ahs_pack_size_for_a_later_suggestion(tmp_path):
     """The unit size is only ever a suggestion, but it has to survive to be one."""
-    mappings = AHMappingStore(tmp_path / "mappings.yaml")
+    mappings = AHMappingStore(Store(tmp_path / "state.db"))
     candidates = [AHProduct(webshop_id=7, title="AH Broccoli 350 g", unit_size="350 g")]
 
     assert match_products(["broccoli"], lambda _query: candidates, mappings) == {

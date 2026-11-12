@@ -1,17 +1,16 @@
-"""The household's barcode registry: data/barcodes.yaml maps an EAN to the
+"""The household's barcode registry: the barcodes table maps an EAN to the
 product name it was scanned with.
 
 There is no barcode lookup API (AH's gtin endpoint answers 404), so the map
-learns: an unknown scan asks for the name once and remembers it. The file is
-hand-editable.
+learns: an unknown scan asks for the name once and remembers it. De oude
+data/barcodes.yaml wordt bij het opstarten/importeren één keer ingelezen.
 """
 
 from __future__ import annotations
 
 import re
-from pathlib import Path
 
-import yaml
+from groceries_assistant.store.db import Store
 
 EAN_RE = re.compile(r"^\d{6,14}$")
 
@@ -22,25 +21,25 @@ def valid_ean(code: str) -> bool:
 
 
 class BarcodeStore:
-    """The barcode -> product-name map, YAML-backed, hand-editable."""
+    """The barcode -> product-name map, in de plandatabase."""
 
-    def __init__(self, path: Path) -> None:
-        self._path = path
+    def __init__(self, store: Store) -> None:
+        self._store = store
         self._map: dict[str, str] = {}
 
     def load(self) -> None:
-        try:
-            raw = yaml.safe_load(self._path.read_text(encoding="utf-8")) or {}
-        except (OSError, yaml.YAMLError):
-            raw = {}
-        self._map = {str(k): str(v) for k, v in raw.items()}
+        self._map = {
+            row["ean"]: row["title"]
+            for row in self._store.conn.execute("SELECT ean, title FROM barcodes")
+        }
 
     def save(self) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._path.write_text(
-            yaml.safe_dump(self._map, allow_unicode=True, sort_keys=True),
-            encoding="utf-8",
+        self._store.conn.execute("DELETE FROM barcodes")
+        self._store.conn.executemany(
+            "INSERT INTO barcodes(ean, title) VALUES (?,?)",
+            list(self._map.items()),
         )
+        self._store.conn.commit()
 
     def get(self, ean: str) -> str | None:
         return self._map.get(ean)

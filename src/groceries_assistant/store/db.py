@@ -9,6 +9,9 @@ import os
 import sqlite3
 from dataclasses import dataclass
 from datetime import date, timedelta
+from pathlib import Path
+
+import yaml
 
 from groceries_assistant.models import ProductFact
 
@@ -137,6 +140,42 @@ CREATE TABLE IF NOT EXISTS order_items (
     have INTEGER NOT NULL DEFAULT 0,      -- ticked off in the review screen
     PRIMARY KEY (plan_id, product, unit)
 );
+
+-- De vriezer: ingevroren restjes per gerecht, met de datum van de OUDSTE
+-- portie (wat het langst staat, kan het eerst missen).
+CREATE TABLE IF NOT EXISTS vriezer (
+    slug TEXT PRIMARY KEY,
+    portions INTEGER NOT NULL,
+    since TEXT                            -- NULL = datum onbekend (oude backup)
+);
+
+-- De bonuslijst (opgehaald via de AH-zoek-API) + wanneer opgehaald.
+CREATE TABLE IF NOT EXISTS bonus_products (
+    webshop_id INTEGER PRIMARY KEY,
+    title TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS bonus_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT
+);
+
+-- De AH-koppelingen: ingredient-product -> AH-artikel (pins blijven staan).
+CREATE TABLE IF NOT EXISTS ah_mappings (
+    key TEXT PRIMARY KEY,                 -- productnaam, lowercase
+    product TEXT NOT NULL,                -- de originele schrijfwijze
+    ah_webshop_id INTEGER NOT NULL,
+    ah_title TEXT NOT NULL DEFAULT '',
+    score REAL NOT NULL DEFAULT 0.0,
+    confirmed INTEGER NOT NULL DEFAULT 0,
+    ah_image_url TEXT,
+    ah_unit_size TEXT
+);
+
+-- De barcodes: EAN -> productnaam (leert bij bij een onbekende scan).
+CREATE TABLE IF NOT EXISTS barcodes (
+    ean TEXT PRIMARY KEY,
+    title TEXT NOT NULL
+);
 """
 
 DEFAULT_TEMPLATE: dict[int, tuple[str, int, bool]] = {
@@ -195,7 +234,110 @@ class Store:
         self.conn.executescript(SCHEMA)
         self._add_missing_columns()
         self._migrate_legacy_through_columns()
+        self.import_yaml_side_stores()
         self._ensure_default_template()
+
+    def import_yaml_side_stores(self, replace: bool = False) -> None:
+        """Import the yaml side-stores (vriezer, bonus, koppelingen, barcodes)
+        into the database.
+
+        Runs at startup when the tables are still empty; with `replace=True`
+        (a backup import) the tables are wiped first so the yaml's content is
+        leading. After this the yaml files are no longer read.
+        """
+        base = Path(self.path).parent
+
+        def empty(table: str) -> bool:
+            if replace:
+                self.conn.execute(f"DELETE FROM {table}")
+            return self.conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
+
+        vriezer_path = base / "vriezer.yaml"
+        if vriezer_path.is_file() and empty("vriezer"):
+            try:
+                raw = yaml.safe_load(vriezer_path.read_text(encoding="utf-8")) or {}
+            except (OSError, yaml.YAMLError):
+                raw = {}
+            for slug, item in raw.items():
+                since = None
+                if isinstance(item, dict):
+                    try:
+                        portions = int(item.get("portions") or 0)
+                        since = str(item.get("since") or "") or None
+                    except (TypeError, ValueError):
+                        continue
+                else:
+                    try:
+                        portions = int(item)
+                    except (TypeError, ValueError):
+                        continue
+                if portions > 0:
+                    self.conn.execute(
+                        "INSERT OR IGNORE INTO vriezer(slug, portions, since) VALUES (?,?,?)",
+                        (str(slug), portions, since),
+                    )
+
+        bonus_path = base / "bonus.yaml"
+        if bonus_path.is_file() and empty("bonus_products"):
+            try:
+                raw = yaml.safe_load(bonus_path.read_text(encoding="utf-8")) or {}
+            except (OSError, yaml.YAMLError):
+                raw = {}
+            for item in raw.get("products") or []:
+                try:
+                    self.conn.execute(
+                        "INSERT OR IGNORE INTO bonus_products(webshop_id, title) VALUES (?,?)",
+                        (int(item["webshop_id"]), str(item["title"])),
+                    )
+                except (KeyError, TypeError, ValueError):
+                    continue
+            fetched = raw.get("fetched_at")
+            if fetched:
+                self.conn.execute(
+                    "INSERT OR REPLACE INTO bonus_meta(key, value) VALUES ('fetched_at', ?)",
+                    (str(fetched),),
+                )
+
+        mappings_path = base / "ah_mappings.yaml"
+        if mappings_path.is_file() and empty("ah_mappings"):
+            try:
+                raw = yaml.safe_load(mappings_path.read_text(encoding="utf-8")) or {}
+            except (OSError, yaml.YAMLError):
+                raw = {}
+            for name, item in (raw.get("mappings") or {}).items():
+                if not isinstance(item, dict) or item.get("ah_webshop_id") is None:
+                    continue
+                try:
+                    self.conn.execute(
+                        "INSERT OR IGNORE INTO ah_mappings(key, product, ah_webshop_id,"
+                        " ah_title, score, confirmed, ah_image_url, ah_unit_size)"
+                        " VALUES (?,?,?,?,?,?,?,?)",
+                        (
+                            str(name).lower(),
+                            str(name),
+                            int(item["ah_webshop_id"]),
+                            str(item.get("ah_title", "")),
+                            float(item.get("score", 0.0)),
+                            int(bool(item.get("confirmed", False))),
+                            item.get("ah_image_url") or None,
+                            str(item.get("ah_unit_size") or "") or None,
+                        ),
+                    )
+                except (TypeError, ValueError):
+                    continue
+
+        barcodes_path = base / "barcodes.yaml"
+        if barcodes_path.is_file() and empty("barcodes"):
+            try:
+                raw = yaml.safe_load(barcodes_path.read_text(encoding="utf-8")) or {}
+            except (OSError, yaml.YAMLError):
+                raw = {}
+            for ean, title in raw.items():
+                self.conn.execute(
+                    "INSERT OR IGNORE INTO barcodes(ean, title) VALUES (?,?)",
+                    (str(ean), str(title)),
+                )
+        self.conn.commit()
 
     def _add_missing_columns(self) -> None:
         for table, columns in ADDED_COLUMNS.items():

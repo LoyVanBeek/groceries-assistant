@@ -508,14 +508,14 @@ def test_parse_product_ref_accepts_ids_and_urls():
 
 
 def test_barcode_store_round_trip(tmp_path):
-    """data/barcodes.yaml: an EAN maps to the product name it was scanned
-    with; the file is hand-editable and survives a reload."""
-    barcodes = BarcodeStore(tmp_path / "barcodes.yaml")
+    """De barcodes-tabel: an EAN maps to the product name it was scanned
+    with; a fresh store instance reads the same database."""
+    barcodes = BarcodeStore(Store(tmp_path / "state.db"))
     barcodes.load()
     assert barcodes.get("8710600988068") is None
 
     barcodes.put("8710600988068", "Hak Tomatenblokjes")
-    reloaded = BarcodeStore(tmp_path / "barcodes.yaml")
+    reloaded = BarcodeStore(Store(tmp_path / "state.db"))
     reloaded.load()
     assert reloaded.get("8710600988068") == "Hak Tomatenblokjes"
 
@@ -606,29 +606,25 @@ def test_swap_days_spares_frozen_restjes(store):
 
 
 def test_vriezer_store_round_trip(tmp_path):
-    """De vriezer bewaart porties per gerecht in yaml en overleeft een
-    herstart; invriezen en eten komen beide in het bestand terecht."""
-    path = tmp_path / "vriezer.yaml"
-    vriezer = VriezerStore(path)
-    vriezer.load()
+    """De vriezer bewaart porties per gerecht (met de invriesdatum) in de
+    database en overleeft een herstart; bijvullen verschuift de datum niet."""
+    vriezer = VriezerStore(Store(tmp_path / "state.db"))
     assert vriezer.all() == {}
 
-    vriezer.add("pasta", 2)
-    vriezer.add("pasta", 1)
-    vriezer.add("curry", 1)
+    vriezer.add("pasta", 2, since=date(2026, 11, 1))
+    vriezer.add("pasta", 1)  # bijvullen: de oudste datum blijft staan
+    vriezer.add("curry", 1, since=date(2026, 11, 5))
     assert vriezer.portions("pasta") == 3
+    assert vriezer.since("pasta") == "2026-11-01"
 
-    again = VriezerStore(path)
-    again.load()
+    again = VriezerStore(Store(tmp_path / "state.db"))
     assert again.all() == {"pasta": 3, "curry": 1}
+    # het langst ingevroren eerst, zonder datum achteraan
+    assert [e["slug"] for e in again.entries()] == ["pasta", "curry"]
 
     again.take("pasta", 3)
-    reloaded = VriezerStore(path)
-    reloaded.load()
+    reloaded = VriezerStore(Store(tmp_path / "state.db"))
     assert reloaded.all() == {"curry": 1}
 
-    # een onleesbaar bestand is gewoon een lege vriezer
-    path.write_text(": : broken [", encoding="utf-8")
-    broken = VriezerStore(path)
-    broken.load()
-    assert broken.all() == {}
+    reloaded.remove("curry")
+    assert VriezerStore(Store(tmp_path / "state.db")).all() == {}

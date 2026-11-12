@@ -7,13 +7,12 @@ import pytest
 from groceries_assistant.ah.bonus import BonusStore
 from groceries_assistant.models import Ingredient
 from groceries_assistant.planner.engine import bonus_score
+from groceries_assistant.store.db import Store
 
 
 @pytest.fixture
 def store(tmp_path) -> BonusStore:
-    bonus = BonusStore(tmp_path / "bonus.yaml")
-    bonus.load()
-    return bonus
+    return BonusStore(Store(tmp_path / "state.db"))
 
 
 def test_bonus_points_are_a_capped_nudge():
@@ -30,28 +29,28 @@ def test_missing_cache_means_no_bonus(store):
 
 
 def test_save_and_load_round_trip(tmp_path):
-    path = tmp_path / "bonus.yaml"
-    bonus = BonusStore(path)
+    bonus = BonusStore(Store(tmp_path / "state.db"))
     bonus.save([(514008, "AH Spaghetti 500 g"), (1, "Hak tomatenblokjes")], date(2026, 11, 5))
 
-    reloaded = BonusStore(path)
+    reloaded = BonusStore(Store(tmp_path / "state.db"))
     reloaded.load()
     assert reloaded.products == [(514008, "AH Spaghetti 500 g"), (1, "Hak tomatenblokjes")]
     assert reloaded.fetched_at == date(2026, 11, 5)
 
 
 def test_broken_cache_never_crashes(tmp_path):
+    """Een kapotte/half-geldige oude bonus.yaml breekt de migratie niet: de
+    tabel blijft (of wordt) gewoon gevuld met wat leesbaar is."""
     path = tmp_path / "bonus.yaml"
     path.write_text("{onzin: [", encoding="utf-8")
-    bonus = BonusStore(path)
-    bonus.load()
+    bonus = BonusStore(Store(tmp_path / "state.db"))
     assert bonus.products == []
     path.write_text(
         "fetched_at: niet-een-datum\nproducts: [{webshop_id: 1, title: x}]", encoding="utf-8"
     )
-    bonus.load()
-    assert bonus.products == [(1, "x")]
-    assert bonus.fetched_at is None
+    fresh = BonusStore(Store(tmp_path / "state.db"))
+    assert fresh.products == [(1, "x")]
+    assert fresh.fetched_at is None
 
 
 def test_ingredient_matching_is_whole_word_containment(store, tmp_path_factory):
@@ -62,7 +61,7 @@ def test_ingredient_matching_is_whole_word_containment(store, tmp_path_factory):
     # 'ui' is too short for containment: 'uitgeperst' must not match it
     assert store.is_in_bonus("ui") is False
     # exact short names still match on normalized equality
-    short = BonusStore(tmp_path_factory.mktemp("bonus") / "short.yaml")
+    short = BonusStore(Store(tmp_path_factory.mktemp("bonus") / "state.db"))
     short.save([(2, "Ui")], date(2026, 11, 5))
     assert short.is_in_bonus("ui") is True
     # and something unrelated matches nothing

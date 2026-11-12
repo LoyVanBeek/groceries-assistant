@@ -1,16 +1,18 @@
-"""Ingredient product -> AH product matching with a persistent mapping cache."""
+"""Ingredient product -> AH product matching with a persistent mapping cache.
+
+De koppelingen staan in de plandatabase (tabel ah_mappings); de oude
+data/ah_mappings.yaml wordt bij het opstarten/importeren één keer ingelezen.
+"""
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
 from difflib import SequenceMatcher
-from pathlib import Path
-
-import yaml
 
 from groceries_assistant.ah.client import AHProduct
 from groceries_assistant.models import ProductFact
+from groceries_assistant.store.db import Store
 
 # Stopwords and size/unit tokens that add noise when comparing product names.
 STOPWORDS = {"ah", "huismerk", "groot", "klein", "vers", "extra", "bio"}
@@ -35,47 +37,44 @@ class AHMapping:
 class AHMappingStore:
     """YAML-backed cache: Ingredient product name -> AH product. Human-editable."""
 
-    def __init__(self, path: Path) -> None:
-        self.path = Path(path)
+    def __init__(self, store: Store) -> None:
+        self._store = store
         self._mappings: dict[str, AHMapping] = {}
         self._load()
 
     def _load(self) -> None:
-        if not self.path.is_file():
-            return
-        raw = yaml.safe_load(self.path.read_text(encoding="utf-8")) or {}
-        for name, item in raw.get("mappings", {}).items():
-            if item is None or item.get("ah_webshop_id") is None:
-                continue
-            self._mappings[name.lower()] = AHMapping(
-                product=name,
-                ah_webshop_id=int(item["ah_webshop_id"]),
-                ah_title=str(item.get("ah_title", "")),
-                score=float(item.get("score", 0.0)),
-                confirmed=bool(item.get("confirmed", False)),
-                ah_image_url=item.get("ah_image_url") or None,
-                ah_unit_size=item.get("ah_unit_size") or None,
+        self._mappings = {}
+        for row in self._store.conn.execute("SELECT * FROM ah_mappings"):
+            self._mappings[row["key"]] = AHMapping(
+                product=row["product"],
+                ah_webshop_id=int(row["ah_webshop_id"]),
+                ah_title=row["ah_title"] or "",
+                score=float(row["score"] or 0.0),
+                confirmed=bool(row["confirmed"]),
+                ah_image_url=row["ah_image_url"],
+                ah_unit_size=row["ah_unit_size"],
             )
 
     def save(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        data = {
-            "mappings": {
-                m.product: {
-                    "ah_webshop_id": m.ah_webshop_id,
-                    "ah_title": m.ah_title,
-                    "score": round(m.score, 3),
-                    "confirmed": m.confirmed,
-                    **({"ah_image_url": m.ah_image_url} if m.ah_image_url else {}),
-                    **({"ah_unit_size": m.ah_unit_size} if m.ah_unit_size else {}),
-                }
+        self._store.conn.execute("DELETE FROM ah_mappings")
+        self._store.conn.executemany(
+            "INSERT INTO ah_mappings(key, product, ah_webshop_id, ah_title, score,"
+            " confirmed, ah_image_url, ah_unit_size) VALUES (?,?,?,?,?,?,?,?)",
+            [
+                (
+                    m.product.lower(),
+                    m.product,
+                    m.ah_webshop_id,
+                    m.ah_title,
+                    round(m.score, 3),
+                    int(m.confirmed),
+                    m.ah_image_url,
+                    m.ah_unit_size,
+                )
                 for m in sorted(self._mappings.values(), key=lambda m: m.product.lower())
-            }
-        }
-        self.path.write_text(
-            yaml.safe_dump(data, sort_keys=False, allow_unicode=True),
-            encoding="utf-8",
+            ],
         )
+        self._store.conn.commit()
 
     def get(self, product: str) -> AHMapping | None:
         return self._mappings.get(product.lower())

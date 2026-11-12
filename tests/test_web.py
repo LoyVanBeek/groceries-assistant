@@ -116,7 +116,12 @@ def test_bonus_lives_on_the_select_page_only(tmp_path, monkeypatch):
             follow_redirects=False,
         )
         assert resp.status_code == 303
-        assert (tmp_path / "bonus.yaml").is_file()  # cached, hand-editable
+        assert (
+            Store(tmp_path / "state.db")
+            .conn.execute("SELECT COUNT(*) FROM bonus_products")
+            .fetchone()[0]
+            >= 1
+        )  # opgeslagen in de plandatabase
 
         day = next(
             d for d in days if "in de bonus" in client.get(f"/plan/select?day={d.isoformat()}").text
@@ -342,8 +347,12 @@ def test_bonus_refresh_falls_back_to_search_when_bonuspage_refuses(tmp_path, mon
         assert resp.status_code == 303
         assert "error=bonus" not in resp.headers["location"]
         assert "spaghetti" in seen["queries"]  # the household's own ingredients
-        bonus = yaml.safe_load((tmp_path / "bonus.yaml").read_text(encoding="utf-8"))
-        assert bonus["products"] == [{"webshop_id": 7, "title": "AH Spaghetti 500 g"}]
+        rows = (
+            Store(tmp_path / "state.db")
+            .conn.execute("SELECT webshop_id, title FROM bonus_products")
+            .fetchall()
+        )
+        assert [(r["webshop_id"], r["title"]) for r in rows] == [(7, "AH Spaghetti 500 g")]
 
 
 def test_plan_starts_empty_and_fills_on_button_press(tmp_path):
@@ -2323,11 +2332,13 @@ def test_order_match_pin_unpin(tmp_path):
         assert items[("spaghetti", "g")]["webshop_id"] == 111
 
         # pin persisted in the mapping store as confirmed, with AH's own size
-        import yaml
-
-        saved = yaml.safe_load((tmp_path / "ah_mappings.yaml").read_text())
-        assert saved["mappings"]["spaghetti"]["confirmed"] is True
-        assert saved["mappings"]["spaghetti"]["ah_unit_size"] == "500 g"
+        saved = (
+            Store(tmp_path / "state.db")
+            .conn.execute("SELECT * FROM ah_mappings WHERE key = 'spaghetti'")
+            .fetchone()
+        )
+        assert saved["confirmed"] == 1
+        assert saved["ah_unit_size"] == "500 g"
 
         # matched row now links to the pinned article
         matched = client.get("/order/match")
@@ -2344,7 +2355,12 @@ def test_order_match_pin_unpin(tmp_path):
         )
         items = {(i["product"], i["unit"]): i for i in store.order_items(plan_id)}
         assert items[("spaghetti", "g")]["webshop_id"] is None
-        assert not (tmp_path / "ah_mappings.yaml").read_text().count("spaghetti")
+        assert (
+            Store(tmp_path / "state.db")
+            .conn.execute("SELECT COUNT(*) FROM ah_mappings WHERE key = 'spaghetti'")
+            .fetchone()[0]
+            == 0
+        )
 
 
 def test_recipe_selection_is_a_page_and_lists_alternatives(tmp_path):
@@ -2531,7 +2547,12 @@ def test_koppel_page_shows_ah_thumbnails(tmp_path):
         assert pinned.status_code == 303
 
         # the pin remembers the image so the 'gekoppeld' row keeps a thumbnail
-        assert image in (tmp_path / "ah_mappings.yaml").read_text(encoding="utf-8")
+        assert (
+            Store(tmp_path / "state.db")
+            .conn.execute("SELECT ah_image_url FROM ah_mappings WHERE key = 'spaghetti'")
+            .fetchone()["ah_image_url"]
+            == image
+        )
         matched = client.get("/order/match").text
         assert f'src="{image}"' in matched
         assert "AH Pasta" in matched  # title instead of the raw webshop-id
@@ -2692,9 +2713,12 @@ def test_backfill_images_fetches_missing_thumbnails(tmp_path):
         assert backfill.status_code == 303
         assert "opgehaald=1" in backfill.headers["location"]
 
-        saved = mapping_file.read_text(encoding="utf-8")
-        assert "ah_image_url" in saved
-        assert image in saved
+        saved = (
+            Store(tmp_path / "state.db")
+            .conn.execute("SELECT ah_image_url FROM ah_mappings WHERE key = 'spaghetti'")
+            .fetchone()
+        )
+        assert saved["ah_image_url"] == image
         # the match page and the order page now show the thumbnail
         assert f'src="{image}"' in client2.get("/order/match").text
         assert f'src="{image}"' in client2.get("/order").text
@@ -4616,7 +4640,7 @@ def test_restjes_vriezer_endpoint(tmp_path):
         )
         assert resp.status_code == 303
         assert resp.headers["location"] == "/plan"
-        vriezer = VriezerStore(tmp_path / "vriezer.yaml")
+        vriezer = VriezerStore(Store(tmp_path / "state.db"))
         vriezer.load()
         assert vriezer.portions("pasta") == 4
 
@@ -4643,7 +4667,7 @@ def test_frozen_restjes_on_the_select_page_and_swap(tmp_path):
         plan_id, _start, _ = store.load_proposal()
         rows = store.plan_entries(plan_id)
         target = next(r.day for r in rows if r.kind == "cook" and r.recipe_slug)
-        vriezer = VriezerStore(tmp_path / "vriezer.yaml")
+        vriezer = VriezerStore(Store(tmp_path / "state.db"))
         vriezer.load()
         vriezer.add("pasta", 2)
 
@@ -4666,7 +4690,7 @@ def test_frozen_restjes_on_the_select_page_and_swap(tmp_path):
         after = {r.day: r for r in store.plan_entries(plan_id)}
         assert after[target].kind == "leftovers"
         assert after[target].source_slug == "pasta"
-        reloaded = VriezerStore(tmp_path / "vriezer.yaml")
+        reloaded = VriezerStore(Store(tmp_path / "state.db"))
         reloaded.load()
         assert reloaded.portions("pasta") == 0
 
@@ -4711,7 +4735,7 @@ def test_restjes_chip_of_a_dish_freezes_its_component(tmp_path):
             "/plan/restjes-vriezer", data={"day": day.isoformat()}, follow_redirects=False
         )
         assert resp.status_code == 303
-        vriezer = VriezerStore(tmp_path / "vriezer.yaml")
+        vriezer = VriezerStore(Store(tmp_path / "state.db"))
         vriezer.load()
         assert vriezer.all() == {"aardappels-uit-de-oven": 4}
         # de porties zitten nu in de vriezer: de chip verdwijnt en de
@@ -4761,7 +4785,7 @@ def test_frozen_restjes_keep_their_source_across_swaps(tmp_path):
         assert after[days[3]].kind == "leftovers"
         assert after[days[3]].source_slug == "pasta"
         assert after[days[3]].frozen is True
-        vriezer = VriezerStore(tmp_path / "vriezer.yaml")
+        vriezer = VriezerStore(Store(tmp_path / "state.db"))
         vriezer.load()
         assert vriezer.portions("pasta") == 0
 
@@ -4933,7 +4957,7 @@ def test_vriezer_chip_drag_eats_frozen_portions(tmp_path):
         assert after[days[2]].source_slug == "pasta"
         assert after[days[2]].frozen is True
         assert after[days[2]].people == 4
-        vriezer = VriezerStore(tmp_path / "vriezer.yaml")
+        vriezer = VriezerStore(Store(tmp_path / "state.db"))
         vriezer.load()
         assert vriezer.portions("pasta") == 0
 
@@ -5202,7 +5226,7 @@ def test_full_backup_export_and_import_round_trip(tmp_path):
         store = Store(tmp_path / "state.db")
         store.upsert_person("loy", "Loy", "adult", 1.0)
         store.set_setting("week_start_weekday", "1")
-        VriezerStore(tmp_path / "vriezer.yaml").add("pasta", 2)
+        VriezerStore(Store(tmp_path / "state.db")).add("pasta", 2)
         _plan_id, _start, rows = store.load_proposal()
         first = rows[0].day
         resp = client.get("/settings/export")
@@ -5213,7 +5237,8 @@ def test_full_backup_export_and_import_round_trip(tmp_path):
         zf = zipfile.ZipFile(io.BytesIO(zip_bytes))
         assert "recipes/pasta.yaml" in zf.namelist()
         assert "state.db" in zf.namelist()
-        assert "vriezer.yaml" in zf.namelist()
+        # de vriezer zit in de plandatabase, niet meer los in de zip
+        assert "vriezer.yaml" not in zf.namelist()
         assert "course: soep" in zf.read("recipes/pasta.yaml").decode("utf-8")
 
     # een tweede installatie met ANDERE data: de backup wordt daar
@@ -5244,9 +5269,47 @@ def test_full_backup_export_and_import_round_trip(tmp_path):
         assert rows2[0].day == first
         assert fresh.people()[0]["name"] == "Loy"
         assert fresh.week_start_weekday() == 1
-        vriezer_back = VriezerStore(other / "vriezer.yaml")
+        vriezer_back = VriezerStore(Store(other / "state.db"))
         vriezer_back.load()
         assert vriezer_back.portions("pasta") == 2
         # de pagina's lezen de teruggezette data
         assert "Pasta" in client2.get("/recipes/pasta").text
         assert client2.get("/plan").status_code == 200
+
+
+def test_old_backup_with_yaml_side_stores_imports(tmp_path):
+    """Een oude backup (met vriezer.yaml/barcodes.yaml los in de zip) wordt
+    teruggezet: die yamls worden vervangend in hun tabellen geïmporteerd."""
+    import io
+    import zipfile
+
+    from groceries_assistant.store.barcodes import BarcodeStore
+
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        seed_plan(client)
+        old_zip = io.BytesIO()
+        with zipfile.ZipFile(old_zip, "w") as zf:
+            zf.write(tmp_path / "recipes" / "pasta.yaml", arcname="recipes/pasta.yaml")
+            zf.write(tmp_path / "state.db", arcname="state.db")
+            zf.writestr("vriezer.yaml", "pasta: 3\n")
+            zf.writestr("barcodes.yaml", "8710600988068: Hak Tomatenblokjes\n")
+        zip_bytes = old_zip.getvalue()
+
+    other = tmp_path / "nieuw"
+    other.mkdir()
+    with make_client(other) as client2:
+        seed_plan(client2)
+        resp = client2.post(
+            "/settings/import",
+            files={"backup": ("old.zip", zip_bytes, "application/zip")},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        fresh = Store(other / "state.db")
+        vriezer = VriezerStore(fresh)
+        vriezer.load()
+        assert vriezer.portions("pasta") == 3
+        barcodes = BarcodeStore(fresh)
+        barcodes.load()
+        assert barcodes.get("8710600988068") == "Hak Tomatenblokjes"

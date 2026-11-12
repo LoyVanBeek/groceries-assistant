@@ -9,6 +9,7 @@ from groceries_assistant.ah.matching import (
     similarity,
     suggest_match,
 )
+from groceries_assistant.store.db import Store
 
 
 def test_normalize_stops_punctuation_and_stopwords():
@@ -41,8 +42,7 @@ def test_suggest_match_returns_none_below_threshold():
 
 
 def test_mapping_store_round_trip(tmp_path):
-    path = tmp_path / "mappings.yaml"
-    store = AHMappingStore(path)
+    store = AHMappingStore(Store(tmp_path / "state.db"))
     store.put(
         AHMapping(
             product="pasta penne",
@@ -54,7 +54,7 @@ def test_mapping_store_round_trip(tmp_path):
     )
     store.save()
 
-    reloaded = AHMappingStore(path)
+    reloaded = AHMappingStore(Store(tmp_path / "state.db"))
     mapping = reloaded.get("PASTA PENNE")  # case-insensitive lookup
     assert mapping is not None
     assert mapping.ah_webshop_id == 12345
@@ -63,18 +63,17 @@ def test_mapping_store_round_trip(tmp_path):
 
 
 def test_mapping_store_skips_null_entries(tmp_path):
-    path = tmp_path / "mappings.yaml"
-    path.write_text(
+    """Een oude yaml met een null-koppeling breekt de migratie niet."""
+    (tmp_path / "ah_mappings.yaml").write_text(
         "mappings:\n  pasta penne: null\n  courgette: {ah_webshop_id: 9, ah_title: X}\n"
     )
-    store = AHMappingStore(path)
+    store = AHMappingStore(Store(tmp_path / "state.db"))
     assert store.get("pasta penne") is None
     assert store.get("courgette") is not None
 
 
 def test_mapping_store_keeps_ahs_pack_size(tmp_path):
-    path = tmp_path / "mappings.yaml"
-    store = AHMappingStore(path)
+    store = AHMappingStore(Store(tmp_path / "state.db"))
     store.put(
         AHMapping(
             product="broccoli",
@@ -85,7 +84,7 @@ def test_mapping_store_keeps_ahs_pack_size(tmp_path):
         )
     )
 
-    assert AHMappingStore(path).get("broccoli").ah_unit_size == "350 g"
+    assert AHMappingStore(Store(tmp_path / "state.db")).get("broccoli").ah_unit_size == "350 g"
 
 
 def test_parse_unit_size_reads_the_plain_shapes():
