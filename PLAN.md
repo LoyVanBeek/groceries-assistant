@@ -115,7 +115,10 @@ dish and on the selection page; auto-fill may plan an evening around it.
       dagsruil verplaatst alle gangen mee; restjes/vriezer blijven
       hoofdslot-zaken; de planner vult alleen hoofdgerechten. Beperkingen:
       gangen-slots vullen geen dag-gerechten (geen parts-kiezer daar), en
-      partpicks blijven per (plan, dag) — één dag-gerecht per dag.
+      partpicks blijven per (plan, dag) — één dag-gerecht per dag. De
+      gangenrijen delen vaste kolommen (gangenlabel, thumbnail, naam,
+      acties rechts) zodat thumbnails, namen en ✕ verticaal uitlijnen; de
+      ❄-chip toont alleen het aantal porties (de naam staat op de rij).
 
 ## 6. Backup: alles exporteren en importeren
 
