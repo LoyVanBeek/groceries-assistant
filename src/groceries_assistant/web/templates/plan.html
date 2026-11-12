@@ -189,16 +189,15 @@
     <td class="col-dish">
       {% for c in d.courses %}
       <div class="course-row">
-        {% if c.course %}<span class="course-label">{{ c.course_label }}:</span>{% endif %}
-        {% if c.image %}
+        <span class="course-label">{% if c.course %}{{ c.course_label }}:{% endif %}</span>
         <span class="restjes-thumb">
-          <img class="thumb" src="{{ c.image }}" alt="">
+          {% if c.image %}<img class="thumb" src="{{ c.image }}" alt="">
           {% if c.kind == 'leftovers' %}
           {% if c.frozen %}<span class="restjes-icon" aria-label="vriezer" title="Uit de vriezer">&#10052;</span>
           {% else %}<span class="restjes-icon" aria-label="restjes" title="Restjes">&#9851;</span>{% endif %}
           {% endif %}
+          {% endif %}
         </span>
-        {% endif %}
         {% if d.is_ordered %}
         {% if c.is_dish %}
         <span class="dish-label">{% if c.slug %}<a href="/dishes/{{ c.slug }}">{{ c.name }}</a>{% else %}{{ c.name }}{% endif %}</span>

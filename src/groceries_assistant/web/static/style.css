@@ -403,8 +403,24 @@ table.plan .restjes-freeze:hover { border-color: var(--accent); color: var(--acc
 
 /* extra gangen op een dag: de vervolgrijen sluiten visueel aan bij de
    hoofdrij, de dagcel toont alleen het gangenlabel */
+/* extra gangen op een dag: elke course-row dezelfde kolommen (gang-label,
+   thumbnail, naam, acties) zodat thumb, naam en ✕ verticaal uitlijnen */
+.course-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 0.4rem;
+}
+.course-row .course-label {
+  flex: 0 0 4.8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+.course-row .restjes-thumb { flex: 0 0 2.1rem; }
 table.plan tr.followup { border-top: none; }
-.course-label { color: var(--muted); font-size: 0.8rem; white-space: nowrap; }
 .add-course {
   display: inline-block;
   margin-left: 0.3rem;
