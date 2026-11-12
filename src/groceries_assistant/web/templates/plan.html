@@ -169,7 +169,7 @@
   <tbody>
   {% for d in evenings %}
   {% set row = loop.index %}
-  <tr class="evening {% if d.over_budget %}over{% endif %} {% if d.is_past %}passed{% endif %} {% if d.is_today %}today{% endif %}" data-day="{{ d.day_iso }}">
+  <tr class="evening {% if d.over_budget %}over{% endif %} {% if d.is_past %}passed{% endif %} {% if d.is_today %}today{% endif %}" data-day="{{ d.day_iso }}" data-kind="{{ d.kind }}">
     <td class="col-day">
       <span class="drag-handle" title="Sleep om deze dag te verplaatsen" aria-label="Sleep om deze dag te verplaatsen">&#8942;&#8942;</span>
       <strong>{{ d.label }}</strong>
@@ -227,7 +227,7 @@
         {% endif %}
         {% if c.frozen_chips %}
         {% for f in c.frozen_chips %}
-        <span class="vriezer-chip" data-vriezer-slug="{{ f.slug }}" title="{{ f.name }}: {{ f.portions }} porties in de vriezer (sleep naar een lege dag om ze te eten)">&#10052; {{ f.portions }} porties</span>
+        <span class="vriezer-chip" data-vriezer-slug="{{ f.slug }}" title="{{ f.name }}: {{ f.portions }} porties in de vriezer{% if f.age %} (al {{ f.age }} dagen){% endif %} (sleep naar een lege dag om ze te eten)">&#10052; {{ f.portions }} porties</span>
         {% endfor %}
         {% endif %}
         {% if c.course %}
@@ -409,6 +409,18 @@
   {% endfor %}
   </tbody>
 </table>
+<div class="vriezer-zone" id="vriezer-zone">
+  <span class="vriezer-zone-icon" aria-hidden="true">&#10052;</span>
+  <span>
+    <strong>Vriezer</strong>
+    {% if vriezer_total %}
+    <span class="muted">{{ vriezer_total }} porties liggen erin (langst ingevroren eerst).</span>
+    {% else %}
+    <span class="muted">leeg &mdash; sleep restjes hierheen om in te vriezen.</span>
+    {% endif %}
+  </span>
+  <a href="/vriezer" class="btn-small">beheer</a>
+</div>
 <form method="post" action="/plan/order">
   <p>
     {% if order_open %}

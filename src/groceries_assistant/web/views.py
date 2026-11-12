@@ -301,14 +301,17 @@ def plan_view(
                 ]
             elif vriezer.portions(row.recipe_slug):
                 frozen_slugs = [row.recipe_slug]
-        frozen_chips = [
-            {
-                "slug": s,
-                "name": by_slug[s].name if s in by_slug else s,
-                "portions": vriezer.portions(s),
-            }
-            for s in frozen_slugs
-        ]
+        frozen_chips = []
+        for s in frozen_slugs:
+            since = vriezer.since(s)
+            frozen_chips.append(
+                {
+                    "slug": s,
+                    "name": by_slug[s].name if s in by_slug else s,
+                    "portions": vriezer.portions(s),
+                    "age": (date.today() - date.fromisoformat(since)).days if since else None,
+                }
+            )
         # de gekozen onderdelen als {slug, naam}: de weekweergave linkt ze naar
         # de receptpagina's (dat is wat je kookt bij een dag-gerecht)
         parts_linked = [

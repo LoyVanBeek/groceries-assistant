@@ -18,12 +18,14 @@
   const table = document.querySelector("table.plan");
   if (!table) return;
   const tbody = table.tBodies[0];
+  const zone = document.getElementById("vriezer-zone");
 
   let dragRow = null; // the row being dragged
   let dragMode = null; // "swap" | "restjes" | "vriezer"
   let sourceDay = null; // the restjes chip's source day
   let sourceSlug = null; // the vriezer chip's dish slug
   let hoverRow = null; // the row the drop would land on
+  let hoverZone = false; // the drop would land in the freezer zone
   let ghost = null;
   let grabbedOffsetX = 0;
 
@@ -40,10 +42,18 @@
     sourceDay = null;
     sourceSlug = null;
     hoverRow = null;
+    hoverZone = false;
   }
 
   function clearMarks() {
     table.querySelectorAll(".drop-target").forEach((row) => row.classList.remove("drop-target"));
+    if (zone) zone.classList.remove("drop-target");
+  }
+
+  function overZone(x, y) {
+    if (!zone) return false;
+    const box = zone.getBoundingClientRect();
+    return x >= box.left && x <= box.right && y >= box.top && y <= box.bottom;
   }
 
   function dayLabel(row) {
@@ -95,6 +105,17 @@
     const vh = window.innerHeight;
     if (y < 90) window.scrollBy(0, -Math.ceil((90 - y) * 0.2));
     else if (y > vh - 90) window.scrollBy(0, Math.ceil((y - (vh - 90)) * 0.2));
+    const zoneHit = overZone(x, y);
+    if (zoneHit !== hoverZone) {
+      hoverZone = zoneHit;
+      clearMarks();
+      if (zoneHit) zone.classList.add("drop-target");
+    }
+    if (zoneHit) {
+      if (hoverRow) hoverRow.classList.remove("drop-target");
+      hoverRow = null;
+      return;
+    }
     const target = rowUnderPoint(y);
     if (hoverRow !== target) {
       hoverRow = target;
@@ -119,6 +140,20 @@
   }
 
   function commit() {
+    if (hoverZone) {
+      // de vriezer-zone: restjes invriezen in plaats van op een dag leggen
+      if (dragMode === "restjes" && sourceDay) {
+        postForm("/plan/restjes-vriezer", { day: sourceDay });
+      } else if (dragMode === "swap" && dragRow && dragRow.dataset.day) {
+        if (dragRow.dataset.kind === "leftovers") {
+          // de geplande restjes zelf vriezen: de avond wordt leeg
+          postForm("/plan/restjes-vriezen", { day: dragRow.dataset.day });
+        } else {
+          postForm("/plan/restjes-vriezer", { day: dragRow.dataset.day });
+        }
+      }
+      return;
+    }
     if (dragMode === "swap") {
       const day = dragRow.dataset.day;
       const swapTo = hoverRow ? hoverRow.dataset.day : "";
@@ -164,6 +199,20 @@
         })
         .catch(() => window.location.reload());
     }
+  }
+
+  function postForm(url, fields) {
+    // alle vriezer-aanroepen veranderen de avond van soort: de pagina rendert
+    // opnieuw (de server stuurt de melding mee via de redirect)
+    fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams(fields),
+    })
+      .then((response) => {
+        window.location.href = response.url;
+      })
+      .catch(() => window.location.reload());
   }
 
   function startDrag(sourceEl, mode, event) {

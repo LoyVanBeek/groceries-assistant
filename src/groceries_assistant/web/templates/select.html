@@ -148,7 +148,7 @@
     <input type="hidden" name="day" value="{{ day }}">
     <input type="hidden" name="choice" value="__vriezer__:{{ f.slug }}">
     {% if confirmed %}<label class="confirm-force"><input type="checkbox" name="force" required> boodschappen al besteld</label>{% endif %}
-    <button>&#10052; uit de vriezer: {{ f.name }} ({{ f.portions }} porties)</button>
+    <button>&#10052; {{ f.name }} &mdash; uit de vriezer: {{ f.portions }} porties{% if f.age is not none %}, al {{ f.age }} dagen{% endif %}{% if not f.fits %} &mdash; te weinig voor {{ joiners_count }} eters!{% endif %}</button>
   </form>
   {% endfor %}
 </p>

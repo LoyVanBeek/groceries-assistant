@@ -5313,3 +5313,84 @@ def test_old_backup_with_yaml_side_stores_imports(tmp_path):
         barcodes = BarcodeStore(fresh)
         barcodes.load()
         assert barcodes.get("8710600988068") == "Hak Tomatenblokjes"
+
+
+def test_vriezer_page_lists_and_manages(tmp_path):
+    """/vriezer: het langst ingevroren eerst met de leeftijd erbij; +/− en
+    weg beheren de voorraad handmatig."""
+    seed_recipe(tmp_path)
+    seed_soep(tmp_path)
+    with make_client(tmp_path) as client:
+        store = Store(tmp_path / "state.db")
+        vriezer = VriezerStore(store)
+        vriezer.add("pasta", 2, since=date(2026, 11, 1))
+        vriezer.add("bonensoep", 3, since=date(2026, 12, 1))
+
+        page = client.get("/vriezer").text
+        assert page.index("Pasta") < page.index("Bonensoep")  # langst eerst
+        assert "dag" in page  # de leeftijd staat erbij
+
+        client.post("/vriezer/add", data={"slug": "pasta", "portions": "1"}, follow_redirects=False)
+        assert vriezer.portions("pasta") == 3
+        client.post(
+            "/vriezer/take", data={"slug": "pasta", "portions": "2"}, follow_redirects=False
+        )
+        assert vriezer.portions("pasta") == 1
+        client.post("/vriezer/remove", data={"slug": "pasta"}, follow_redirects=False)
+        assert vriezer.portions("pasta") == 0
+
+
+def test_restjes_evening_can_be_frozen(tmp_path):
+    """Een geplande restjes avond naar de vriezer slepen: de porties gaan de
+    voorraad in en de avond wordt leeg."""
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        seed_plan(client)
+        store = Store(tmp_path / "state.db")
+        plan_id, _start, rows = store.load_proposal()
+        days = [r.day for r in rows]
+        rebuilt = [
+            PlanEntryRow(day=days[0], kind="cook", recipe_slug="pasta", people=4),
+            PlanEntryRow(day=days[1], kind="leftovers", source_slug="pasta", people=2),
+            *[PlanEntryRow(day=d, kind="cook", people=4) for d in days[2:]],
+        ]
+        store.update_proposal_rows(plan_id, rebuilt)
+
+        resp = client.post(
+            "/plan/restjes-vriezen", data={"day": days[1].isoformat()}, follow_redirects=False
+        )
+        assert resp.status_code == 303
+        vriezer = VriezerStore(store)
+        vriezer.load()
+        assert vriezer.portions("pasta") == 2
+        after = {r.day: r for r in store.plan_entries(plan_id)}
+        assert after[days[1]].kind == "cook" and after[days[1]].recipe_slug is None
+
+
+def test_eating_frozen_portions_leaves_the_rest(tmp_path):
+    """Gedeeltelijk eten: 2 eters, 3 porties in de vriezer — er worden 2
+    gegeten en 1 blijft in de vriezer liggen."""
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        seed_plan(client)
+        store = Store(tmp_path / "state.db")
+        store.upsert_person("a", "A", "adult", 1.0)
+        store.upsert_person("b", "B", "adult", 1.0)
+        plan_id, _start, rows = store.load_proposal()
+        days = [r.day for r in rows]
+        rebuilt = [
+            PlanEntryRow(day=days[0], kind="cook", recipe_slug="pasta", people=4),
+            *[PlanEntryRow(day=d, kind="cook", people=4) for d in days[1:]],
+        ]
+        store.update_proposal_rows(plan_id, rebuilt)
+        vriezer = VriezerStore(store)
+        vriezer.add("pasta", 3, since=date(2026, 11, 1))
+
+        client.post(
+            "/plan/swap",
+            data={"day": days[2].isoformat(), "choice": "__vriezer__:pasta"},
+            follow_redirects=False,
+        )
+        after = {r.day: r for r in store.plan_entries(plan_id)}
+        assert after[days[2]].people == 2
+        assert vriezer.portions("pasta") == 1

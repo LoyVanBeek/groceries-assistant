@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Vriezer{% endblock %}
+{% block content %}
+<h1>Vriezer</h1>
+<p class="muted">
+  {% if total %}Er liggen {{ total }} porties klaar &mdash; het langst ingevroren eerst.{% else %}De vriezer is leeg. Vries restjes in via de sneeuwvlok-knop op de weekpagina, of voeg hieronder iets toe.{% endif %}
+</p>
+{% if items %}
+<table class="vriezer-table">
+  <tr><th>Gerecht</th><th>Porties</th><th>Sinds</th><th></th></tr>
+  {% for i in items %}
+  <tr{% if i.age is not none and i.age >= 60 %} class="old"{% endif %}>
+    <td>{{ i.name }}</td>
+    <td>
+      <form method="post" action="/vriezer/take" class="inline">
+        <input type="hidden" name="slug" value="{{ i.slug }}">
+        <input type="hidden" name="portions" value="1">
+        <button class="btn-icon" aria-label="E&eacute;n portie minder {{ i.name }}">&minus;</button>
+      </form>
+      <span class="portions">{{ i.portions }}</span>
+      <form method="post" action="/vriezer/add" class="inline">
+        <input type="hidden" name="slug" value="{{ i.slug }}">
+        <input type="hidden" name="portions" value="1">
+        <button class="btn-icon" aria-label="E&eacute;n portie meer {{ i.name }}">+</button>
+      </form>
+    </td>
+    <td>
+      {% if i.age is not none %}{{ i.age }} dag{% if i.age != 1 %}en{% endif %}{% else %}datum onbekend{% endif %}
+    </td>
+    <td>
+      <form method="post" action="/vriezer/remove" class="inline"
+            onsubmit="return confirm('{{ i.name }}: alle porties weggooien?')">
+        <input type="hidden" name="slug" value="{{ i.slug }}">
+        <button class="btn-icon danger" title="Alle porties weggooien">&#10005;</button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+<h2>Porties toevoegen</h2>
+<form method="post" action="/vriezer/add" class="vriezer-add">
+  <select name="slug" required aria-label="Gerecht">
+    {% for c in choices %}
+    <option value="{{ c.slug }}">{{ c.name }}</option>
+    {% endfor %}
+  </select>
+  <input type="number" name="portions" value="1" min="1" max="99" size="3" aria-label="Aantal porties">
+  <button class="primary">In de vriezer</button>
+  <span class="muted">wordt gedateerd op vandaag</span>
+</form>
+{% endblock %}
