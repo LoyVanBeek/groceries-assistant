@@ -410,6 +410,13 @@ table.plan .restjes-freeze:hover { border-color: var(--accent); color: var(--acc
   border-bottom: 1px solid var(--rule);
 }
 .vriezer-table td:nth-child(2) { white-space: nowrap; }
+.vriezer-table .thumb {
+  width: 2.5rem;
+  height: 2.5rem;
+  object-fit: cover;
+  border-radius: 6px;
+  display: block;
+}
 .vriezer-table .old td { background: var(--over-bg); }
 .portions { font-weight: 600; padding: 0 0.4rem; }
 .vriezer-add {

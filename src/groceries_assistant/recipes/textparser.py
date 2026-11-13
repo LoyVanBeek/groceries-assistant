@@ -57,6 +57,7 @@ UNIT_MAP = {
     "l": "l",
     "liter": "l",
     "liters": "l",
+    "ltr": "l",
     "el": "el",
     "eetlepel": "el",
     "eetlepels": "el",

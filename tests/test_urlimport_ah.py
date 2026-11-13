@@ -265,6 +265,27 @@ class FakeScraper:
         return S()
 
 
+def test_step_heading_lines_are_dropped(monkeypatch):
+    """Schema scrapers flatten HowToSection names into instructions(); those
+    heading lines (uitpaulineskeuken.nl: 'Zo maak je geroosterde paprikasoep')
+    must not become steps."""
+    import groceries_assistant.recipes.urlimport as urlimport
+
+    class SectionScraper(FakeScraper):
+        def instructions(self):
+            return "Zo maak je geroosterde paprikasoep\nVerwarm de oven voor op 200 graden."
+
+    monkeypatch.setattr(
+        urlimport,
+        "scrape_html",
+        lambda html, org_url=None, wild_mode=None: SectionScraper(ingredients=["3 rode paprika's"]),
+    )
+
+    recipe, _parsed = extract_from_url("https://example.com/x", html="<html><body></body></html>")
+
+    assert recipe.steps == ["Verwarm de oven voor op 200 graden."]
+
+
 def test_extract_retries_scrape_html_with_neutral_org(monkeypatch):
     """A stale dedicated scraper must not shadow working JSON-LD: the retry
     runs the pure-schema extraction with a neutral org_url."""

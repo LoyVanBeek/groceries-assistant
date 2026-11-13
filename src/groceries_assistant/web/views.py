@@ -220,6 +220,7 @@ def plan_view(
                 "restjes_frozen": 0,
                 "over_budget": False,
                 "has_main_dish": False,
+                "main_empty": False,
                 "is_today": row.day == today,
                 "is_past": row.day < today,
                 "is_approved": row.day in approved_days,
@@ -359,6 +360,9 @@ def plan_view(
             day_entry["restjes_frozen"] = restjes_frozen
             day_entry["over_budget"] = course_entry["over_budget"]
             day_entry["has_main_dish"] = bool(row.recipe_slug or row.source_slug)
+            # leeg hoofdslothouders-dag: 'Nog te kiezen' is zelf de link naar
+            # de keuzepagina, de 'gerecht kiezen'-knop is dan overbodig
+            day_entry["main_empty"] = row.kind == "cook" and row.recipe_slug is None
             day_entry["can_leftovers"] = (
                 row.kind in ("cook", "no_cook") and last_cook_slug is not None
             )

@@ -36,6 +36,7 @@ def test_parse_amount(token, expected):
         ("1 blikje tomatenblokjes", "tomatenblokjes", 1, "blikje"),
         ("½ courgette", "courgette", 0.5, "stuk"),
         ("1 1/2 liter melk", "melk", 1.5, "l"),
+        ("0,75 ltr bouillon", "bouillon", 0.75, "l"),
         ("3 tenen knoflook", "knoflook", 3, "teen"),
         ("1 teen knoflook", "knoflook", 1, "teen"),
         ("een handvol pijnboompitten", "pijnboompitten", 1, "handvol"),

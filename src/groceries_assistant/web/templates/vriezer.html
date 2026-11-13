@@ -7,9 +7,12 @@
 </p>
 {% if items %}
 <table class="vriezer-table">
-  <tr><th>Gerecht</th><th>Porties</th><th>Sinds</th><th></th></tr>
+  <tr><th></th><th>Gerecht</th><th>Porties</th><th>Sinds</th><th></th></tr>
   {% for i in items %}
   <tr{% if i.age is not none and i.age >= 60 %} class="old"{% endif %}>
+    <td>
+      {% if i.image %}<img class="thumb" src="{{ i.image }}" alt="">{% endif %}
+    </td>
     <td>{{ i.name }}</td>
     <td>
       <form method="post" action="/vriezer/take" class="inline">

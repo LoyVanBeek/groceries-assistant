@@ -362,8 +362,9 @@ def test_plan_starts_empty_and_fills_on_button_press(tmp_path):
     with make_client(tmp_path) as client:
         page = client.get("/plan").text
         assert "Vul de week in" in page
-        # seven days, each with the link in the dish cell plus the expander
-        assert page.count(">gerecht kiezen<") == 14
+        # seven empty days: 'Nog te kiezen' is the way in, the dish-cell button
+        # is gone; only the expander's copy of the control remains per day
+        assert page.count(">gerecht kiezen<") == 7
 
         store = Store(tmp_path / "state.db")
         plan_id, _start, _ = store.load_proposal()
@@ -4858,6 +4859,9 @@ def test_empty_day_nog_te_kiezen_links_to_the_select_page(tmp_path):
         page = client.get("/plan").text
         pattern = rf'href="/plan/select\?day={rows[0].day.isoformat()}"[^>]*>Nog te kiezen</a>'
         assert len(re.findall(pattern, page)) == 1
+        # the dish-cell 'gerecht kiezen' button is redundant next to the
+        # clickable 'Nog te kiezen'; days with a dish keep theirs (in <div>)
+        assert f'<div><a class="btn-small" href="/plan/select?day={rows[0].day.isoformat()}"' not in page
 
 
 def test_unfillable_evening_stays_in_the_week(tmp_path):

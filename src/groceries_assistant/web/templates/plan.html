@@ -134,7 +134,7 @@
 {% if week_empty %}
 <form method="post" action="/plan/fill">
   <p><button type="submit" class="primary">Vul de week in</button>
-    <span class="hint muted">de week staat leeg; zelf invullen kan per dag via &lsquo;gerecht kiezen&rsquo;</span></p>
+    <span class="hint muted">de week staat leeg; zelf invullen kan per dag via &lsquo;nog te kiezen&rsquo;</span></p>
 </form>
 {% endif %}
 {% if week_partly %}
@@ -277,7 +277,7 @@
       {% if d.has_main_dish and not d.is_approved %}
       <a class="add-course" href="/plan/select?day={{ d.day_iso }}&amp;course=soep" title="Extra gang toevoegen &mdash; standaard een soep; op de keuzepagina kies je bij Gang een andere (bv. nagerecht)">+</a>
       {% endif %}
-      {% if not d.is_approved %}
+      {% if not d.is_approved and not d.main_empty %}
       <div><a class="btn-small" href="/plan/select?day={{ d.day_iso }}" aria-label="Gerecht kiezen voor {{ d.label }}">gerecht kiezen</a></div>
       {% endif %}
       {% if d.is_dish and d.editable_parts and d.part_options %}

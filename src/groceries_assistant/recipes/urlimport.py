@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import os
+import re
 from dataclasses import dataclass
 from urllib.parse import urlparse, urlunparse
 
@@ -55,6 +56,13 @@ PASTE_DEFAULT_URL = "https://www.ah.nl/"
 # neutral org_url for the pure-schema recipe-scrapers run: matches no dedicated
 # scraper class, so a stale site scraper can't shadow working JSON-LD
 SCHEMA_FALLBACK_URL = "https://schema-fallback.invalid/"
+# Schema scrapers flatten HowToSection names into instructions() ("Zo maak je
+# geroosterde paprikasoep\nVerwarm de oven ..."); those lines are headings, not
+# steps. Match heading-shaped lines only: short, no sentence-ending period.
+_STEP_HEADING = re.compile(
+    r"^\s*(zo maak\b|bereiding\b|instructies\b|bereidingswijze\b)[^\n.]*:?\s*$",
+    re.IGNORECASE,
+)
 
 
 def _is_ah_host(url: str) -> bool:
@@ -339,9 +347,10 @@ def _build_from_scraper(scraper, url: str, html: str) -> tuple[Recipe, UrlParseR
     except Exception:
         instructions = ""
     if instructions:
-        result.steps = [
-            line.strip() for line in instructions.replace("\r", "").split("\n") if line.strip()
-        ]
+        lines = [line.strip() for line in instructions.replace("\r", "").split("\n") if line.strip()]
+        headings_removed = [line for line in lines if not _STEP_HEADING.match(line)]
+        # only the headings are steps? then the text wasn't headings after all
+        result.steps = headings_removed or lines
 
     try:
         yields = scraper.yields()

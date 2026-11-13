@@ -3352,7 +3352,7 @@ def create_app(
             )
             since = date.fromisoformat(e["since"]) if e["since"] else None
             age = (date.today() - since).days if since else None
-            items.append({**e, "name": name, "age": age})
+            items.append({**e, "name": name, "age": age, "image": image_url_for(slug)})
         choices = sorted({**known, **dishes}.values(), key=lambda r: r.name.lower())
         return render(
             request,
