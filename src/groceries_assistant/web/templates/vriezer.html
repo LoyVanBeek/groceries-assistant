@@ -12,7 +12,7 @@
   <tr{% if i.age is not none and i.age >= 60 %} class="old"{% endif %}>
     <td>
       {% if i.image %}<img class="thumb" src="{{ i.image }}" alt="">{% endif %}
-      {{ i.name }}
+      <span class="name-wrap">{{ i.name }}</span>
     </td>
     <td>
       <form method="post" action="/vriezer/take" class="inline">

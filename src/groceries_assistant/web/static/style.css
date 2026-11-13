@@ -418,6 +418,13 @@ table.plan .restjes-freeze:hover { border-color: var(--accent); color: var(--acc
 .vriezer-table th:nth-child(3) { width: 5rem; }
 .vriezer-table th:nth-child(4) { width: 2.2rem; }
 .vriezer-table td:nth-child(2) { white-space: nowrap; }
+.vriezer-table td:first-child {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.vriezer-table .name-wrap { min-width: 0; overflow-wrap: anywhere; }
 .vriezer-table .thumb {
   width: 2.5rem;
   height: 2.5rem;
