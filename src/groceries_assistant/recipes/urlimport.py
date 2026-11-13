@@ -347,7 +347,9 @@ def _build_from_scraper(scraper, url: str, html: str) -> tuple[Recipe, UrlParseR
     except Exception:
         instructions = ""
     if instructions:
-        lines = [line.strip() for line in instructions.replace("\r", "").split("\n") if line.strip()]
+        lines = [
+            line.strip() for line in instructions.replace("\r", "").split("\n") if line.strip()
+        ]
         headings_removed = [line for line in lines if not _STEP_HEADING.match(line)]
         # only the headings are steps? then the text wasn't headings after all
         result.steps = headings_removed or lines

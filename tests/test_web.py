@@ -4861,7 +4861,10 @@ def test_empty_day_nog_te_kiezen_links_to_the_select_page(tmp_path):
         assert len(re.findall(pattern, page)) == 1
         # the dish-cell 'gerecht kiezen' button is redundant next to the
         # clickable 'Nog te kiezen'; days with a dish keep theirs (in <div>)
-        assert f'<div><a class="btn-small" href="/plan/select?day={rows[0].day.isoformat()}"' not in page
+        assert (
+            f'<div><a class="btn-small" href="/plan/select?day={rows[0].day.isoformat()}"'
+            not in page
+        )
 
 
 def test_unfillable_evening_stays_in_the_week(tmp_path):
