@@ -1096,6 +1096,8 @@ def create_app(
             tag=tag,
             restjes_option=restjes_option,
             frozen_options=frozen_options,
+            frozen_count=len(frozen_options),
+            frozen_total=sum(f["portions"] for f in frozen_options),
             all_courses=list(COURSES),
             all_tags=sorted({t for tags in tags_by_slug.values() for t in tags}),
             label=f"{WEEKDAYS[target.weekday()].capitalize()} {target.strftime('%d-%m')}",

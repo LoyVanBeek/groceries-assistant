@@ -4672,7 +4672,7 @@ def test_frozen_restjes_on_the_select_page_and_swap(tmp_path):
         vriezer.add("pasta", 2)
 
         page = client.get(f"/plan/select?day={target.isoformat()}").text
-        assert "uit de vriezer" in page
+        assert "Vriezer &mdash; 1 item (2 porties)" in page
         assert "Pasta" in page
 
         # de keuze precies zoals de pagina hem rendert — template en endpoint

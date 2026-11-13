@@ -15,6 +15,28 @@
 {% if request.query_params.error and request.query_params.error.startswith('bonus:') %}
 <p class="warnings">Bonus ophalen mislukt: {{ request.query_params.error | replace('bonus:', '') }}</p>
 {% endif %}
+{% if frozen_options %}
+<details class="vriezer-menu">
+  <summary aria-label="Wat er in de vriezer ligt">&#10052; Vriezer &mdash; {{ frozen_count }} item{{ '' if frozen_count == 1 else 's' }} ({{ frozen_total }} porties)</summary>
+  <p class="muted">
+    Het langst ingevroren eerst, voor {{ joiners_count }} eter{{ '' if joiners_count == 1 else 's' }}.
+    Eten haalt alleen wat nodig is uit de vriezer; de rest blijft liggen.
+  </p>
+  <ul class="plain vriezer-list">
+    {% for f in frozen_options %}
+    <li>
+      <form method="post" action="/plan/swap" class="inline">
+        <input type="hidden" name="day" value="{{ day }}">
+        <input type="hidden" name="course" value="{{ slot_course }}">
+        <input type="hidden" name="choice" value="__vriezer__:{{ f.slug }}">
+        {% if confirmed %}<label class="confirm-force"><input type="checkbox" name="force" required> boodschappen al besteld</label>{% endif %}
+        <button>&#10052; {{ f.name }} &mdash; {{ f.portions }} porties{% if f.age is not none %}, al {{ f.age }} dagen in de vriezer{% endif %}{% if not f.fits %} &mdash; te weinig voor {{ joiners_count }} eters!{% endif %}</button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+</details>
+{% endif %}
 <details class="muted">
   <summary>Bonus{% if bonus_count %}: {{ bonus_count }} producten (opgehaald {{ bonus_fetched | dutch_date }}){% endif %}</summary>
   <form method="post" action="/plan/bonus/refresh">
@@ -139,18 +161,6 @@
     <button>niet koken (eten elders)</button>
   </form>
   {% endif %}
-</p>
-{% endif %}
-{% if frozen_options and not slot_course %}
-<p class="special-actions frozen-actions">
-  {% for f in frozen_options %}
-  <form method="post" action="/plan/swap" class="inline">
-    <input type="hidden" name="day" value="{{ day }}">
-    <input type="hidden" name="choice" value="__vriezer__:{{ f.slug }}">
-    {% if confirmed %}<label class="confirm-force"><input type="checkbox" name="force" required> boodschappen al besteld</label>{% endif %}
-    <button>&#10052; {{ f.name }} &mdash; uit de vriezer: {{ f.portions }} porties{% if f.age is not none %}, al {{ f.age }} dagen{% endif %}{% if not f.fits %} &mdash; te weinig voor {{ joiners_count }} eters!{% endif %}</button>
-  </form>
-  {% endfor %}
 </p>
 {% endif %}
 <p>

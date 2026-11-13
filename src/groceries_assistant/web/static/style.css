@@ -421,6 +421,21 @@ table.plan .restjes-freeze:hover { border-color: var(--accent); color: var(--acc
 }
 .vriezer-add select { flex: 1 1 12rem; min-width: 0; max-width: 100%; }
 
+/* de vriezer-dropdown op de keuzepagina */
+.vriezer-menu {
+  background: var(--accent-soft);
+  padding: 0.4rem 0.6rem;
+  border-radius: 8px;
+  margin: 0.4rem 0;
+}
+.vriezer-menu summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-weight: 600;
+}
+.vriezer-menu ul { margin: 0.4rem 0 0.1rem; }
+.vriezer-menu li { margin: 0.2rem 0; }
+
 /* extra gangen op een dag: elke course-row dezelfde kolommen (gang-label,
    thumbnail, naam, acties) zodat thumb, naam en ✕ verticaal uitlijnen */
 .course-row {
