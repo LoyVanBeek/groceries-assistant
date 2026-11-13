@@ -414,10 +414,9 @@ table.plan .restjes-freeze:hover { border-color: var(--accent); color: var(--acc
   border-bottom: 1px solid var(--rule);
   overflow-wrap: anywhere;
 }
-.vriezer-table th:nth-child(1) { width: 3rem; }
-.vriezer-table th:nth-child(3) { width: 5.5rem; }
-.vriezer-table th:nth-child(4) { width: 5rem; }
-.vriezer-table th:nth-child(5) { width: 2.2rem; }
+.vriezer-table th:nth-child(2) { width: 5.5rem; }
+.vriezer-table th:nth-child(3) { width: 5rem; }
+.vriezer-table th:nth-child(4) { width: 2.2rem; }
 .vriezer-table td:nth-child(2) { white-space: nowrap; }
 .vriezer-table .thumb {
   width: 2.5rem;
