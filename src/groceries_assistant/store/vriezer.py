@@ -71,10 +71,25 @@ class VriezerStore:
         self._store.conn.commit()
 
     def all(self) -> dict[str, int]:
-        """slug -> porties; de planner kijkt alleen naar de aantallen."""
+        """slug -> porties; de echte voorraad (de freezerpagina toont haar)."""
         return {
             row["slug"]: int(row["portions"])
             for row in self._store.conn.execute("SELECT slug, portions FROM vriezer")
+        }
+
+    def available_all(self) -> dict[str, int]:
+        """slug -> wat er nog beloofd kan worden: de voorraad minus de
+        geplande eruit-bewegingen (de planner en de keuzepagina kijken hier
+        naar, zodat geplande porties niet dubbel toegezegd worden)."""
+        return {
+            row["slug"]: max(0, int(row["portions"]) - int(row["gepland"]))
+            for row in self._store.conn.execute(
+                "SELECT v.slug AS slug, v.portions AS portions,"
+                " COALESCE(SUM(g.portions), 0) AS gepland"
+                " FROM vriezer v LEFT JOIN vriezer_gepland g"
+                " ON g.slug = v.slug AND g.portions < 0"
+                " GROUP BY v.slug, v.portions"
+            )
         }
 
     def entries(self) -> list[dict]:
@@ -89,3 +104,74 @@ class VriezerStore:
                 "SELECT slug, portions, since FROM vriezer ORDER BY since IS NULL, since, slug"
             )
         ]
+
+    # --- geplande bewegingen: pas na menselijke bevestiging bij de voorraad ---
+
+    def plan_add(self, dish_slug: str, portions: int, source: str) -> int:
+        """Plan dat er porties IN de vriezer gaan (bv. het overschot van een
+        kookavond). De voorraad verandert pas bij bevestiging."""
+        return self._plan(dish_slug, portions, source)
+
+    def plan_take(self, dish_slug: str, portions: int, source: str) -> int:
+        """Plan dat er porties UIT de vriezer gaan (bv. een geplande
+        vriezer-maaltijd). De voorraad verandert pas bij bevestiging."""
+        return self._plan(dish_slug, -portions, source)
+
+    def _plan(self, dish_slug: str, portions: int, source: str) -> int:
+        if portions == 0:
+            raise ValueError("porties mag niet nul zijn")
+        cur = self._store.conn.execute(
+            "INSERT INTO vriezer_gepland(slug, portions, source, created) VALUES (?,?,?,?)",
+            (dish_slug, portions, source, date.today().isoformat()),
+        )
+        self._store.conn.commit()
+        return int(cur.lastrowid)
+
+    def pending(self) -> list[dict]:
+        """De geplande bewegingen, oudste eerst: {id, slug, portions, source}."""
+        return [
+            {
+                "id": int(row["id"]),
+                "slug": row["slug"],
+                "portions": int(row["portions"]),
+                "source": row["source"] or "",
+            }
+            for row in self._store.conn.execute(
+                "SELECT id, slug, portions, source FROM vriezer_gepland ORDER BY id"
+            )
+        ]
+
+    def confirm(self, pending_id: int) -> None:
+        """Een geplande beweging uitvoeren: de echte voorraad wijzigt (de
+        datum van een nieuwe portie is vandaag) en de planning vervalt."""
+        row = self._store.conn.execute(
+            "SELECT slug, portions FROM vriezer_gepland WHERE id = ?", (pending_id,)
+        ).fetchone()
+        if row is None:
+            return
+        if int(row["portions"]) > 0:
+            self.add(row["slug"], int(row["portions"]))
+        else:
+            self.take(row["slug"], -int(row["portions"]))
+        self._store.conn.execute("DELETE FROM vriezer_gepland WHERE id = ?", (pending_id,))
+        self._store.conn.commit()
+
+    def discard(self, pending_id: int) -> None:
+        """Een geplande beweging annuleren: het is er niet (in) gegaan."""
+        self._store.conn.execute("DELETE FROM vriezer_gepland WHERE id = ?", (pending_id,))
+        self._store.conn.commit()
+
+    def planned_out(self, dish_slug: str) -> int:
+        """Hoeveel porties van dit gerecht al gepland zijn om gegeten te
+        worden maar nog niet bevestigd zijn."""
+        row = self._store.conn.execute(
+            "SELECT COALESCE(SUM(portions), 0) AS total FROM vriezer_gepland"
+            " WHERE slug = ? AND portions < 0",
+            (dish_slug,),
+        ).fetchone()
+        return -int(row["total"])
+
+    def available(self, dish_slug: str) -> int:
+        """De voorraad minus wat er al gepland is om gegeten te worden: wat
+        er nog daadwerkelijk beloofd kan worden."""
+        return self.portions(dish_slug) - self.planned_out(dish_slug)

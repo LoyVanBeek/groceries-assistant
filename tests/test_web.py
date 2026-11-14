@@ -4619,8 +4619,9 @@ def test_restjes_chip_and_endpoint(tmp_path):
 
 
 def test_restjes_vriezer_endpoint(tmp_path):
-    """De sneeuwvlok-knop bewaart de porties die een gerecht overlaat in
-    vriezer.yaml; zonder surplus volgt de restjes-geen weigering."""
+    """De sneeuwvlok-knop plant dat de porties die een gerecht overlaat naar
+    de vriezer gaan; de voorraad verandert pas als een mens het op de
+    vriezerpagina bevestigt. Zonder surplus volgt de restjes-geen weigering."""
     seed_recipe(tmp_path)
     (tmp_path / "recipes" / "pasta.yaml").write_text(
         PASTA.replace("servings: 4", "servings: 6"), encoding="utf-8"
@@ -4642,8 +4643,17 @@ def test_restjes_vriezer_endpoint(tmp_path):
         assert resp.status_code == 303
         assert resp.headers["location"] == "/plan"
         vriezer = VriezerStore(Store(tmp_path / "state.db"))
-        vriezer.load()
+        # nog NIET in de voorraad: het wacht op bevestiging
+        assert vriezer.portions("pasta") == 0
+        waiting = vriezer.pending()
+        assert [(w["slug"], w["portions"]) for w in waiting] == [("pasta", 4)]
+        assert waiting[0]["source"] == f"di {days[0].strftime('%d-%m')}"
+
+        # bevestigd: de echte voorraad wijzigt, met vandaag als invriesdatum
+        client.post("/vriezer/confirm", data={"pending_id": waiting[0]["id"]})
         assert vriezer.portions("pasta") == 4
+        assert vriezer.since("pasta") == date.today().isoformat()
+        assert vriezer.pending() == []
 
         # alles staat nu in de vriezer: niets meer om in te vriezen
         resp = client.post(
@@ -4693,6 +4703,11 @@ def test_frozen_restjes_on_the_select_page_and_swap(tmp_path):
         assert after[target].source_slug == "pasta"
         reloaded = VriezerStore(Store(tmp_path / "state.db"))
         reloaded.load()
+        # gepland eruit: de voorraad verandert pas bij bevestiging
+        assert reloaded.available("pasta") == 0
+        eruit = [w for w in reloaded.pending() if w["portions"] < 0]
+        assert [(w["slug"], w["portions"]) for w in eruit] == [("pasta", -2)]
+        client.post("/vriezer/confirm", data={"pending_id": eruit[0]["id"]})
         assert reloaded.portions("pasta") == 0
 
 
@@ -4736,8 +4751,11 @@ def test_restjes_chip_of_a_dish_freezes_its_component(tmp_path):
             "/plan/restjes-vriezer", data={"day": day.isoformat()}, follow_redirects=False
         )
         assert resp.status_code == 303
+        # gepland: na bevestiging staat het in de voorraad
         vriezer = VriezerStore(Store(tmp_path / "state.db"))
         vriezer.load()
+        for w in vriezer.pending():
+            client.post("/vriezer/confirm", data={"pending_id": w["id"]})
         assert vriezer.all() == {"aardappels-uit-de-oven": 4}
         # de porties zitten nu in de vriezer: de chip verdwijnt en de
         # vriezer-chip van het onderdeel komt ervoor in de plaats
@@ -4769,11 +4787,16 @@ def test_frozen_restjes_keep_their_source_across_swaps(tmp_path):
         ]
         store.update_proposal_rows(plan_id, rebuilt)
 
-        # invriezen: 4 porties pasta
+        # invriezen: 4 porties pasta (gepland) en meteen bevestigd
         resp = client.post(
             "/plan/restjes-vriezer", data={"day": days[0].isoformat()}, follow_redirects=False
         )
         assert resp.status_code == 303
+        vriezer = VriezerStore(Store(tmp_path / "state.db"))
+        vriezer.load()
+        for w in vriezer.pending():
+            client.post("/vriezer/confirm", data={"pending_id": w["id"]})
+        assert vriezer.portions("pasta") == 4
 
         # eten op dag 4: een restjes-avond met de vriezer als bron
         resp = client.post(
@@ -4786,8 +4809,10 @@ def test_frozen_restjes_keep_their_source_across_swaps(tmp_path):
         assert after[days[3]].kind == "leftovers"
         assert after[days[3]].source_slug == "pasta"
         assert after[days[3]].frozen is True
-        vriezer = VriezerStore(Store(tmp_path / "state.db"))
-        vriezer.load()
+        # het eten is gepland eruit: pas bevestigen haalt het uit de voorraad
+        eruit = [w for w in vriezer.pending() if w["portions"] < 0]
+        assert [(w["slug"], w["portions"]) for w in eruit] == [("pasta", -4)]
+        client.post("/vriezer/confirm", data={"pending_id": eruit[0]["id"]})
         assert vriezer.portions("pasta") == 0
 
         # een ruil elders schuift de vriesrestjes niet mee, en de avond heet
@@ -4935,10 +4960,15 @@ def test_vriezer_chip_drag_eats_frozen_portions(tmp_path):
             for i, d in enumerate(days)
         ]
         store.update_proposal_rows(plan_id, rebuilt)
-        # invriezen: 4 porties pasta
+        # invriezen: 4 porties pasta (gepland) en meteen bevestigd
         client.post(
             "/plan/restjes-vriezer", data={"day": days[0].isoformat()}, follow_redirects=False
         )
+        vriezer = VriezerStore(Store(tmp_path / "state.db"))
+        vriezer.load()
+        for w in vriezer.pending():
+            client.post("/vriezer/confirm", data={"pending_id": w["id"]})
+        assert vriezer.portions("pasta") == 4
 
         # de chip hangt aan de kookrij
         page = client.get("/plan").text
@@ -4964,8 +4994,14 @@ def test_vriezer_chip_drag_eats_frozen_portions(tmp_path):
         assert after[days[2]].source_slug == "pasta"
         assert after[days[2]].frozen is True
         assert after[days[2]].people == 4
+        # het eten is GEPLAND: de voorraad verandert pas bij bevestiging
         vriezer = VriezerStore(Store(tmp_path / "state.db"))
         vriezer.load()
+        assert vriezer.portions("pasta") == 4
+        assert vriezer.available("pasta") == 0
+        eruit = [w for w in vriezer.pending() if w["portions"] < 0]
+        assert [(w["slug"], w["portions"]) for w in eruit] == [("pasta", -4)]
+        client.post("/vriezer/confirm", data={"pending_id": eruit[0]["id"]})
         assert vriezer.portions("pasta") == 0
 
         # de vriezer is leeg: geweigerd
@@ -5369,6 +5405,11 @@ def test_restjes_evening_can_be_frozen(tmp_path):
         assert resp.status_code == 303
         vriezer = VriezerStore(store)
         vriezer.load()
+        # gepland erin: de voorraad verandert pas bij bevestiging
+        assert vriezer.portions("pasta") == 0
+        erin = [w for w in vriezer.pending() if w["portions"] > 0]
+        assert [(w["slug"], w["portions"]) for w in erin] == [("pasta", 2)]
+        client.post("/vriezer/confirm", data={"pending_id": erin[0]["id"]})
         assert vriezer.portions("pasta") == 2
         after = {r.day: r for r in store.plan_entries(plan_id)}
         assert after[days[1]].kind == "cook" and after[days[1]].recipe_slug is None
@@ -5400,4 +5441,52 @@ def test_eating_frozen_portions_leaves_the_rest(tmp_path):
         )
         after = {r.day: r for r in store.plan_entries(plan_id)}
         assert after[days[2]].people == 2
-        assert vriezer.portions("pasta") == 1
+        # gepland eruit van 2: de voorraad houdt 3, beschikbaar is 1
+        assert vriezer.portions("pasta") == 3
+        assert vriezer.available("pasta") == 1
+
+
+def test_vriezer_page_shows_pending_and_confirms(tmp_path):
+    """/vriezer toont de geplande bewegingen boven de voorraad; 'zit erin'
+    bevestigt (de voorraad +, gedateerd vandaag), 'niet gegaan' gooit de
+    planning weg zonder de voorraad te raken."""
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        seed_plan(client)
+        store = Store(tmp_path / "state.db")
+        plan_id, _start, rows = store.load_proposal()
+        days = [r.day for r in rows]
+        rebuilt = [
+            PlanEntryRow(day=days[0], kind="cook", recipe_slug="pasta", people=2),
+            *[PlanEntryRow(day=d, kind="cook", people=4) for d in days[1:]],
+        ]
+        store.update_proposal_rows(plan_id, rebuilt)
+        # de ❄-knop plant een erin-beweging
+        client.post(
+            "/plan/restjes-vriezer", data={"day": days[0].isoformat()}, follow_redirects=False
+        )
+
+        page = client.get("/vriezer").text
+        assert "Te bevestigen" in page
+        label = f"di {days[0].strftime('%d-%m')}"
+        assert f"2 porties (van {label})" in page
+        vriezer = VriezerStore(store)
+        assert vriezer.portions("pasta") == 0  # nog niet bevestigd
+
+        # niet gegaan: de planning vervalt, de voorraad blijft onaangeroerd
+        pending_id = vriezer.pending()[0]["id"]
+        client.post("/vriezer/discard", data={"pending_id": pending_id})
+        assert vriezer.pending() == []
+        assert vriezer.portions("pasta") == 0
+
+        # opnieuw plannen + bevestigen: de voorraad groeit, gedateerd vandaag
+        client.post(
+            "/plan/restjes-vriezer", data={"day": days[0].isoformat()}, follow_redirects=False
+        )
+        pending_id = vriezer.pending()[0]["id"]
+        client.post("/vriezer/confirm", data={"pending_id": pending_id})
+        assert vriezer.portions("pasta") == 2
+        assert vriezer.since("pasta") == date.today().isoformat()
+        assert vriezer.pending() == []
+        page = client.get("/vriezer").text
+        assert "Te bevestigen" not in page

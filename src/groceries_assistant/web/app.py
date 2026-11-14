@@ -906,7 +906,7 @@ def create_app(
                 dishes=list(dishes.values()),
                 components=list(all_known().values()),
                 bonus=bonus_counts(all_recipes, bonus_store()),
-                vriezer=vriezer().all(),
+                vriezer=vriezer().available_all(),
             )
             store().save_proposal(
                 start,
@@ -934,7 +934,7 @@ def create_app(
             dishes=list(dishes_by_slug().values()),
             components=list(all_known().values()),
             bonus=bonus_counts(all_recipes, bonus_store()),
-            vriezer=vriezer().all(),
+            vriezer=vriezer().available_all(),
         )
         store().update_proposal_rows(plan_id, new_rows)
         for day, day_picks in new_picks.items():
@@ -1066,7 +1066,8 @@ def create_app(
                     "portions": prev_recipe.servings - prev_people - restjes_gepland,
                 }
         # bevroren restjes: het langst ingevroren eerst, met een waarschuwing
-        # als de porties niet genoeg zijn voor de eters van deze avond
+        # als de BESCHIKBARE porties (voorraad minus al gepland eruit) niet
+        # genoeg zijn voor de eters van deze avond
         dishes = dishes_by_slug()
         joiners_count = len(evening.joiners) if evening.joiners is not None else 4
         frozen_options = []
@@ -1078,13 +1079,14 @@ def create_app(
                 else (dishes[slug].name if slug in dishes else slug)
             )
             age = (date.today() - date.fromisoformat(e["since"])).days if e["since"] else None
+            available = vriezer().available(slug)
             frozen_options.append(
                 {
                     "slug": slug,
                     "name": name,
-                    "portions": e["portions"],
+                    "portions": available,
                     "age": age,
-                    "fits": e["portions"] >= joiners_count,
+                    "fits": available >= joiners_count,
                 }
             )
         return render(
@@ -1208,7 +1210,9 @@ def create_app(
                             frozen=True,
                         )
                     )
-                    vriezer().take(slug, eat)
+                    # de voorraad verandert pas als de maaltijd bevestigd is
+                    source = WEEKDAYS[target.weekday()][:2].lower() + target.strftime(" %d-%m")
+                    vriezer().plan_take(slug, eat, source)
                 elif choice == NO_COOK_CHOICE:
                     # eating elsewhere: no dish, no groceries, no cook needed
                     new_rows.append(PlanEntryRow(day=target, kind="no_cook", people=0))
@@ -1298,7 +1302,8 @@ def create_app(
         )
         if portions <= 0 or slug is None:
             return RedirectResponse("/plan?error=restjes-geen", status_code=303)
-        vriezer().add(slug, portions)
+        source = WEEKDAYS[target.weekday()][:2].lower() + target.strftime(" %d-%m")
+        vriezer().plan_add(slug, portions, source)
         return RedirectResponse("/plan", status_code=303)
 
     @app.post("/plan/vriezer-eten")
@@ -1340,7 +1345,9 @@ def create_app(
             )
             for r in rows
         ]
-        vriezer().take(slug, eat)
+        # de voorraad verandert pas als de maaltijd bevestigd is
+        source = WEEKDAYS[target.weekday()][:2].lower() + target.strftime(" %d-%m")
+        vriezer().plan_take(slug, eat, source)
         new_rows = _repoint_leftovers(plan_id, new_rows)
         store().update_proposal_rows(plan_id, new_rows)
         return RedirectResponse("/plan", status_code=303)
@@ -1363,7 +1370,8 @@ def create_app(
             return RedirectResponse("/plan?error=restjes-geen", status_code=303)
         if target in store().plan_approvals(plan_id):
             return RedirectResponse("/plan?error=goedkeuring", status_code=303)
-        vriezer().add(row.source_slug, row.people or 4, since=date.today())
+        source = WEEKDAYS[target.weekday()][:2].lower() + target.strftime(" %d-%m")
+        vriezer().plan_add(row.source_slug, row.people or 4, source)
         new_rows = [
             (
                 PlanEntryRow(
@@ -1665,7 +1673,7 @@ def create_app(
             dishes=list(dishes.values()),
             components=components,
             bonus=bonus_counts(all_recipes, bonus_store()),
-            vriezer=vriezer().all(),
+            vriezer=vriezer().available_all(),
         )
         store().extend_proposal(
             plan_id,
@@ -3339,7 +3347,8 @@ def create_app(
     @app.get("/vriezer", response_class=HTMLResponse)
     def vriezer_page(request: Request):
         """Wat er in de vriezer ligt: het langst ingevroren eerst, met de
-        leeftijd erbij; +/− en weggooien voor handmatig beheer."""
+        leeftijd erbij; +/− en weggooien voor handmatig beheer. Daarboven de
+        geplande bewegingen die nog op bevestiging wachten."""
         known = all_known()
         dishes = dishes_by_slug()
         items = []
@@ -3353,14 +3362,42 @@ def create_app(
             since = date.fromisoformat(e["since"]) if e["since"] else None
             age = (date.today() - since).days if since else None
             items.append({**e, "name": name, "age": age, "image": image_url_for(slug)})
+
+        def name_of(slug: str) -> str:
+            return (
+                known[slug].name
+                if slug in known
+                else (dishes[slug].name if slug in dishes else slug)
+            )
+
+        pending_in = [
+            {**p, "name": name_of(p["slug"])} for p in vriezer().pending() if p["portions"] > 0
+        ]
+        pending_out = [
+            {**p, "name": name_of(p["slug"])} for p in vriezer().pending() if p["portions"] < 0
+        ]
         choices = sorted({**known, **dishes}.values(), key=lambda r: r.name.lower())
         return render(
             request,
             "vriezer.html",
             items=items,
+            pending_in=pending_in,
+            pending_out=pending_out,
             choices=choices,
             total=sum(i["portions"] for i in items),
         )
+
+    @app.post("/vriezer/confirm")
+    def vriezer_confirm(pending_id: int = Form(...)):
+        """De mens bevestigt: de geplande beweging wijzigt de echte voorraad."""
+        vriezer().confirm(pending_id)
+        return RedirectResponse("/vriezer", status_code=303)
+
+    @app.post("/vriezer/discard")
+    def vriezer_discard(pending_id: int = Form(...)):
+        """De geplande beweging is niet gebeurd: alleen de planning vervalt."""
+        vriezer().discard(pending_id)
+        return RedirectResponse("/vriezer", status_code=303)
 
     @app.post("/vriezer/add")
     def vriezer_add(slug: str = Form(...), portions: int = Form(1)):

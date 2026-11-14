@@ -2,6 +2,50 @@
 {% block title %}Vriezer{% endblock %}
 {% block content %}
 <h1>Vriezer</h1>
+{% if pending_in or pending_out %}
+<h2>Te bevestigen</h2>
+<p class="muted">Deze bewegingen zijn gepland maar nog niet gebeurd &mdash; de voorraad hieronder verandert pas als je ze bevestigt.</p>
+{% if pending_in %}
+<table class="vriezer-table pending">
+  <tr><th colspan="2">Erin (gepland)</th></tr>
+  {% for p in pending_in %}
+  <tr>
+    <td>{{ p.name }} &mdash; {{ p.portions }} porties{% if p.source %} (van {{ p.source }}){% endif %}</td>
+    <td>
+      <form method="post" action="/vriezer/confirm" class="inline">
+        <input type="hidden" name="pending_id" value="{{ p.id }}">
+        <button class="primary" aria-label="Bevestig: {{ p.name }} zit in de vriezer">zit erin</button>
+      </form>
+      <form method="post" action="/vriezer/discard" class="inline">
+        <input type="hidden" name="pending_id" value="{{ p.id }}">
+        <button class="link" aria-label="Niet gegaan: {{ p.name }}">niet gegaan</button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+{% if pending_out %}
+<table class="vriezer-table pending">
+  <tr><th colspan="2">Eruit (gepland)</th></tr>
+  {% for p in pending_out %}
+  <tr>
+    <td>{{ p.name }} &mdash; {{ p.portions | abs }} porties{% if p.source %} (voor {{ p.source }}){% endif %}</td>
+    <td>
+      <form method="post" action="/vriezer/confirm" class="inline">
+        <input type="hidden" name="pending_id" value="{{ p.id }}">
+        <button class="primary" aria-label="Bevestig: {{ p.name }} is opgegeten">opgegeten</button>
+      </form>
+      <form method="post" action="/vriezer/discard" class="inline">
+        <input type="hidden" name="pending_id" value="{{ p.id }}">
+        <button class="link" aria-label="Toch niet gebeurd: {{ p.name }}">toch niet</button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+{% endif %}
 <p class="muted">
   {% if total %}Er liggen {{ total }} porties klaar &mdash; het langst ingevroren eerst.{% else %}De vriezer is leeg. Vries restjes in via de sneeuwvlok-knop op de weekpagina, of voeg hieronder iets toe.{% endif %}
 </p>

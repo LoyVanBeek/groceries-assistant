@@ -157,3 +157,10 @@ dish and on the selection page; auto-fill may plan an evening around it.
 - [x] De keuzepagina: suggesties langst ingevroren eerst, met leeftijd en
       een waarschuwing als de porties niet genoeg zijn voor de eters; eten
       uit de vriezer neemt min(porties, eters) — de rest blijft liggen
+- [x] Niets gaat vanzelf de vriezer in: invriezen (❄, sleepzone, de
+      restjes-avond) en eten plannen alleen maar een BEWEGING die wacht op
+      menselijke bevestiging (tabel vriezer_gepland). /vriezer toont ze
+      boven de voorraad: 'zit erin ✓ / niet gegaan ✕' en 'opgegeten ✓ /
+      toch niet ✕'. Beschikbaarheid = voorraad minus gepland eruit, overal
+      (chips, keuzepagina, planner) zodat beloofde porties niet dubbel
+      toegezegd worden; handmatig beheer blijft direct

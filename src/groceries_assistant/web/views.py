@@ -309,7 +309,7 @@ def plan_view(
                 {
                     "slug": s,
                     "name": by_slug[s].name if s in by_slug else s,
-                    "portions": vriezer.portions(s),
+                    "portions": vriezer.available(s),
                     "age": (date.today() - date.fromisoformat(since)).days if since else None,
                 }
             )

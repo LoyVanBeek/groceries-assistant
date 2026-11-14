@@ -149,6 +149,17 @@ CREATE TABLE IF NOT EXISTS vriezer (
     since TEXT                            -- NULL = datum onbekend (oude backup)
 );
 
+-- Geplande vriezer-bewegingen die nog op menselijke bevestiging wachten:
+-- porties > 0 = 'erin' gepland, porties < 0 = 'eruit' gepland. De echte
+-- voorraad (vriezer) verandert pas bij bevestiging.
+CREATE TABLE IF NOT EXISTS vriezer_gepland (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    slug TEXT NOT NULL,
+    portions INTEGER NOT NULL,
+    source TEXT,                          -- waar het vandaan komt (bv. 'di 10-11')
+    created TEXT NOT NULL
+);
+
 -- De bonuslijst (opgehaald via de AH-zoek-API) + wanneer opgehaald.
 CREATE TABLE IF NOT EXISTS bonus_products (
     webshop_id INTEGER PRIMARY KEY,
@@ -246,6 +257,10 @@ class Store:
         leading. After this the yaml files are no longer read.
         """
         base = Path(self.path).parent
+        if replace:
+            # een oude backup heeft geen geplande bewegingen: die worden mee
+            # gewist (nieuwere backups dragen ze in state.db)
+            self.conn.execute("DELETE FROM vriezer_gepland")
 
         def empty(table: str) -> bool:
             if replace:
