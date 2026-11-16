@@ -291,6 +291,7 @@ class Store:
                         "INSERT OR IGNORE INTO vriezer(slug, portions, since) VALUES (?,?,?)",
                         (str(slug), portions, since),
                     )
+            vriezer_path.rename(vriezer_path.with_name(vriezer_path.name + ".imported"))
 
         bonus_path = base / "bonus.yaml"
         if bonus_path.is_file() and empty("bonus_products"):
@@ -312,6 +313,7 @@ class Store:
                     "INSERT OR REPLACE INTO bonus_meta(key, value) VALUES ('fetched_at', ?)",
                     (str(fetched),),
                 )
+            bonus_path.rename(bonus_path.with_name(bonus_path.name + ".imported"))
 
         mappings_path = base / "ah_mappings.yaml"
         if mappings_path.is_file() and empty("ah_mappings"):
@@ -340,6 +342,7 @@ class Store:
                     )
                 except (TypeError, ValueError):
                     continue
+            mappings_path.rename(mappings_path.with_name(mappings_path.name + ".imported"))
 
         barcodes_path = base / "barcodes.yaml"
         if barcodes_path.is_file() and empty("barcodes"):
@@ -352,6 +355,7 @@ class Store:
                     "INSERT OR IGNORE INTO barcodes(ean, title) VALUES (?,?)",
                     (str(ean), str(title)),
                 )
+            barcodes_path.rename(barcodes_path.with_name(barcodes_path.name + ".imported"))
         self.conn.commit()
 
     def _add_missing_columns(self) -> None:

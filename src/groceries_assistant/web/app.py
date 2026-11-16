@@ -1196,7 +1196,7 @@ def create_app(
                     # restjes uit de vriezer eten: alleen wat de eters nodig
                     # hebben gaat van de voorraad af, de rest blijft liggen
                     slug = choice[len(VRIEZER_CHOICE) :]
-                    portions = vriezer().portions(slug)
+                    portions = vriezer().available(slug)
                     if portions <= 0:
                         raise HTTPException(400, "Geen restjes van dit gerecht in de vriezer")
                     evening = evenings_for(store(), target, days=1)[0]
@@ -1326,7 +1326,7 @@ def create_app(
             return RedirectResponse("/plan?error=vriezer-bezet", status_code=303)
         if target in store().plan_approvals(plan_id):
             return RedirectResponse("/plan?error=goedkeuring", status_code=303)
-        portions = vriezer().portions(slug)
+        portions = vriezer().available(slug)
         if portions <= 0:
             return RedirectResponse("/plan?error=restjes-geen", status_code=303)
         evening = evenings_for(store(), target, days=1)[0]
@@ -1497,14 +1497,26 @@ def create_app(
         """
         form = await request.form()
         cook = str(form.get("cook", "")).strip()
-        joined = {str(v) for v in form.getlist("joined")}
         minutes_raw = str(form.get("minutes", "")).strip()
         target = date.fromisoformat(day)
+
+        # Handle attendance toggle for a specific person
+        person_id = str(form.get("person_id", "")).strip()
+        if person_id:
+            joined = form.get("joined") == "1"
+            store().set_absence(target, person_id, not joined)
+            return RedirectResponse("/plan", status_code=303)
+
+        # Full attendance update (when cook is changed or explicitly submitted)
+        joined = {str(v) for v in form.getlist("joined")}
         if cook:
             people_by_id = {p["id"]: p for p in store().people()}
             person = people_by_id.get(cook)
             if person is None or person["role"] != "adult" or cook not in joined:
                 return RedirectResponse("/plan?error=kok", status_code=303)
+
+        minutes_raw = str(form.get("minutes", "")).strip()
+        target = date.fromisoformat(day)
         minutes = int(minutes_raw) if minutes_raw.isdigit() else evening_minutes(store(), target)
         store().set_week_override(
             target,
@@ -1512,6 +1524,7 @@ def create_app(
             free_minutes=max(minutes, 0),
             allow_leftovers=evening_allows_leftovers(store(), target),
         )
+        # Update attendance for all people when cook is provided (even if empty string)
         for person in store().people():
             store().set_absence(target, person["id"], person["id"] not in joined)
         return RedirectResponse("/plan", status_code=303)

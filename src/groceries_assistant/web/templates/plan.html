@@ -45,8 +45,9 @@
 {% for p in e.members %}
 <form method="post" action="/plan/evening" id="evening-{{ row }}-m-{{ p.id }}">
   <input type="hidden" name="day" value="{{ e.day_iso }}">
+  <input type="hidden" name="person_id" value="{{ p.id }}">
   <label class="row-more-label">
-    <input type="checkbox" form="evening-{{ row }}-m-{{ p.id }}" name="joined" value="{{ p.id }}"
+    <input type="checkbox" form="evening-{{ row }}-m-{{ p.id }}" name="joined" value="1"
            {% if not p.absent %}checked{% endif %} onchange="this.form.requestSubmit()">
     {{ p.name }} eet mee
   </label>

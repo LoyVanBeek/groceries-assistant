@@ -298,9 +298,11 @@ def plan_view(
         if vriezer and row.kind == "cook" and row.recipe_slug:
             if row.recipe_slug in dishes_by_slug:
                 frozen_slugs = [
-                    s for s in dict.fromkeys(picks.get(row.day, {}).values()) if vriezer.portions(s)
+                    s
+                    for s in dict.fromkeys(picks.get(row.day, {}).values())
+                    if vriezer.available(s)
                 ]
-            elif vriezer.portions(row.recipe_slug):
+            elif vriezer.available(row.recipe_slug):
                 frozen_slugs = [row.recipe_slug]
         frozen_chips = []
         for s in frozen_slugs:
