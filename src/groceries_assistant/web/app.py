@@ -1352,6 +1352,136 @@ def create_app(
         store().update_proposal_rows(plan_id, new_rows)
         return RedirectResponse("/plan", status_code=303)
 
+    @app.post("/plan/recipe-order")
+    def plan_recipe_order(
+        day: str = Form(...),
+        recipe_slug: str = Form(...),
+        people: int = Form(4),
+        course: str = Form(""),
+    ):
+        """Generate an AH shopping list + QR code for a single recipe.
+
+        Used to order ingredients for one specific recipe on a specific day
+        with a custom number of people. The day/course identifies the slot,
+        but the list is built only for this one recipe.
+        """
+        proposal = store().load_proposal()
+        if proposal is None:
+            raise HTTPException(404, "Geen voorstel")
+        plan_id = proposal[0]
+        target = date.fromisoformat(day)
+
+        # Build a mini plan with just this one recipe
+        row = next(
+            (
+                r
+                for r in store().plan_entries(plan_id)
+                if r.day == target and (r.course or "") == course
+            ),
+            None,
+        )
+        if row is None:
+            # No existing slot: create a temporary entry for this recipe
+            entry = PlanEntryRow(
+                day=target,
+                kind="cook",
+                recipe_slug=recipe_slug,
+                people=people,
+                course=course,
+            )
+        else:
+            # Replace the existing row's recipe/people for this order
+            entry = PlanEntryRow(
+                day=target,
+                kind=row.kind,
+                recipe_slug=recipe_slug,
+                source_slug=row.source_slug,
+                people=people,
+                frozen=row.frozen,
+                course=row.course,
+            )
+
+        all_recipes, _errors = load_all()
+        known = {r.slug: r for r in all_recipes}
+        dishes = dishes_by_slug()
+        all_known_dict = {**known, **{d.slug: d for d in dishes.values()}}
+        by_slug = all_known_dict
+        recipes = list(by_slug.values())
+        prefs = preferences_from_store(store())
+        evening = evenings_for(store(), target, days=1)[0]
+        facts = store().product_facts()
+        carried = last_weeks_stock(
+            store(), plan_id, by_slug, list(dishes.values()), facts, SERVINGS
+        )
+        staples = store().staples()
+
+        # Build order with just this one entry
+        entry = PlanEntry(
+            date=target,
+            recipe=by_slug.get(recipe_slug),
+            dish_slug=recipe_slug if recipe_slug in dishes_by_slug() else None,
+            availability=evening,
+            people=people or SERVINGS,
+            kind="cook",
+            source_slug=recipe_slug if recipe_slug not in by_slug else None,
+        )
+        # Create a temporary plan with just this entry
+        from groceries_assistant.planner.engine import PlanEntry, WeeklyPlan
+
+        temp_plan = WeeklyPlan(
+            entries=[
+                PlanEntry(
+                    date=target,
+                    recipe=by_slug.get(recipe_slug),
+                    dish_slug=recipe_slug if recipe_slug in dishes_by_slug() else None,
+                    availability=evening,
+                    people=people or SERVINGS,
+                    kind="cook",
+                    source_slug=recipe_slug if recipe_slug not in by_slug else None,
+                )
+            ]
+        )
+        order = build_order(
+            [temp_plan.entries[0]],
+            staples,
+            servings=people or SERVINGS,
+            facts=facts,
+            carried=last_weeks_stock(
+                store(),
+                plan_id,
+                {r.slug: r for r in all_recipes},
+                list(dishes.values()),
+                facts,
+                SERVINGS,
+            ),
+        )
+        matched = _match([i.product for i in order.shopping])
+        pairs = [
+            (int(matched.get(item.product, (None, ""))[0]), max(int(item.amount), 1))
+            for item in order.shopping
+            if matched.get(item.product)
+        ]
+        link = build_add_multiple_url(pairs[:25]) if pairs else ""
+        qr = generate_qr_svg(link) if link else ""
+
+        return {
+            "link": link,
+            "qr": qr,
+            "items": [
+                {
+                    "product": item.product,
+                    "unit": item.unit,
+                    "amount": item.amount,
+                    "webshop_id": matched.get(item.product, (None, ""))[0],
+                    "pack_count": item.pack_count,
+                    "pack_unit": item.pack_unit,
+                    "note": item.note,
+                }
+                for item in order.shopping
+            ],
+            "warnings": order.warnings,
+        }
+
     @app.post("/plan/restjes-vriezen")
     def plan_restjes_vriezen(day: str = Form(...)):
         """De geplande restjes van deze avond gaan naar de vriezer.
