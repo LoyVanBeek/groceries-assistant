@@ -58,6 +58,7 @@ from groceries_assistant.models import (
     slugify,
 )
 from groceries_assistant.planner.pantry import StockEntry
+from groceries_assistant.planner.engine import PlanEntry, WeeklyPlan
 from groceries_assistant.planner.shopping import order_product
 from groceries_assistant.recipes.extract import extract_from_images, unique_recipe_path
 from groceries_assistant.recipes.loader import (
@@ -1426,8 +1427,6 @@ def create_app(
             source_slug=recipe_slug if recipe_slug not in by_slug else None,
         )
         # Create a temporary plan with just this entry
-        from groceries_assistant.planner.engine import PlanEntry, WeeklyPlan
-
         temp_plan = WeeklyPlan(
             entries=[
                 PlanEntry(
