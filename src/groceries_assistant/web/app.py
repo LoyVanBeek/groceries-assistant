@@ -1425,6 +1425,8 @@ def create_app(
             people=people or SERVINGS,
             kind="cook",
             source_slug=recipe_slug if recipe_slug not in by_slug else None,
+            score=0.0,
+            reason="Handmatige bestelling voor recept",
         )
         # Create a temporary plan with just this entry
         temp_plan = WeeklyPlan(
@@ -1437,6 +1439,8 @@ def create_app(
                     people=people or SERVINGS,
                     kind="cook",
                     source_slug=recipe_slug if recipe_slug not in by_slug else None,
+                    score=0.0,
+                    reason="Handmatige bestelling voor recept",
                 )
             ]
         )
