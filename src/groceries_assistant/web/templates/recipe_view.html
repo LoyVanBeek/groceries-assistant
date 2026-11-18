@@ -6,50 +6,25 @@
   <a class="btn-small" href="/recipes/{{ recipe.slug }}/edit">wijzig</a>
   {% if recipe.url %}<a class="btn-small" href="{{ recipe.url }}" target="_blank" rel="noopener">Originele recept &#8599;</a>{% endif %}
   <a class="btn-small" href="/recipes/{{ recipe.slug }}/export" title="Download dit recept als yaml">yaml &#10515;</a>
-  <form method="post" action="/recipes/{{ recipe.slug }}/qr" class="inline">
-    <input type="number" name="people" value="4" min="1" max="99" size="3" aria-label="Aantal personen">
-    <button type="submit" class="btn-small" title="QR code genereren voor AH boodschappen">QR &#10515;</button>
+  <form method="get" action="/recipes/{{ recipe.slug }}/qr" class="inline">
+    <input type="number" name="people" value="{{ recipe.servings }}" min="1" max="99" size="3"
+           aria-label="Aantal personen" title="Aantal personen">
+    <button type="submit" class="btn-small" title="Boodschappenlijst + QR code voor dit recept">QR &#10515;</button>
   </form>
   <form method="post" action="/recipes/{{ recipe.slug }}/delete" class="inline"
-        onsubmit="return confirm('Recept '{{ recipe.name }}' verwijderen?')">
+        onsubmit="return confirm('Recept &#39;{{ recipe.name }}&#39; verwijderen?')">
     <button class="btn-small danger">verwijder</button>
   </form>
 </p>
 {% if image_url %}
 <img class="recipe-img" src="{{ image_url }}" alt="{{ recipe.name }}">
 {% endif %}
-<div id="recipe-qr" class="hidden"></div>
-<script>
-  document.querySelector('form[action="/recipes/{{ recipe.slug }}/qr"]').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const form = e.target;
-    const formData = new FormData(form);
-    const btn = form.querySelector('button[type="submit"]');
-    btn.disabled = true;
-    btn.textContent = 'laden...';
-    try {
-      const resp = await fetch(form.action, {
-        method: 'POST',
-        body: formData,
-        headers: {'Accept': 'application/json'}
-      });
-      const data = await resp.json();
-      if (data.qr) {
-        const qrDiv = document.getElementById('recipe-qr');
-        qrDiv.classList.remove('hidden');
-        qrDiv.innerHTML = '<h3>QR code voor AH boodschappen</h3>' + data.qr + '<p><a href="' + data.link + '" target="_blank" class="btn-small">Open in AH</a></p>';
-      }
-    } catch (err) {
-      alert('Fout: ' + err.message);
-    } finally {
-      btn.disabled = false;
-      btn.textContent = 'QR \u21A5';
-    }
-  });
-</script>
-{% if image_url %}
-<img class="recipe-img" src="{{ image_url }}" alt="{{ recipe.name }}">
-{% endif %}
+<p class="budget">
+  {{ recipe.servings }} personen
+  {% if recipe.time.total_minutes %} &middot; {{ recipe.time.total_minutes }} min{% endif %}
+  {% if recipe.time.prep_ahead %} &middot; {{ recipe.time.prep_ahead }} min al eerder doen{% endif %}
+  {% if recipe.protein %} &middot; {{ recipe.protein }}{% endif %}
+</p>
 <h2>Ingredi&euml;nten</h2>
 <ul class="plain">
   {% for line in ingredients %}

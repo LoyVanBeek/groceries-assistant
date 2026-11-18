@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block content %}
+<h1>{{ title }}</h1>
+<p class="recipe-tools">
+  <a class="btn-small" href="{{ back }}">&larr; terug</a>
+  <form method="get" class="inline">
+    <input type="number" name="people" value="{{ people }}" min="1" max="99" size="3"
+           aria-label="Aantal personen">
+    <button type="submit" class="btn-small" title="Opnieuw met dit aantal personen">opnieuw</button>
+  </form>
+  {% if link %}
+  <a class="btn-small primary" href="{{ link }}" target="_blank" rel="noopener">
+    Open boodschappenlijst in AH &#8599;
+  </a>
+  {% endif %}
+</p>
+{% if qr %}
+<div class="qr-block">{{ qr | safe }}</div>
+{% endif %}
+{% if items %}
+<h2>Boodschappen</h2>
+<ul class="plain">
+  {% for item in items %}
+  <li class="item">
+    {% if item.pack_count %}{{ fmt(item.pack_count, item.pack_unit) }} ({{ fmt(item.amount, item.unit) }}){% else %}{{ fmt(item.amount, item.unit) }}{% endif %}
+    {{ item.product }}
+    {% if item.note and not item.pack_count %}<span class="muted">({{ item.note }})</span>{% endif %}
+    {% if not item.webshop_id %}<span class="muted">(niet gevonden in AH)</span>{% endif %}
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<p class="muted">Niets te bestellen gevonden.</p>
+{% endif %}
+{% endblock %}

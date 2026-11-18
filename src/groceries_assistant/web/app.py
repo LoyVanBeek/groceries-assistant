@@ -2225,6 +2225,7 @@ def create_app(
         *,
         form_title: str = "Nieuw gerecht",
         form_action: str = "/dishes",
+        qr_slug: str | None = None,
     ) -> dict:
         """The dish page with its form filled in (also used to redisplay errors)."""
         loaded, errors = load_dishes_with_errors(dishes_dir())
@@ -2266,6 +2267,7 @@ def create_app(
             "unknown": missing,
             "form_title": form_title,
             "form_action": form_action,
+            "qr_slug": qr_slug,
             "name": name,
             "slots": rows,
             "min_part_slots": MIN_PART_SLOTS,
@@ -2375,6 +2377,7 @@ def create_app(
                 _slots_from_parts(dish.parts, all_known()),
                 form_title=f"{dish.name} wijzigen",
                 form_action=f"/dishes/{slug}",
+                qr_slug=slug,
             ),
         )
 
@@ -2399,48 +2402,65 @@ def create_app(
         path.unlink()
         return RedirectResponse("/dishes", status_code=303)
 
-    @app.post("/dishes/{slug}/qr")
-    def dish_qr(slug: str, people: int = Form(4)):
-        """Generate AH shopping list + QR code for a dish."""
+    @app.get("/dishes/{slug}/qr", response_class=HTMLResponse)
+    def dish_qr(request: Request, slug: str, people: int = 4):
+        """AH shopping list + QR code for one composed dish, as a page.
+
+        A dish order has no per-part pick here, so each part is filled with
+        its first option that resolves to a recipe or component.
+        """
         try:
             dish = load_dish(dish_file(dishes_dir(), slug))
         except DishError as exc:
             raise HTTPException(404, str(exc)) from exc
-
-        all_recipes, _errors = load_all()
-        dishes = dishes_by_slug()
+        known = all_known()
+        parts = []
+        for part in dish.parts:
+            for option in part.options:
+                if option.slug in known:
+                    parts.append(known[option.slug])
+                    break
+        if not parts:
+            raise HTTPException(404, "Geen onderdeel van dit gerecht is bekend")
         evening = evenings_for(store(), date.today(), days=1)[0]
-        staples = store().staples()
-
-        # Create a temporary plan with the dish
-        temp_plan = WeeklyPlan(
-            entries=[
-                PlanEntry(
-                    date=date.today(),
-                    dish_slug=slug,
-                    availability=evening,
-                    people=people or SERVINGS,
-                    kind="cook",
-                    source_slug=slug,
-                    score=0.0,
-                    reason="Handmatige bestelling voor gerecht",
-                    parts=list(dish.parts),
-                )
-            ]
+        entry = PlanEntry(
+            date=date.today(),
+            recipe=None,
+            availability=evening,
+            score=0.0,
+            reason="Handmatige bestelling voor gerecht",
+            dish_slug=slug,
+            parts=parts,
+            people=people or SERVINGS,
         )
+        return _single_order_page(
+            request,
+            title=f"{dish.name} bestellen",
+            back=f"/dishes/{slug}",
+            entry=entry,
+            people=people,
+            recipes_map=recipes_by_slug(),
+            dishes_list=list(dishes_by_slug().values()),
+        )
+
+    def _single_order_page(
+        request: Request,
+        *,
+        title: str,
+        back: str,
+        entry: PlanEntry,
+        people: int,
+        recipes_map: dict[str, Recipe],
+        dishes_list: list,
+    ) -> HTMLResponse:
+        """Build the AH list for one entry and render it with link + QR code."""
+        facts = store().product_facts()
         order = build_order(
-            [temp_plan.entries[0]],
-            staples,
+            [entry],
+            store().staples(),
             servings=people or SERVINGS,
-            facts=store().product_facts(),
-            carried=last_weeks_stock(
-                store(),
-                0,
-                {r.slug: r for r in all_recipes},
-                list(dishes.values()),
-                store().product_facts(),
-                SERVINGS,
-            ),
+            facts=facts,
+            carried=last_weeks_stock(store(), 0, recipes_map, dishes_list, facts, SERVINGS),
         )
         matched = _match([i.product for i in order.shopping])
         pairs = [
@@ -2449,24 +2469,28 @@ def create_app(
             if matched.get(item.product)
         ]
         link = build_add_multiple_url(pairs[:25]) if pairs else ""
-        qr = generate_qr_svg(link) if link else ""
-
-        return {
-            "link": link,
-            "qr": qr,
-            "items": [
+        return render(
+            request,
+            "qr_order.html",
+            fmt=format_amount,
+            title=title,
+            back=back,
+            people=people or SERVINGS,
+            link=link,
+            qr=generate_qr_svg(link) if link else "",
+            items=[
                 {
                     "product": item.product,
                     "unit": item.unit,
                     "amount": item.amount,
-                    "webshop_id": matched.get(item.product, (None, ""))[0],
                     "pack_count": item.pack_count,
                     "pack_unit": item.pack_unit,
                     "note": item.note,
+                    "webshop_id": matched.get(item.product, (None, ""))[0],
                 }
                 for item in order.shopping
             ],
-        }
+        )
 
     def _unknown_options(parts: list[DishPart], known: Mapping[str, object]) -> str:
         """Part options that name no recipe, as a message for the dish form.
@@ -3085,77 +3109,38 @@ def create_app(
             ],
         )
 
-    @app.post("/recipes/{slug}/qr")
-    def recipe_qr(slug: str, people: int = Form(4)):
-        """Generate AH shopping list + QR code for a single recipe."""
+    @app.get("/recipes/{slug}/qr", response_class=HTMLResponse)
+    def recipe_qr(request: Request, slug: str, people: int = 4):
+        """AH shopping list + QR code for one recipe, as a page."""
         try:
-            load_recipe(data / "recipes" / f"{slug}.yaml")
+            recipe = load_recipe(data / "recipes" / f"{slug}.yaml")
         except RecipeError as exc:
             raise HTTPException(404, str(exc)) from exc
 
         all_recipes, _errors = load_all()
-        known = {r.slug: r for r in all_recipes}
-        dishes = dishes_by_slug()
-        by_slug = {**known, **{d.slug: d for d in dishes.values()}}
         dishes_map = dishes_by_slug()
+        by_slug = {r.slug: r for r in all_recipes} | {d.slug: d for d in dishes_map.values()}
         evening = evenings_for(store(), date.today(), days=1)[0]
-        staples = store().staples()
-
-        # Create a temporary plan with just this entry
-        temp_plan = WeeklyPlan(
-            entries=[
-                PlanEntry(
-                    date=date.today(),
-                    recipe=by_slug.get(slug),
-                    dish_slug=slug if slug in dishes_map else None,
-                    availability=evening,
-                    people=people or SERVINGS,
-                    kind="cook",
-                    source_slug=slug if slug not in by_slug else None,
-                    score=0.0,
-                    reason="Handmatige bestelling voor recept",
-                )
-            ]
+        entry = PlanEntry(
+            date=date.today(),
+            recipe=by_slug.get(slug),
+            dish_slug=slug if slug in dishes_map else None,
+            availability=evening,
+            people=people or SERVINGS,
+            kind="cook",
+            source_slug=slug if slug not in by_slug else None,
+            score=0.0,
+            reason="Handmatige bestelling voor recept",
         )
-        order = build_order(
-            [temp_plan.entries[0]],
-            staples,
-            servings=people or SERVINGS,
-            facts=store().product_facts(),
-            carried=last_weeks_stock(
-                store(),
-                0,
-                {r.slug: r for r in all_recipes},
-                list(dishes.values()),
-                store().product_facts(),
-                SERVINGS,
-            ),
+        return _single_order_page(
+            request,
+            title=f"{recipe.name} bestellen",
+            back=f"/recipes/{slug}",
+            entry=entry,
+            people=people,
+            recipes_map=recipes_by_slug(),
+            dishes_list=list(dishes_map.values()),
         )
-        matched = _match([i.product for i in order.shopping])
-        pairs = [
-            (int(matched.get(item.product, (None, ""))[0]), max(int(item.amount), 1))
-            for item in order.shopping
-            if matched.get(item.product)
-        ]
-        link = build_add_multiple_url(pairs[:25]) if pairs else ""
-        qr = generate_qr_svg(link) if link else ""
-
-        return {
-            "link": link,
-            "qr": qr,
-            "items": [
-                {
-                    "product": item.product,
-                    "unit": item.unit,
-                    "amount": item.amount,
-                    "webshop_id": matched.get(item.product, (None, ""))[0],
-                    "pack_count": item.pack_count,
-                    "pack_unit": item.pack_unit,
-                    "note": item.note,
-                }
-                for item in order.shopping
-            ],
-        }
 
     def image_path(slug: str) -> Path | None:
         """Featured image file for a recipe slug, if any."""
