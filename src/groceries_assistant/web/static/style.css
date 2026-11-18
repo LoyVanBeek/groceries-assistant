@@ -270,6 +270,12 @@ table.plan td.col-day { vertical-align: top; }
   margin: 0.3rem 0 0.7rem;
 }
 .recipe-tools .danger { color: var(--warn); border-color: var(--warn); }
+
+/* het inline 'bestellen'-blok op de recept- en gerechtpagina */
+.order-block { margin: 1rem 0; }
+.order-block .qr-block svg { max-width: 180px; height: auto; }
+.order-block .item form.inline { margin-top: 0.25rem; }
+
 .approved-badge {
   color: var(--accent);
   font-weight: 700;

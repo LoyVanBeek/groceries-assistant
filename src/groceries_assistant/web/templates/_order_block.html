@@ -1,0 +1,40 @@
+<div id="bestellen" class="order-block">
+  <h2>Bestellen</h2>
+  <p class="recipe-tools">
+    <form method="get" class="inline">
+      <input type="number" name="people" value="{{ order_people }}" min="1" max="99" size="3"
+             aria-label="Aantal personen">
+      <button type="submit" class="btn-small" title="Opnieuw met dit aantal personen">opnieuw</button>
+    </form>
+    {% if order_link %}
+    <a class="btn-small primary" href="{{ order_link }}" target="_blank" rel="noopener">
+      Open boodschappenlijst in AH &#8599;
+    </a>
+    {% endif %}
+  </p>
+  {% if order_qr %}<div class="qr-block">{{ order_qr | safe }}</div>{% endif %}
+  <ul class="plain">
+    {% for item in order_items %}
+    <li class="item">
+      {{ item.qty }} &times; {{ item.product }}
+      {% if item.note %}<span class="muted">({{ item.note }})</span>{% endif %}
+      {% if not item.webshop_id %}<span class="muted">(niet gevonden in AH)</span>{% endif %}
+      {% if item.source == 'derived' and item.detail %}
+      <span class="muted">[{{ item.detail }}, via AH]</span>
+      {% endif %}
+      {% if item.source == 'unknown' %}
+      <form method="post" action="/order/match/pack" class="inline">
+        <input type="hidden" name="product" value="{{ item.product }}">
+        <input type="hidden" name="back" value="{{ order_back }}">
+        <input type="text" name="unit_size" placeholder="pakgrootte? bijv. 500 g" size="16">
+        <button class="btn-small"
+                title="Bewaar dit als pakgrootte; de hoeveelheden kloppen dan meteen">pak opslaan</button>
+      </form>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% if not order_link %}
+  <p class="muted">Niets is aan AH gekoppeld; koppel artikelen op de <a href="/order/match">koppelpagina</a>.</p>
+  {% endif %}
+</div>

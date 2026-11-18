@@ -2341,12 +2341,12 @@ def test_order_match_pin_unpin(tmp_path):
         assert saved["confirmed"] == 1
         assert saved["ah_unit_size"] == "500 g"
 
-        # matched row now links to the pinned article
+        # matched row now links to the pinned article (with a pack-aware qty)
         matched = client.get("/order/match")
         assert "/producten/product/wi111" in matched.text
         link_page = client.get("/order/link")
         assert link_page.status_code == 200
-        assert "111%3A1" in link_page.text
+        assert re.search(r"111%3A\d+", link_page.text)
 
         # unpin clears both
         client.post(
@@ -5490,3 +5490,133 @@ def test_vriezer_page_shows_pending_and_confirms(tmp_path):
         assert vriezer.pending() == []
         page = client.get("/vriezer").text
         assert "Te bevestigen" not in page
+
+
+def _seed_dish(tmp_path: Path) -> None:
+    (tmp_path / "dishes").mkdir(exist_ok=True)
+    (tmp_path / "components").mkdir(exist_ok=True)
+    (tmp_path / "components" / "krieltjes.yaml").write_text(
+        "name: Krieltjes\namount: 400\nunit: g\nminutes: 25\n", encoding="utf-8"
+    )
+    (tmp_path / "dishes" / "aardappel-groente.yaml").write_text(
+        "slug: aardappel-groente\nname: Aardappel-groente\nparts:\n"
+        "  - label: Groente\n    options:\n      - slug: krieltjes\n",
+        encoding="utf-8",
+    )
+
+
+def test_recipe_order_block_renders_inline_and_pack_aware(tmp_path):
+    """?people=N shows the order block on the recipe page itself (photo stays);
+    the AH link quantity counts AH packs, so 500 g spaghetti with 500 g packs
+    is 2 packs, read from AH's own size, not the raw recipe number."""
+    seed_recipe(tmp_path)
+
+    class FakeProduct:
+        def __init__(self, webshop_id, title, unit_size="500 g"):
+            self.webshop_id = webshop_id
+            self.title = title
+            self.unit_size = unit_size
+
+    def search(query):
+        return [FakeProduct(4321, "AH " + query)]
+
+    with make_client(tmp_path, search_fn=search) as client:
+        page = client.get("/recipes/pasta", params={"people": 2}).text
+        assert 'id="bestellen"' in page
+        assert "<svg" in page  # the QR code
+        assert "Open boodschappenlijst in AH" in page
+        # 500 g spaghetti for 8 eaters is 1000 g: two 500 g packs, read from AH
+        page = client.get("/recipes/pasta", params={"people": 8}).text
+        assert "2 &times; spaghetti" in page
+        assert 'value="/recipes/pasta?people=8"' in page  # pack form returns here
+        # a plain visit has no order block
+        assert 'id="bestellen"' not in client.get("/recipes/pasta").text
+
+
+def test_dish_order_block_renders_inline_on_the_dish_page(tmp_path):
+    """The dish edit page takes ?people=N too and shows the same block; the
+    list rows point at the dish page, not at a separate order URL."""
+    seed_recipe(tmp_path)
+    _seed_dish(tmp_path)
+
+    class FakeProduct:
+        def __init__(self, webshop_id, title, unit_size="800 g"):
+            self.webshop_id = webshop_id
+            self.title = title
+            self.unit_size = unit_size
+
+    def search(query):
+        return [FakeProduct(4321, "AH " + query)]
+
+    with make_client(tmp_path, search_fn=search) as client:
+        page = client.get("/dishes/aardappel-groente", params={"people": 4}).text
+        assert 'id="bestellen"' in page
+        assert "krieltjes" in page
+        assert "Open boodschappenlijst in AH" in page
+        # the list row form targets the dish page itself
+        assert 'action="/dishes/aardappel-groente"' in client.get("/dishes").text
+        assert "/qr" not in client.get("/dishes").text
+
+
+def test_saving_a_pack_size_from_the_list_returns_to_the_list(tmp_path):
+    """The inline 'pakgrootte?' form saves a fact and lands back where the
+    human was; a foreign back target falls back to the match page."""
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        resp = client.post(
+            "/order/match/pack",
+            data={"product": "spaghetti", "unit_size": "500 g", "back": "/recipes/pasta?people=2"},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/recipes/pasta?people=2"
+        store = Store(tmp_path / "state.db")
+        assert "spaghetti" in store.product_facts()
+
+        resp = client.post(
+            "/order/match/pack",
+            data={"product": "spaghetti", "unit_size": "500 g", "back": "https://evil.example"},
+            follow_redirects=False,
+        )
+        assert resp.headers["location"] == "/order/match"
+
+
+def test_the_week_ah_links_carry_pack_aware_quantities(tmp_path):
+    """The whole-week deep links add one pack when nothing is known and more
+    only when the demand really exceeds one pack."""
+    import re
+    from urllib.parse import unquote
+
+    recipes = tmp_path / "recipes"
+    recipes.mkdir(parents=True, exist_ok=True)
+    (recipes / "pasta.yaml").write_text(
+        "name: Pasta\nservings: 4\ntime: {cook: 30}\ningredients:\n"
+        "  - {product: spaghetti, amount: 1500, unit: g}\n"
+        "  - {product: zout, amount: 2, unit: el}\nsteps:\n  - Kook.\n",
+        encoding="utf-8",
+    )
+
+    class FakeProduct:
+        def __init__(self, webshop_id, title, unit_size="500 g"):
+            self.webshop_id = webshop_id
+            self.title = title
+            self.unit_size = unit_size
+
+    def search(query):
+        return [FakeProduct(4321, "AH " + query, "500 g" if query == "spaghetti" else "1 stuks")]
+
+    with make_client(tmp_path, search_fn=search) as client:
+        seed_plan(client)
+        store = Store(tmp_path / "state.db")
+        plan_id, _start, _ = store.load_proposal()
+        cook_days = {r.day for r in store.plan_entries(plan_id) if r.kind == "cook"}
+        for day in cook_days:
+            client.post("/plan/approve", data={"day": day.isoformat()}, follow_redirects=False)
+        client.post("/plan/order", follow_redirects=False)
+        # the link's spaghetti quantity is the demand rounded up to whole packs
+        items = {(i["product"], i["unit"]): i for i in store.order_items(plan_id)}
+        spaghetti = items[("spaghetti", "g")]
+        expected = -(-int(spaghetti["amount"]) // 500)  # ceil against the 500 g pack
+        page = client.get("/order/link").text
+        url = unquote(re.search(r'href="([^"]*add-multiple[^"]*)"', page).group(1))
+        assert f"4321:{expected}" in url

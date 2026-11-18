@@ -101,6 +101,9 @@ def to_measure(qty: float, unit: str, fact: ProductFact) -> float | None:
     measure = fact.pack_measure
     if unit == measure:
         return qty
+    if unit in PIECE_UNITS and measure in PIECE_UNITS:
+        # '2 stuks' against a '6 stuk' pack: pieces are pieces, singular or not.
+        return qty
     if unit in WEIGHT_IN_GRAMS and measure in WEIGHT_IN_GRAMS:
         return qty * WEIGHT_IN_GRAMS[unit] / WEIGHT_IN_GRAMS[measure]
     if unit == fact.pack_unit and fact.unit_qty and fact.unit_measure == measure:

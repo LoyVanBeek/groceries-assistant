@@ -79,6 +79,7 @@ from groceries_assistant.recipes.urlimport import (
     normalize_pasted_page,
 )
 from groceries_assistant.services.planner_service import (
+    ah_pack_qty,
     apply_absences,
     bonus_counts,
     build_order,
@@ -1860,11 +1861,24 @@ def create_app(
         plan_id = latest[0]
         items = store().order_items(plan_id)
         sources = _product_sources(plan_id)
+        facts = store().product_facts()
+        unit_sizes = _unit_sizes()
         # thumbnail of the matched AH article, when one is known
         for item in items:
             mapping = mappings().get(item["product"])
             item["image"] = mapping.ah_image_url if mapping else None
             item["recipes"] = sources.get(item["product"].lower(), [])
+            item["unknown_pack"] = (
+                ah_pack_qty(
+                    item["product"],
+                    item["amount"],
+                    item["unit"],
+                    item["pack_count"],
+                    facts,
+                    unit_sizes,
+                ).source
+                == "unknown"
+            )
         return render(
             request,
             "order.html",
@@ -2093,20 +2107,25 @@ def create_app(
         return RedirectResponse("/order/match", status_code=303)
 
     @app.post("/order/match/pack")
-    def order_match_pack(product: str = Form(...), unit_size: str = Form("")):
+    def order_match_pack(product: str = Form(...), unit_size: str = Form(""), back: str = Form("")):
         """Store a pack size for a matched product, read from AH's own size.
 
         Only the plain shapes are read; anything else is refused rather than
         guessed, and the user types it on the settings page instead. The shelf
         life is left at its default: a pack size is not a claim about freshness.
+        `back` returns to the page that asked (an inline 'pakgrootte?' form on
+        the recipe page or the order list) instead of the match page.
         """
+        if not back.startswith("/") or back.startswith("//"):
+            back = "/order/match"  # no open redirects
         mapping = mappings().get(product)
         text = unit_size.strip() or (mapping.ah_unit_size if mapping else "") or ""
         fact = fact_from_unit_size(product, text)
         if fact is None:
-            return RedirectResponse("/order/match?error=pack", status_code=303)
+            separator = "&" if "?" in back else "?"
+            return RedirectResponse(f"{back}{separator}error=pack", status_code=303)
         store().set_product_fact(fact)
-        return RedirectResponse("/order/match", status_code=303)
+        return RedirectResponse(back, status_code=303)
 
     @app.post("/order/match/backfill-images")
     def order_match_backfill_images():
@@ -2151,12 +2170,22 @@ def create_app(
         return RedirectResponse(f"/order/match?opgehaald={updated}", status_code=303)
 
     def _order_links(plan_id: int) -> list[str]:
-        """The AH deep-links for the saved list, one per chunk of 25 items."""
-        pairs = [
-            (int(i["webshop_id"]), 1)
-            for i in store().order_items(plan_id)
-            if i["webshop_id"] and not i["have"]
-        ]
+        """The AH deep-links for the saved list, one per chunk of 25 items.
+
+        The link quantity counts AH packs, not recipe units, so it follows the
+        same pack arithmetic as the list: `ah_pack_qty` adds one pack when
+        nothing is known, more only when the demand really exceeds one pack.
+        """
+        facts = store().product_facts()
+        unit_sizes = _unit_sizes()
+        pairs = []
+        for i in store().order_items(plan_id):
+            if not i["webshop_id"] or i["have"]:
+                continue
+            pack = ah_pack_qty(
+                i["product"], i["amount"], i["unit"], i["pack_count"], facts, unit_sizes
+            )
+            pairs.append((int(i["webshop_id"]), pack.qty))
         return [build_add_multiple_url(chunk) for chunk in chunk_items(pairs)]
 
     @app.get("/order/link", response_class=HTMLResponse)
@@ -2364,11 +2393,27 @@ def create_app(
         return RedirectResponse("/dishes", status_code=303)
 
     @app.get("/dishes/{slug}", response_class=HTMLResponse)
-    def dish_edit_page(request: Request, slug: str):
+    def dish_edit_page(request: Request, slug: str, people: int | None = None):
         try:
             dish = load_dish(dish_file(dishes_dir(), slug))
         except DishError as exc:
             raise HTTPException(404, str(exc)) from exc
+        ctx: dict = {}
+        if people is not None:
+            parts = _dish_order_parts(dish)
+            if not parts:
+                raise HTTPException(404, "Geen onderdeel van dit gerecht is bekend")
+            entry = PlanEntry(
+                date=date.today(),
+                recipe=None,
+                availability=evenings_for(store(), date.today(), days=1)[0],
+                score=0.0,
+                reason="Handmatige bestelling voor gerecht",
+                dish_slug=slug,
+                parts=parts,
+                people=people or SERVINGS,
+            )
+            ctx = _order_ctx(entry, people, f"/dishes/{slug}?people={people or SERVINGS}")
         return render(
             request,
             "dishes.html",
@@ -2379,6 +2424,7 @@ def create_app(
                 form_action=f"/dishes/{slug}",
                 qr_slug=slug,
             ),
+            **ctx,
         )
 
     @app.post("/dishes/{slug}")
@@ -2402,17 +2448,83 @@ def create_app(
         path.unlink()
         return RedirectResponse("/dishes", status_code=303)
 
-    @app.get("/dishes/{slug}/qr", response_class=HTMLResponse)
-    def dish_qr(request: Request, slug: str, people: int = 4):
-        """AH shopping list + QR code for one composed dish, as a page.
+    def _unit_sizes() -> dict[str, str]:
+        """AH's own reported pack size per product, for the pack fallback."""
+        return {m.product.lower(): m.ah_unit_size for m in mappings().all() if m.ah_unit_size}
 
-        A dish order has no per-part pick here, so each part is filled with
-        its first option that resolves to a recipe or component.
+    def _order_ctx(entry: PlanEntry, people: int, back: str) -> dict:
+        """The inline 'bestellen' block: AH link + QR + items with pack counts.
+
+        The link quantity counts AH packs, not recipe units: `ah_pack_qty`
+        converts, and every line it could not convert is flagged so a human
+        can supply the pack size right there.
         """
-        try:
-            dish = load_dish(dish_file(dishes_dir(), slug))
-        except DishError as exc:
-            raise HTTPException(404, str(exc)) from exc
+        facts = store().product_facts()
+        order = build_order(
+            [entry],
+            store().staples(),
+            servings=people or SERVINGS,
+            facts=facts,
+            carried=last_weeks_stock(
+                store(),
+                0,
+                recipes_by_slug(),
+                list(dishes_by_slug().values()),
+                facts,
+                SERVINGS,
+            ),
+        )
+        matched = _match([i.product for i in order.shopping])
+        items = []
+        for item in order.shopping:
+            pack = ah_pack_qty(
+                item.product, item.amount, item.unit, item.pack_count, facts, _unit_sizes()
+            )
+            items.append(
+                {
+                    "product": item.product,
+                    "qty": pack.qty,
+                    "source": pack.source,
+                    "detail": pack.detail,
+                    "webshop_id": matched.get(item.product, (None, ""))[0],
+                    "need": format_amount(item.amount, item.unit),
+                    "note": item.note,
+                }
+            )
+        pairs = [(i["webshop_id"], i["qty"]) for i in items if i["webshop_id"]]
+        link = build_add_multiple_url(pairs[:25]) if pairs else ""
+        return {
+            "order_link": link,
+            "order_qr": generate_qr_svg(link) if link else "",
+            "order_people": people or SERVINGS,
+            "order_back": back,
+            "order_items": items,
+        }
+
+    def _recipe_order_entry(recipe: Recipe, people: int) -> PlanEntry:
+        """One cook entry for this recipe alone, for the order block."""
+        by_slug = all_known()
+        dishes_map = dishes_by_slug()
+        evening = evenings_for(store(), date.today(), days=1)[0]
+        slug = recipe.slug
+        return PlanEntry(
+            date=date.today(),
+            recipe=by_slug.get(slug),
+            dish_slug=slug if slug in dishes_map else None,
+            availability=evening,
+            people=people or SERVINGS,
+            kind="cook",
+            source_slug=slug if slug not in by_slug else None,
+            score=0.0,
+            reason="Handmatige bestelling voor recept",
+        )
+
+    def _dish_order_parts(dish: ComposedDish) -> list[Recipe]:
+        """The recipes filling a dish for a standalone order.
+
+        There is no per-part pick here, so each part takes its first option
+        that resolves to a recipe or component.
+        """
         known = all_known()
         parts = []
         for part in dish.parts:
@@ -2420,77 +2532,7 @@ def create_app(
                 if option.slug in known:
                     parts.append(known[option.slug])
                     break
-        if not parts:
-            raise HTTPException(404, "Geen onderdeel van dit gerecht is bekend")
-        evening = evenings_for(store(), date.today(), days=1)[0]
-        entry = PlanEntry(
-            date=date.today(),
-            recipe=None,
-            availability=evening,
-            score=0.0,
-            reason="Handmatige bestelling voor gerecht",
-            dish_slug=slug,
-            parts=parts,
-            people=people or SERVINGS,
-        )
-        return _single_order_page(
-            request,
-            title=f"{dish.name} bestellen",
-            back=f"/dishes/{slug}",
-            entry=entry,
-            people=people,
-            recipes_map=recipes_by_slug(),
-            dishes_list=list(dishes_by_slug().values()),
-        )
-
-    def _single_order_page(
-        request: Request,
-        *,
-        title: str,
-        back: str,
-        entry: PlanEntry,
-        people: int,
-        recipes_map: dict[str, Recipe],
-        dishes_list: list,
-    ) -> HTMLResponse:
-        """Build the AH list for one entry and render it with link + QR code."""
-        facts = store().product_facts()
-        order = build_order(
-            [entry],
-            store().staples(),
-            servings=people or SERVINGS,
-            facts=facts,
-            carried=last_weeks_stock(store(), 0, recipes_map, dishes_list, facts, SERVINGS),
-        )
-        matched = _match([i.product for i in order.shopping])
-        pairs = [
-            (int(matched.get(item.product, (None, ""))[0]), max(int(item.amount), 1))
-            for item in order.shopping
-            if matched.get(item.product)
-        ]
-        link = build_add_multiple_url(pairs[:25]) if pairs else ""
-        return render(
-            request,
-            "qr_order.html",
-            fmt=format_amount,
-            title=title,
-            back=back,
-            people=people or SERVINGS,
-            link=link,
-            qr=generate_qr_svg(link) if link else "",
-            items=[
-                {
-                    "product": item.product,
-                    "unit": item.unit,
-                    "amount": item.amount,
-                    "pack_count": item.pack_count,
-                    "pack_unit": item.pack_unit,
-                    "note": item.note,
-                    "webshop_id": matched.get(item.product, (None, ""))[0],
-                }
-                for item in order.shopping
-            ],
-        )
+        return parts
 
     def _unknown_options(parts: list[DishPart], known: Mapping[str, object]) -> str:
         """Part options that name no recipe, as a message for the dish form.
@@ -3093,12 +3135,19 @@ def create_app(
         )
 
     @app.get("/recipes/{slug}", response_class=HTMLResponse)
-    def recipe_view_page(request: Request, slug: str):
+    def recipe_view_page(request: Request, slug: str, people: int | None = None):
         try:
             recipe = load_recipe(data / "recipes" / f"{slug}.yaml")
         except RecipeError as exc:
             raise HTTPException(404, str(exc)) from exc
         image = image_path(slug)
+        ctx: dict = {}
+        if people is not None:
+            ctx = _order_ctx(
+                _recipe_order_entry(recipe, people),
+                people,
+                f"/recipes/{slug}?people={people or SERVINGS}",
+            )
         return render(
             request,
             "recipe_view.html",
@@ -3107,39 +3156,7 @@ def create_app(
             ingredients=[
                 format_amount(i.amount, i.unit) + " " + i.product for i in recipe.ingredients
             ],
-        )
-
-    @app.get("/recipes/{slug}/qr", response_class=HTMLResponse)
-    def recipe_qr(request: Request, slug: str, people: int = 4):
-        """AH shopping list + QR code for one recipe, as a page."""
-        try:
-            recipe = load_recipe(data / "recipes" / f"{slug}.yaml")
-        except RecipeError as exc:
-            raise HTTPException(404, str(exc)) from exc
-
-        all_recipes, _errors = load_all()
-        dishes_map = dishes_by_slug()
-        by_slug = {r.slug: r for r in all_recipes} | {d.slug: d for d in dishes_map.values()}
-        evening = evenings_for(store(), date.today(), days=1)[0]
-        entry = PlanEntry(
-            date=date.today(),
-            recipe=by_slug.get(slug),
-            dish_slug=slug if slug in dishes_map else None,
-            availability=evening,
-            people=people or SERVINGS,
-            kind="cook",
-            source_slug=slug if slug not in by_slug else None,
-            score=0.0,
-            reason="Handmatige bestelling voor recept",
-        )
-        return _single_order_page(
-            request,
-            title=f"{recipe.name} bestellen",
-            back=f"/recipes/{slug}",
-            entry=entry,
-            people=people,
-            recipes_map=recipes_by_slug(),
-            dishes_list=list(dishes_map.values()),
+            **ctx,
         )
 
     def image_path(slug: str) -> Path | None:

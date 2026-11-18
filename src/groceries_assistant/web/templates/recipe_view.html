@@ -6,7 +6,7 @@
   <a class="btn-small" href="/recipes/{{ recipe.slug }}/edit">wijzig</a>
   {% if recipe.url %}<a class="btn-small" href="{{ recipe.url }}" target="_blank" rel="noopener">Originele recept &#8599;</a>{% endif %}
   <a class="btn-small" href="/recipes/{{ recipe.slug }}/export" title="Download dit recept als yaml">yaml &#10515;</a>
-  <form method="get" action="/recipes/{{ recipe.slug }}/qr" class="inline">
+  <form method="get" action="/recipes/{{ recipe.slug }}" class="inline">
     <input type="number" name="people" value="{{ recipe.servings }}" min="1" max="99" size="3"
            aria-label="Aantal personen" title="Aantal personen">
     <button type="submit" class="btn-small" title="Boodschappenlijst + QR code voor dit recept">QR &#10515;</button>
@@ -16,6 +16,7 @@
     <button class="btn-small danger">verwijder</button>
   </form>
 </p>
+{% if order_items %}{% include "_order_block.html" %}{% endif %}
 {% if image_url %}
 <img class="recipe-img" src="{{ image_url }}" alt="{{ recipe.name }}">
 {% endif %}

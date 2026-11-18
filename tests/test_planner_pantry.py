@@ -197,6 +197,8 @@ def test_packs_for_is_never_fooled_by_float_noise():
 def test_to_measure_refuses_what_it_cannot_convert():
     bundle = _fact(pack_qty=6, pack_unit="stuk")
     assert to_measure(3, "stuk", bundle) == 3
+    # pieces are pieces, singular or plural: '2 stuks' meets a '6 stuk' pack
+    assert to_measure(3, "stuks", bundle) == 3
     assert to_measure(300, "g", bundle) is None
     # a 350 g pack is measured in grams, so a recipe in kg converts to grams
     assert to_measure(2, "kg", BROCCOLI_350) == 2000

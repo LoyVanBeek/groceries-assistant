@@ -9,6 +9,7 @@ from groceries_assistant.planner.availability import EveningAvailability
 from groceries_assistant.planner.engine import PlanEntry, WeeklyPlan
 from groceries_assistant.preferences import Person, Preferences
 from groceries_assistant.services.planner_service import (
+    ah_pack_qty,
     apply_absences,
     build_order,
     last_weeks_stock,
@@ -565,3 +566,40 @@ def test_a_dish_evening_with_half_the_picks_says_which_part_is_open():
 
     assert [part.slug for part in entries[0].parts] == ["aardappels"]
     assert entries[0].missing == ["Groente"]
+
+
+def test_ah_pack_qty_follows_declared_pack_arithmetic():
+    """A line with a pack count is already in packs; ceil it (0.35 packs is 1)."""
+    assert ah_pack_qty("spaghetti", 700, "g", 2.0, {}, {}).qty == 2
+    assert ah_pack_qty("spaghetti", 700, "g", 0.35, {}, {}).qty == 1
+    assert ah_pack_qty("spaghetti", 700, "g", None, {}, {}).source == "unknown"
+
+
+def test_ah_pack_qty_converts_the_need_into_whole_packs():
+    """A declared fact converts the recipe's own unit into packs."""
+    facts = {"spaghetti": ProductFact(product="spaghetti", pack_qty=500, pack_unit="g")}
+    assert ah_pack_qty("Spaghetti", 700, "g", None, facts, {}).qty == 2
+
+
+def test_ah_pack_qty_derives_a_pack_from_ahs_own_size():
+    """No fact, but AH reported the size: read-only conversion, flagged 'derived'."""
+    derived = ah_pack_qty("spaghetti", 700, "g", None, {}, {"spaghetti": "500 g"})
+    assert derived.qty == 2
+    assert derived.source == "derived"
+    assert derived.detail == "500 g per pak"
+
+
+def test_ah_pack_qty_counts_pieces_not_bags():
+    """2 onions against a 1 kg bag is one bag -- and 8 against a 6-pack is two."""
+    assert ah_pack_qty("ui", 2, "stuks", None, {}, {"ui": "1 kg"}).qty == 1
+    six = ah_pack_qty("paprika", 8, "stuks", None, {}, {"paprika": "6 stuks"})
+    assert six.qty == 2
+
+
+def test_ah_pack_qty_what_it_cannot_express_is_one_pack_and_flagged():
+    """'2 el' fits no pack measure: one pack, and a human gets asked."""
+    pack = ah_pack_qty("olijfolie", 2, "el", None, {}, {"olijfolie": "500 ml"})
+    assert pack.qty == 1
+    assert pack.source == "unknown"
+    # even with no size hint at all
+    assert ah_pack_qty("olijfolie", 2, "el", None, {}, {}).source == "unknown"

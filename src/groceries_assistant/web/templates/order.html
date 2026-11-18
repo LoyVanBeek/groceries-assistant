@@ -39,6 +39,14 @@
     <span class="item-source">voor
       {% for r in item.recipes %}{% if not loop.first %}, {% endif %}<a href="{{ r.href }}">{{ r.name }}</a>{% endfor %}</span>
     {% endif %}
+    {% if item.unknown_pack %}
+    <form method="post" action="/order/match/pack" class="inline">
+      <input type="hidden" name="product" value="{{ item.product }}">
+      <input type="hidden" name="back" value="/order">
+      <input type="text" name="unit_size" placeholder="pakgrootte? bijv. 500 g" size="14">
+      <button class="btn-small" title="Bewaar dit als pakgrootte; de AH-hoeveelheden kloppen dan meteen">pak opslaan</button>
+    </form>
+    {% endif %}
   </li>
   {% endfor %}
 </ul>

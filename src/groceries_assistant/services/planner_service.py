@@ -6,16 +6,30 @@ SQLite store; no HTTP concerns live here.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
 
 from groceries_assistant.ah.bonus import BonusStore
-from groceries_assistant.ah.matching import AHMapping, AHMappingStore, suggest_match
+from groceries_assistant.ah.matching import (
+    AHMapping,
+    AHMappingStore,
+    fact_from_unit_size,
+    parse_unit_size,
+    suggest_match,
+)
 from groceries_assistant.models import ComposedDish, ProductFact, Recipe
 from groceries_assistant.planner.availability import EveningAvailability
 from groceries_assistant.planner.engine import REUSE_PENALTY, PlanEntry, WeeklyPlan, plan_week
-from groceries_assistant.planner.pantry import StockEntry, allocate, carried_stock, demand_by_day
+from groceries_assistant.planner.pantry import (
+    StockEntry,
+    allocate,
+    carried_stock,
+    demand_by_day,
+    packs_for,
+    to_measure,
+)
 from groceries_assistant.planner.shopping import ShoppingItem, aggregate_ingredients
 from groceries_assistant.preferences import Preferences
 from groceries_assistant.store.db import PlanEntryRow, Store
@@ -499,6 +513,62 @@ def incomplete_dish_warnings(entries: list[PlanEntry]) -> list[str]:
                 "die boodschappen ontbreken op de lijst"
             )
     return warnings
+
+
+@dataclass(frozen=True)
+class PackQty:
+    """How many packs the AH list gets for one shopping line.
+
+    The deep-link quantity counts packs; recipe amounts count recipe units
+    ('2 stuks ui' is one bag, not two bags). Where nothing is known, one pack
+    is added and a human gets asked: a wrong count is worse than a low one.
+    """
+
+    qty: int
+    source: str
+    """'pack' = confirmed pack arithmetic, 'derived' = read from AH's own size
+    text, 'unknown' = nothing known (qty is the one-pack fallback)."""
+    detail: str | None = None
+    """For 'derived': the pack size that was read, e.g. '1 kg per pak'."""
+
+
+def ah_pack_qty(
+    product: str,
+    amount: float,
+    unit: str,
+    pack_count: float | None,
+    facts: Mapping[str, ProductFact],
+    unit_sizes: Mapping[str, str] | None = None,
+) -> PackQty:
+    """How many packs one shopping line needs, from what is known about it.
+
+    A line with declared pack arithmetic (pack_count from `allocate`) is
+    already in packs. A flat line tries the product's fact and then AH's own
+    reported size ('500 g', '6 stuks') as an ephemeral fact: read-only, never
+    saved, so the human still confirms it on the match page. Anything the
+    units cannot express buys one pack and is flagged for review.
+    """
+    if pack_count is not None:
+        return PackQty(max(1, math.ceil(pack_count)), "pack")
+    fact = facts.get(product.lower())
+    derived = False
+    detail: str | None = None
+    if fact is None and unit_sizes:
+        size = unit_sizes.get(product.lower())
+        pack = parse_unit_size(size) if size else None
+        if pack is not None:
+            derived = True
+            detail = f"{pack.qty:g} {pack.unit} per pak"
+            fact = fact_from_unit_size(product, size)
+    if fact is not None:
+        need = to_measure(amount, unit, fact)
+        if need is not None:
+            return PackQty(
+                max(1, math.ceil(packs_for(need, fact.pack_contents))),
+                "derived" if derived else "pack",
+                detail,
+            )
+    return PackQty(1, "unknown")
 
 
 def build_order(
