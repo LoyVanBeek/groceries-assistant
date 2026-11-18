@@ -1,9 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Gerechten{% endblock %}
 {% block content %}
-<h1>Gerechten uit onderdelen</h1>
+<h1>Gerechten</h1>
 <p class="muted">
-  Een gerecht dat je zelf samenstelt, zoals &quot;aardappel-groente-vlees&quot;.
+  Een gerecht dat je zelf samenstelt, zoals "aardappel-groente-vlees".
   Elk onderdeel krijgt een lijstje recepten waaruit je kiest; de keuze maak je per avond
   in het <a href="/plan">weekplan</a>.
 </p>
@@ -27,6 +27,10 @@
     </td>
     <td>
       <a href="/dishes/{{ d.slug }}">wijzig</a>
+      <form method="post" action="/dishes/{{ d.slug }}/qr" class="inline">
+        <input type="number" name="people" value="4" min="1" max="99" size="3" aria-label="Aantal personen">
+        <button type="submit" class="btn-small" title="QR code genereren voor AH boodschappen">QR &#10515;</button>
+      </form>
       <form method="post" action="/dishes/{{ d.slug }}/delete" class="inline">
         <button class="muted" aria-label="Verwijder {{ d.name }}">&times;</button>
       </form>
@@ -51,7 +55,7 @@
 {% if people %}
 <p class="muted">
   Ook over het gerecht zelf kun je iets zeggen, net als over een recept. Dat weegt
-  zwaarder dan de onderdelen samen: &quot;never&quot; op een gerecht haalt het hele
+  zwaarder dan de onderdelen samen: "never" op een gerecht haalt het hele
   gerecht uit de planning.
 </p>
 {% endif %}

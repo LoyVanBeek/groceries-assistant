@@ -57,8 +57,8 @@ from groceries_assistant.models import (
     TimeInfo,
     slugify,
 )
-from groceries_assistant.planner.pantry import StockEntry
 from groceries_assistant.planner.engine import PlanEntry, WeeklyPlan
+from groceries_assistant.planner.pantry import StockEntry
 from groceries_assistant.planner.shopping import order_product
 from groceries_assistant.recipes.extract import extract_from_images, unique_recipe_path
 from groceries_assistant.recipes.loader import (
@@ -1383,7 +1383,7 @@ def create_app(
         )
         if row is None:
             # No existing slot: create a temporary entry for this recipe
-            entry = PlanEntryRow(
+            PlanEntryRow(
                 day=target,
                 kind="cook",
                 recipe_slug=recipe_slug,
@@ -1392,7 +1392,7 @@ def create_app(
             )
         else:
             # Replace the existing row's recipe/people for this order
-            entry = PlanEntryRow(
+            PlanEntryRow(
                 day=target,
                 kind=row.kind,
                 recipe_slug=recipe_slug,
@@ -1407,8 +1407,6 @@ def create_app(
         dishes = dishes_by_slug()
         all_known_dict = {**known, **{d.slug: d for d in dishes.values()}}
         by_slug = all_known_dict
-        recipes = list(by_slug.values())
-        prefs = preferences_from_store(store())
         evening = evenings_for(store(), target, days=1)[0]
         facts = store().product_facts()
         carried = last_weeks_stock(
@@ -1416,18 +1414,6 @@ def create_app(
         )
         staples = store().staples()
 
-        # Build order with just this one entry
-        entry = PlanEntry(
-            date=target,
-            recipe=by_slug.get(recipe_slug),
-            dish_slug=recipe_slug if recipe_slug in dishes_by_slug() else None,
-            availability=evening,
-            people=people or SERVINGS,
-            kind="cook",
-            source_slug=recipe_slug if recipe_slug not in by_slug else None,
-            score=0.0,
-            reason="Handmatige bestelling voor recept",
-        )
         # Create a temporary plan with just this entry
         temp_plan = WeeklyPlan(
             entries=[
@@ -1449,14 +1435,7 @@ def create_app(
             staples,
             servings=people or SERVINGS,
             facts=facts,
-            carried=last_weeks_stock(
-                store(),
-                plan_id,
-                {r.slug: r for r in all_recipes},
-                list(dishes.values()),
-                facts,
-                SERVINGS,
-            ),
+            carried=carried,
         )
         matched = _match([i.product for i in order.shopping])
         pairs = [
@@ -2420,6 +2399,75 @@ def create_app(
         path.unlink()
         return RedirectResponse("/dishes", status_code=303)
 
+    @app.post("/dishes/{slug}/qr")
+    def dish_qr(slug: str, people: int = Form(4)):
+        """Generate AH shopping list + QR code for a dish."""
+        try:
+            dish = load_dish(dish_file(dishes_dir(), slug))
+        except DishError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+        all_recipes, _errors = load_all()
+        dishes = dishes_by_slug()
+        evening = evenings_for(store(), date.today(), days=1)[0]
+        staples = store().staples()
+
+        # Create a temporary plan with the dish
+        temp_plan = WeeklyPlan(
+            entries=[
+                PlanEntry(
+                    date=date.today(),
+                    dish_slug=slug,
+                    availability=evening,
+                    people=people or SERVINGS,
+                    kind="cook",
+                    source_slug=slug,
+                    score=0.0,
+                    reason="Handmatige bestelling voor gerecht",
+                    parts=list(dish.parts),
+                )
+            ]
+        )
+        order = build_order(
+            [temp_plan.entries[0]],
+            staples,
+            servings=people or SERVINGS,
+            facts=store().product_facts(),
+            carried=last_weeks_stock(
+                store(),
+                0,
+                {r.slug: r for r in all_recipes},
+                list(dishes.values()),
+                store().product_facts(),
+                SERVINGS,
+            ),
+        )
+        matched = _match([i.product for i in order.shopping])
+        pairs = [
+            (int(matched.get(item.product, (None, ""))[0]), max(int(item.amount), 1))
+            for item in order.shopping
+            if matched.get(item.product)
+        ]
+        link = build_add_multiple_url(pairs[:25]) if pairs else ""
+        qr = generate_qr_svg(link) if link else ""
+
+        return {
+            "link": link,
+            "qr": qr,
+            "items": [
+                {
+                    "product": item.product,
+                    "unit": item.unit,
+                    "amount": item.amount,
+                    "webshop_id": matched.get(item.product, (None, ""))[0],
+                    "pack_count": item.pack_count,
+                    "pack_unit": item.pack_unit,
+                    "note": item.note,
+                }
+                for item in order.shopping
+            ],
+        }
+
     def _unknown_options(parts: list[DishPart], known: Mapping[str, object]) -> str:
         """Part options that name no recipe, as a message for the dish form.
 
@@ -3036,6 +3084,78 @@ def create_app(
                 format_amount(i.amount, i.unit) + " " + i.product for i in recipe.ingredients
             ],
         )
+
+    @app.post("/recipes/{slug}/qr")
+    def recipe_qr(slug: str, people: int = Form(4)):
+        """Generate AH shopping list + QR code for a single recipe."""
+        try:
+            load_recipe(data / "recipes" / f"{slug}.yaml")
+        except RecipeError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+        all_recipes, _errors = load_all()
+        known = {r.slug: r for r in all_recipes}
+        dishes = dishes_by_slug()
+        by_slug = {**known, **{d.slug: d for d in dishes.values()}}
+        dishes_map = dishes_by_slug()
+        evening = evenings_for(store(), date.today(), days=1)[0]
+        staples = store().staples()
+
+        # Create a temporary plan with just this entry
+        temp_plan = WeeklyPlan(
+            entries=[
+                PlanEntry(
+                    date=date.today(),
+                    recipe=by_slug.get(slug),
+                    dish_slug=slug if slug in dishes_map else None,
+                    availability=evening,
+                    people=people or SERVINGS,
+                    kind="cook",
+                    source_slug=slug if slug not in by_slug else None,
+                    score=0.0,
+                    reason="Handmatige bestelling voor recept",
+                )
+            ]
+        )
+        order = build_order(
+            [temp_plan.entries[0]],
+            staples,
+            servings=people or SERVINGS,
+            facts=store().product_facts(),
+            carried=last_weeks_stock(
+                store(),
+                0,
+                {r.slug: r for r in all_recipes},
+                list(dishes.values()),
+                store().product_facts(),
+                SERVINGS,
+            ),
+        )
+        matched = _match([i.product for i in order.shopping])
+        pairs = [
+            (int(matched.get(item.product, (None, ""))[0]), max(int(item.amount), 1))
+            for item in order.shopping
+            if matched.get(item.product)
+        ]
+        link = build_add_multiple_url(pairs[:25]) if pairs else ""
+        qr = generate_qr_svg(link) if link else ""
+
+        return {
+            "link": link,
+            "qr": qr,
+            "items": [
+                {
+                    "product": item.product,
+                    "unit": item.unit,
+                    "amount": item.amount,
+                    "webshop_id": matched.get(item.product, (None, ""))[0],
+                    "pack_count": item.pack_count,
+                    "pack_unit": item.pack_unit,
+                    "note": item.note,
+                }
+                for item in order.shopping
+            ],
+        }
 
     def image_path(slug: str) -> Path | None:
         """Featured image file for a recipe slug, if any."""
