@@ -4,6 +4,7 @@
     <form method="get" class="inline">
       <input type="number" name="people" value="{{ order_people }}" min="1" max="99" size="3"
              aria-label="Aantal personen">
+      {% for w in order_with %}<input type="hidden" name="with" value="{{ w }}">{% endfor %}
       <button type="submit" class="btn-small" title="Opnieuw met dit aantal personen">opnieuw</button>
     </form>
     {% if order_link %}
@@ -17,10 +18,14 @@
     {% for item in order_items %}
     <li class="item">
       {{ item.qty }} &times; {{ item.product }}
+      {% if item.staple %}<span class="muted">(voorraad)</span>{% endif %}
       {% if item.note %}<span class="muted">({{ item.note }})</span>{% endif %}
       {% if not item.webshop_id %}<span class="muted">(niet gevonden in AH)</span>{% endif %}
       {% if item.source == 'derived' and item.detail %}
       <span class="muted">[{{ item.detail }}, via AH]</span>
+      {% endif %}
+      {% if item.remove_url %}
+      <a class="btn-small" href="{{ item.remove_url }}" title="Toch niet meebestellen">&minus;</a>
       {% endif %}
       {% if item.source == 'unknown' %}
       <form method="post" action="/order/match/pack" class="inline">
@@ -34,6 +39,17 @@
     </li>
     {% endfor %}
   </ul>
+  {% if order_staples %}
+  <p class="muted">Voorraad &mdash; deze gebruikt het recept, maar staat (nog) niet op de lijst:</p>
+  <ul class="plain">
+    {% for s in order_staples %}
+    <li class="item">
+      {{ s.product }} <span class="muted">({{ s.need }})</span>
+      <a class="btn-small" href="{{ s.add_url }}" title="Dit toch meebestellen">+ op de lijst</a>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
   {% if not order_link %}
   <p class="muted">Niets is aan AH gekoppeld; koppel artikelen op de <a href="/order/match">koppelpagina</a>.</p>
   {% endif %}

@@ -58,6 +58,27 @@
   {% endfor %}
 </ul>
 {% endif %}
+{% if staples %}
+<h2>Voorraad</h2>
+<p class="muted">
+  Wat je meestal in huis hebt staat er niet op. Toch nodig &mdash; de olie is op,
+  de rijst moet bij? Vink het aan en het gaat gewoon mee op de lijst en in de
+  AH-links, en blijft eraan tot je het weer uitvinkt.
+</p>
+<form method="post" action="/order/staples">
+  <ul class="plain">
+    {% for s in staples %}
+    <li class="item">
+      <label>
+        <input type="checkbox" name="product" value="{{ s.product }}"{% if s.on_list %} checked{% endif %}>
+        {{ s.product }}{% if s.on_list %} <span class="muted">(staat op de lijst)</span>{% endif %}
+      </label>
+    </li>
+    {% endfor %}
+  </ul>
+  <p><button class="btn-small">op de lijst zetten</button></p>
+</form>
+{% endif %}
 <p>
   <a class="big-link" href="/order/link">Genereer AH-link &rarr;</a>
   <a class="big-link" href="/order/match">AH-artikelen koppelen</a>

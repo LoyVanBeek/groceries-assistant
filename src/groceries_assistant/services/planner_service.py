@@ -636,27 +636,29 @@ def cooking_work(
     amount that dish asked for.
     """
     ordered = sorted(entries, key=lambda e: e.date)
-    people: dict[date, int] = {}
+    counts: dict[int, int] = {}
     for entry in ordered:
         if entry.kind == "cook" and entry.dishes:
-            people[entry.date] = entry.people or servings
+            # per entry, not per date: a soep for 2 and a hoofdgerecht for 4
+            # on the same evening each buy their own count
+            counts[id(entry)] = entry.people or servings
     for entry in ordered:
         if entry.kind != "leftovers" or not entry.source_slug:
             continue
         candidates = [
-            e
-            for e in ordered
+            (i, e)
+            for i, e in enumerate(ordered)
             if e.kind == "cook" and _entry_slug(e) == entry.source_slug and e.date < entry.date
         ]
         if candidates:
-            source = max(candidates, key=lambda e: e.date)
-            people[source.date] = people.get(source.date, servings) + (entry.people or servings)
+            _i, source = max(candidates, key=lambda pair: (pair[1].date, pair[0]))
+            counts[id(source)] = counts.get(id(source), servings) + (entry.people or servings)
 
     work: list[tuple[date, Recipe, int]] = []
     for entry in ordered:
         if entry.kind != "cook":
             continue
-        count = people.get(entry.date, servings)
+        count = counts.get(id(entry), servings)
         for recipe in entry.dishes:
             work.append((entry.date, recipe, count))
     return work

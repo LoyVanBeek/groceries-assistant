@@ -53,6 +53,14 @@ CREATE TABLE IF NOT EXISTS staples (
     product TEXT PRIMARY KEY
 );
 
+-- Voorraad (staples) die de gebruiker deze week toch op de lijst wil:
+-- aangevinkt op /order, en ze overleven elke herbouw van de lijst.
+CREATE TABLE IF NOT EXISTS plan_staples (
+    plan_id INTEGER NOT NULL REFERENCES plans(id) ON DELETE CASCADE,
+    product TEXT NOT NULL,
+    PRIMARY KEY (plan_id, product)
+);
+
 CREATE TABLE IF NOT EXISTS absences (
     day TEXT NOT NULL,                    -- ISO date
     person_id TEXT NOT NULL,
@@ -611,6 +619,25 @@ class Store:
             self.conn.execute("INSERT OR IGNORE INTO staples(product) VALUES (?)", (product,))
         else:
             self.conn.execute("DELETE FROM staples WHERE product = ?", (product,))
+        self.conn.commit()
+
+    def plan_staples(self, plan_id: int) -> set[str]:
+        """The staples ticked onto this plan's list, by lowercase product."""
+        rows = self.conn.execute("SELECT product FROM plan_staples WHERE plan_id = ?", (plan_id,))
+        return {row[0] for row in rows}
+
+    def add_plan_staple(self, plan_id: int, product: str) -> None:
+        self.conn.execute(
+            "INSERT OR IGNORE INTO plan_staples(plan_id, product) VALUES (?, ?)",
+            (plan_id, product.strip().lower()),
+        )
+        self.conn.commit()
+
+    def remove_plan_staple(self, plan_id: int, product: str) -> None:
+        self.conn.execute(
+            "DELETE FROM plan_staples WHERE plan_id = ? AND product = ?",
+            (plan_id, product.strip().lower()),
+        )
         self.conn.commit()
 
     # --- proposals & approved plans ---------------------------------------------------
@@ -1208,22 +1235,39 @@ class Store:
         self.conn.commit()
 
     def add_order_item(
-        self, plan_id: int, product: str, unit: str = "stuk", amount: float = 1.0
+        self,
+        plan_id: int,
+        product: str,
+        unit: str = "stuk",
+        amount: float = 1.0,
+        webshop_id: int | None = None,
     ) -> bool:
-        """One extra item on the plan's list (a scanned package); False when
-        that product+unit was already on it.
+        """One extra item on the plan's list (a scanned package or a ticked
+        staple); False when that product+unit was already on it.
 
         Note: a rebuild of the list (approve/order/next week) does not carry
-        extras along — scan them again for the new week.
+        extras along — scan them again for the new week. Ticked staples are the
+        exception: plan_staples puts them back on every rebuild.
         """
         cur = self.conn.cursor()
         cur.execute(
-            "INSERT INTO order_items (plan_id, product, unit, amount)"
-            " VALUES (?,?,?,?) ON CONFLICT(plan_id, product, unit) DO NOTHING",
-            (plan_id, product.strip(), unit, amount),
+            "INSERT INTO order_items (plan_id, product, unit, amount, webshop_id)"
+            " VALUES (?,?,?,?,?)"
+            " ON CONFLICT(plan_id, product, unit) DO NOTHING",
+            (plan_id, product.strip(), unit, amount, webshop_id),
         )
         self.conn.commit()
         return cur.rowcount > 0
+
+    def remove_order_item(self, plan_id: int, product: str) -> int:
+        """Every unit-line of one product off the list; how many lines went."""
+        cur = self.conn.cursor()
+        cur.execute(
+            "DELETE FROM order_items WHERE plan_id = ? AND lower(product) = lower(?)",
+            (plan_id, product.strip()),
+        )
+        self.conn.commit()
+        return cur.rowcount
 
     def order_items(self, plan_id: int) -> list[dict]:
         rows = self.conn.execute(

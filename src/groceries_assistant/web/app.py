@@ -1660,9 +1660,12 @@ def create_app(
         if not any(e.kind == "cook" for e in entries):
             raise HTTPException(400, "Minstens één kookavond nodig")
         facts = store().product_facts()
+        # staples ticked on /order are ordered like anything else this week
+        wanted = store().plan_staples(plan_id)
+        staples = [s for s in store().staples() if s.lower() not in wanted]
         order = build_order(
             entries,
-            store().staples(),
+            staples,
             servings=SERVINGS,
             facts=facts,
             carried=last_weeks_stock(store(), plan_id, by_slug, dishes, facts, servings=SERVINGS),
@@ -1683,6 +1686,13 @@ def create_app(
                 for item in order.shopping
             ],
         )
+        # A ticked staple the covered days' cooking does not use is a restock:
+        # it still belongs on the list, as one pack of whatever AH sells.
+        on_list = {item.product.lower() for item in order.shopping}
+        for product in sorted(wanted - on_list):
+            store().add_order_item(
+                plan_id, product, webshop_id=_match([product]).get(product, (None, ""))[0]
+            )
 
     def _day_ordered_products(plan_id: int, day: date) -> set[tuple[str, str]]:
         """The (product, unit) pairs the saved list has for one evening.
@@ -1702,9 +1712,12 @@ def create_app(
         if not any(e.kind == "cook" for e in entries):
             return set()
         facts = store().product_facts()
+        # staples ticked on /order are ordered like anything else this week
+        wanted = store().plan_staples(plan_id)
+        staples = [s for s in store().staples() if s.lower() not in wanted]
         order = build_order(
             entries,
-            store().staples(),
+            staples,
             servings=SERVINGS,
             facts=facts,
             carried=last_weeks_stock(store(), plan_id, by_slug, dishes, facts, servings=SERVINGS),
@@ -1863,6 +1876,12 @@ def create_app(
         sources = _product_sources(plan_id)
         facts = store().product_facts()
         unit_sizes = _unit_sizes()
+        # the staples checklist: everything you usually have at home, off by
+        # default; ticking one puts it on the list like any product
+        wanted_staples = store().plan_staples(plan_id)
+        staples = [
+            {"product": s, "on_list": s.lower() in wanted_staples} for s in store().staples()
+        ]
         # thumbnail of the matched AH article, when one is known
         for item in items:
             mapping = mappings().get(item["product"])
@@ -1883,11 +1902,50 @@ def create_app(
             request,
             "order.html",
             items=items,
+            staples=staples,
             start=dutch_date(latest[1]),
             warnings=_plan_warnings(plan_id),
             leftovers=_plan_leftovers(plan_id),
             fmt=format_amount,
         )
+
+    @app.post("/order/staples")
+    async def order_staples(request: Request):
+        """Tick staples onto the week's list, or off it again.
+
+        Checked staples join the list like any product -- matched, pack-aware,
+        riding the AH links -- and survive every rebuild via plan_staples. The
+        list is rebuilt for the days it covers; when there is nothing left to
+        rebuild from (everything already ordered), the rows are maintained in
+        place instead.
+        """
+        latest = store().latest_plan()
+        if latest is None:
+            raise HTTPException(404, "Geen actieve week")
+        plan_id = latest[0]
+        form = await request.form()
+        wanted = {str(p).strip().lower() for p in form.getlist("product") if str(p).strip()}
+        current = store().plan_staples(plan_id)
+        for product in sorted(wanted - current):
+            store().add_plan_staple(plan_id, product)
+        for product in sorted(current - wanted):
+            store().remove_plan_staple(plan_id, product)
+
+        def _match_one(product: str) -> int | None:
+            return _match([product]).get(product, (None, ""))[0]
+
+        approved = store().plan_approvals(plan_id)
+        pending = sorted(approved - store().plan_ordered(plan_id))
+        rows = [r for r in store().plan_entries(plan_id) if r.day in pending]
+        if rows and any(r.kind == "cook" for r in rows):
+            # includes restock rows for ticked staples without demand
+            _build_and_save_order(plan_id, rows)
+        else:
+            for product in sorted(wanted - current):
+                store().add_order_item(plan_id, product, webshop_id=_match_one(product))
+            for product in sorted(current - wanted):
+                store().remove_order_item(plan_id, product)
+        return RedirectResponse("/order", status_code=303)
 
     def _plan_leftovers(plan_id: int) -> list[StockEntry]:
         """What this week's purchases leave over, recomputed from the plan.
@@ -2403,6 +2461,12 @@ def create_app(
             parts = _dish_order_parts(dish)
             if not parts:
                 raise HTTPException(404, "Geen onderdeel van dit gerecht is bekend")
+            with_products = {
+                w.strip().lower() for w in request.query_params.getlist("with") if w.strip()
+            }
+            back = f"/dishes/{slug}?people={people or SERVINGS}" + "".join(
+                f"&with={quote(w)}" for w in sorted(with_products)
+            )
             entry = PlanEntry(
                 date=date.today(),
                 recipe=None,
@@ -2413,7 +2477,7 @@ def create_app(
                 parts=parts,
                 people=people or SERVINGS,
             )
-            ctx = _order_ctx(entry, people, f"/dishes/{slug}?people={people or SERVINGS}")
+            ctx = _order_ctx(entry, people, back, with_products)
         return render(
             request,
             "dishes.html",
@@ -2452,17 +2516,30 @@ def create_app(
         """AH's own reported pack size per product, for the pack fallback."""
         return {m.product.lower(): m.ah_unit_size for m in mappings().all() if m.ah_unit_size}
 
-    def _order_ctx(entry: PlanEntry, people: int, back: str) -> dict:
+    def _order_ctx(
+        entry: PlanEntry, people: int, back: str, wanted_staples: set[str] | None = None
+    ) -> dict:
         """The inline 'bestellen' block: AH link + QR + items with pack counts.
 
         The link quantity counts AH packs, not recipe units: `ah_pack_qty`
         converts, and every line it could not convert is flagged so a human
         can supply the pack size right there.
+
+        `wanted_staples` names staples that ARE ordered this time (the `with`
+        query parameter): they flow through as normal items, marked
+        '(voorraad)', and the staples this entry uses but that are not wanted
+        get a '+' link to pull them in.
         """
+        wanted_staples = wanted_staples or set()
+
+        def _with_url(staples: set[str]) -> str:
+            return back + "".join(f"&with={quote(p)}" for p in sorted(staples))
+
         facts = store().product_facts()
+        staples = [s for s in store().staples() if s.lower() not in wanted_staples]
         order = build_order(
             [entry],
-            store().staples(),
+            staples,
             servings=people or SERVINGS,
             facts=facts,
             carried=last_weeks_stock(
@@ -2480,6 +2557,7 @@ def create_app(
             pack = ah_pack_qty(
                 item.product, item.amount, item.unit, item.pack_count, facts, _unit_sizes()
             )
+            is_staple = item.product.lower() in wanted_staples
             items.append(
                 {
                     "product": item.product,
@@ -2489,6 +2567,10 @@ def create_app(
                     "webshop_id": matched.get(item.product, (None, ""))[0],
                     "need": format_amount(item.amount, item.unit),
                     "note": item.note,
+                    "staple": is_staple,
+                    "remove_url": _with_url(wanted_staples - {item.product.lower()})
+                    if is_staple
+                    else None,
                 }
             )
         pairs = [(i["webshop_id"], i["qty"]) for i in items if i["webshop_id"]]
@@ -2498,7 +2580,17 @@ def create_app(
             "order_qr": generate_qr_svg(link) if link else "",
             "order_people": people or SERVINGS,
             "order_back": back,
+            "order_with": sorted(wanted_staples),
             "order_items": items,
+            # the staples this entry uses but that are not being ordered
+            "order_staples": [
+                {
+                    "product": s.product,
+                    "need": format_amount(s.amount, s.unit),
+                    "add_url": _with_url(wanted_staples | {s.product.lower()}),
+                }
+                for s in order.staples
+            ],
         }
 
     def _recipe_order_entry(recipe: Recipe, people: int) -> PlanEntry:
@@ -3143,11 +3235,13 @@ def create_app(
         image = image_path(slug)
         ctx: dict = {}
         if people is not None:
-            ctx = _order_ctx(
-                _recipe_order_entry(recipe, people),
-                people,
-                f"/recipes/{slug}?people={people or SERVINGS}",
+            with_products = {
+                w.strip().lower() for w in request.query_params.getlist("with") if w.strip()
+            }
+            back = f"/recipes/{slug}?people={people or SERVINGS}" + "".join(
+                f"&with={quote(w)}" for w in sorted(with_products)
             )
+            ctx = _order_ctx(_recipe_order_entry(recipe, people), people, back, with_products)
         return render(
             request,
             "recipe_view.html",
