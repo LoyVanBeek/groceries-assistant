@@ -1594,7 +1594,9 @@ def test_recipe_view_page(tmp_path):
         page = client.get("/recipes/pasta")
         assert page.status_code == 200
         assert "Pasta" in page.text
-        assert "500 g spaghetti" in page.text
+        # the side-by-side table: scaled recipe quantity and product columns
+        assert "<td>500 g</td>" in page.text
+        assert "spaghetti" in page.text
 
 
 def test_recipe_source_url_round_trip(tmp_path):
@@ -5521,17 +5523,22 @@ def test_recipe_order_block_renders_inline_and_pack_aware(tmp_path):
         return [FakeProduct(4321, "AH " + query)]
 
     with make_client(tmp_path, search_fn=search) as client:
-        page = client.get("/recipes/pasta", params={"people": 2}).text
-        assert 'id="bestellen"' in page
+        # plain visit: the combo is always there, scaled to the recipe's own
+        # servings
+        page = client.get("/recipes/pasta").text
+        assert 'id="order-combo"' in page
+        assert "order-table" in page
         assert "<svg" in page  # the QR code
         assert "Open boodschappenlijst in AH" in page
         # 500 g spaghetti for 8 eaters is 1000 g: two 500 g packs, read from AH
         page = client.get("/recipes/pasta", params={"people": 8}).text
         assert "1000 g" in page  # the recipe column scales with the eaters
+        assert "voor 8 personen" in page
         assert "2 &times;" in page  # two packs in the bestellen column
-        assert 'value="/recipes/pasta?people=8"' in page  # pack form returns here
-        # a plain visit has no order block
-        assert 'id="bestellen"' not in client.get("/recipes/pasta").text
+        # a plain visit shows the recipe's own count, without the reminder
+        plain = client.get("/recipes/pasta").text
+        assert "<td>500 g</td>" in plain  # unscaled recipe column
+        assert "(recept: 4)" not in plain
 
 
 def test_dish_order_block_renders_inline_on_the_dish_page(tmp_path):
@@ -5551,7 +5558,7 @@ def test_dish_order_block_renders_inline_on_the_dish_page(tmp_path):
 
     with make_client(tmp_path, search_fn=search) as client:
         page = client.get("/dishes/aardappel-groente", params={"people": 4}).text
-        assert 'id="bestellen"' in page
+        assert 'id="bestellen"' in page  # the dish page keeps the list-style block
         assert "krieltjes" in page
         assert "Open boodschappenlijst in AH" in page
         # the list row form targets the dish page itself

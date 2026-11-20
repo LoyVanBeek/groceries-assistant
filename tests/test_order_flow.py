@@ -343,9 +343,11 @@ def test_the_recipe_table_scales_and_ticking_in_house_updates_the_link(tmp_path)
         return [FakeProduct(1000 + len(query), "AH " + query, sizes.get(query, "1 stuks"))]
 
     with make_client(tmp_path, search_fn=search) as client:
+        # the combo is always there, at the recipe's own servings by default
         plain = client.get("/recipes/pasta").text
-        assert "500 g spaghetti" in plain
-        assert "order-table" not in plain
+        assert "<td>500 g</td>" in plain  # unscaled recipe column
+        assert "order-table" in plain
+        assert 'id="order-combo"' in plain
 
         page = client.get("/recipes/pasta", params={"people": 8}).text
         assert "voor 8 personen" in page

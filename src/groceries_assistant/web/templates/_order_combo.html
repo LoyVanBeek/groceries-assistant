@@ -1,0 +1,33 @@
+<div id="order-combo">
+  <p class="recipe-tools">
+    <form method="get" class="inline">
+      <label>personen
+        <input type="number" id="order-people" name="people" value="{{ order_people }}" min="1" max="99" size="3">
+      </label>
+      {% for w in order_with %}<input type="hidden" name="with" value="{{ w }}">{% endfor %}
+      {% for h in order_have %}<input type="hidden" name="have" value="{{ h }}">{% endfor %}
+      <button type="submit" class="btn-small" title="Opnieuw met dit aantal personen">opnieuw</button>
+    </form>
+    {% if order_link %}
+    <a class="btn-small primary" href="{{ order_link }}" target="_blank" rel="noopener">
+      Open boodschappenlijst in AH &#8599;
+    </a>
+    {% endif %}
+  </p>
+  {% if order_qr %}<div class="qr-block">{{ order_qr | safe }}</div>{% endif %}
+  {% include "_order_table.html" %}
+  {% if order_staples %}
+  <p class="muted">Voorraad &mdash; deze gebruikt het recept, maar staat (nog) niet op de lijst:</p>
+  <ul class="plain">
+    {% for s in order_staples %}
+    <li class="item">
+      {{ s.product }} <span class="muted">({{ s.need }})</span>
+      <a class="btn-small" href="{{ s.add_url }}" title="Dit toch meebestellen">+ op de lijst</a>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% if not order_link %}
+  <p class="muted">Niets is aan AH gekoppeld; koppel artikelen op de <a href="/order/match">koppelpagina</a>.</p>
+  {% endif %}
+</div>

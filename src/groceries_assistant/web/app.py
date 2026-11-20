@@ -3260,8 +3260,11 @@ def create_app(
         except RecipeError as exc:
             raise HTTPException(404, str(exc)) from exc
         image = image_path(slug)
-        # the ingredient amounts scale with the number of eaters
-        factor = (people / recipe.servings) if (people and recipe.servings) else 1.0
+        # the combo is always on: recipe and shopping list side by side,
+        # scaled to the shown people count (the recipe's own servings until
+        # the visitor changes it)
+        shown = people or recipe.servings
+        factor = (shown / recipe.servings) if recipe.servings else 1.0
         ingredients = [
             format_amount(i.amount * factor, i.unit) + " " + i.product for i in recipe.ingredients
         ]
@@ -3274,29 +3277,27 @@ def create_app(
             ingredient_rows[key] = (
                 f"{ingredient_rows[key]} + {qty}" if key in ingredient_rows else qty
             )
-        ctx: dict = {}
-        if people is not None:
-            with_products = {
-                w.strip().lower() for w in request.query_params.getlist("with") if w.strip()
-            }
-            have_products = {
-                w.strip().lower() for w in request.query_params.getlist("have") if w.strip()
-            }
-            ctx = _order_ctx(
-                _recipe_order_entry(recipe, people),
-                people,
-                f"/recipes/{slug}?people={people or SERVINGS}",
-                wanted_staples=with_products,
-                have_products=have_products,
-                ingredient_rows=ingredient_rows,
-            )
+        with_products = {
+            w.strip().lower() for w in request.query_params.getlist("with") if w.strip()
+        }
+        have_products = {
+            w.strip().lower() for w in request.query_params.getlist("have") if w.strip()
+        }
+        ctx = _order_ctx(
+            _recipe_order_entry(recipe, shown),
+            shown,
+            f"/recipes/{slug}?people={shown}",
+            wanted_staples=with_products,
+            have_products=have_products,
+            ingredient_rows=ingredient_rows,
+        )
         return render(
             request,
             "recipe_view.html",
             recipe=recipe,
             image_url=f"/recipes/img/{image.name}" if image else None,
             ingredients=ingredients,
-            people_shown=people,
+            people_shown=shown,
             **ctx,
         )
 
