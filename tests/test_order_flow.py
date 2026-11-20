@@ -374,3 +374,102 @@ def test_the_recipe_table_scales_and_ticking_in_house_updates_the_link(tmp_path)
 
         # without the tick the pair is back
         assert "1009:2" in link(client.get("/recipes/pasta", params={"people": 8}).text)
+
+
+def test_an_unmatched_product_couples_from_the_order_table(tmp_path):
+    """'(niet gekoppeld)' carries a koppel button: the one-product coupling
+    page pins it and returns; the recipe row then shows a real quantity."""
+    from tests.test_web import make_client
+
+    pasta = (
+        "name: Pasta\nservings: 4\ntime: {cook: 30}\ningredients:\n"
+        "  - {product: spaghetti, amount: 500, unit: g}\n"
+        "  - {product: zout, amount: 2, unit: el}\nsteps:\n  - Kook.\n"
+    )
+    (tmp_path / "recipes").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "recipes" / "pasta.yaml").write_text(pasta, encoding="utf-8")
+
+    class FakeProduct:
+        def __init__(self, webshop_id, title, unit_size=""):
+            self.webshop_id = webshop_id
+            self.title = title
+            self.unit_size = unit_size
+            self.image_url = None
+
+    def search(query):
+        return [FakeProduct(551, "AH spaghetti", "500 g")] if query == "spaghetti" else []
+
+    with make_client(tmp_path, search_fn=search) as client:
+        page = client.get("/recipes/pasta").text
+        assert "niet gekoppeld" in page
+        assert 'href="/order/match/one?product=zout' in page
+        # the matched product gets no coupling link
+        assert "match/one?product=spaghetti" not in page
+
+        # the one-product page: manual pin form carries the back target
+        one = client.get(
+            "/order/match/one",
+            params={"product": "zout", "unit": "el", "back": "/recipes/pasta?people=4"},
+        ).text
+        assert "zout koppelen" in one
+        assert 'name="back" value="/recipes/pasta?people=4"' in one
+        assert "eigen id koppelen" in one
+
+        # pinning returns to the recipe page and the row is coupled now
+        resp = client.post(
+            "/order/match/pin",
+            data={
+                "product": "zout",
+                "unit": "el",
+                "webshop_id": "778899",
+                "title": "AH fijn zout",
+                "back": "/recipes/pasta?people=4",
+            },
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/recipes/pasta?people=4"
+        page = client.get("/recipes/pasta").text
+        assert "niet gekoppeld" not in page
+        assert "1 &times;" in page  # 2 el -> one pack, packgrootte form offered
+
+        # a foreign back target never becomes a redirect
+        resp = client.post(
+            "/order/match/pin",
+            data={
+                "product": "zout",
+                "unit": "el",
+                "webshop_id": "778899",
+                "back": "https://evil.example",
+            },
+            follow_redirects=False,
+        )
+        assert resp.headers["location"].startswith("/order/match")
+
+
+def test_one_product_coupling_works_without_an_active_week(tmp_path):
+    """A recipe order row may exist before any week plan does; pinning only
+    needs the mapping, not the plan's list."""
+    from tests.test_web import make_client
+
+    (tmp_path / "recipes").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "recipes" / "pasta.yaml").write_text(
+        "name: Pasta\nservings: 4\ntime: {cook: 30}\ningredients:\n"
+        "  - {product: zout, amount: 2, unit: el}\nsteps:\n  - Kook.\n",
+        encoding="utf-8",
+    )
+    with make_client(tmp_path) as client:
+        resp = client.post(
+            "/order/match/pin",
+            data={
+                "product": "zout",
+                "unit": "el",
+                "webshop_id": "778899",
+                "back": "/recipes/pasta",
+            },
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/recipes/pasta"
+        page = client.get("/recipes/pasta").text
+        assert "niet gekoppeld" not in page

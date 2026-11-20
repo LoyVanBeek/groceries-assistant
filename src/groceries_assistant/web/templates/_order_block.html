@@ -22,7 +22,12 @@
       {{ item.qty }} &times; {{ item.product }}
       {% if item.staple %}<span class="muted">(voorraad)</span>{% endif %}
       {% if item.note %}<span class="muted">({{ item.note }})</span>{% endif %}
-      {% if not item.webshop_id %}<span class="muted">(niet gevonden in AH)</span>{% endif %}
+      {% if not item.webshop_id %}
+      <span class="muted">(niet gekoppeld)</span>
+      <a class="btn-small"
+         href="/order/match/one?product={{ item.product | urlencode }}&amp;unit={{ item.unit | urlencode }}&amp;back={{ order_back | urlencode }}"
+         title="Koppel dit product aan een AH-artikel">koppel</a>
+      {% endif %}
       {% if item.source == 'derived' and item.detail %}
       <span class="muted">[{{ item.detail }}, via AH]</span>
       {% endif %}

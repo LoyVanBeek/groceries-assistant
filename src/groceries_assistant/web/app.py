@@ -2108,6 +2108,45 @@ def create_app(
             fmt=format_amount,
         )
 
+    @app.get("/order/match/one", response_class=HTMLResponse)
+    def order_match_one(request: Request, product: str, unit: str = "", back: str = "/order"):
+        """Couple one product to an AH article, from wherever it came.
+
+        The week match page only lists the plan's saved items; this shows the
+        same suggestion and manual-pin forms for a single product (a recipe
+        order row), then returns to `back`.
+        """
+        if not back.startswith("/") or back.startswith("//"):
+            back = "/order"  # no open redirects
+        mapping = mappings().get(product)
+        try:
+            suggestions = [
+                {
+                    "webshop_id": s.webshop_id,
+                    "title": s.title,
+                    "unit_size": s.unit_size,
+                    "url": product_url(s.webshop_id),
+                    "image": getattr(s, "image_url", None),
+                }
+                for s in _search(product)[:5]
+            ]
+            search_error = ""
+        except Exception as exc:
+            suggestions = []
+            search_error = f"AH onbereikbaar ({exc})"
+        return render(
+            request,
+            "match_one.html",
+            product=product,
+            unit=unit,
+            back=back,
+            suggestions=suggestions,
+            search_error=search_error,
+            matched_url=product_url(mapping.ah_webshop_id) if mapping else None,
+            matched_title=mapping.ah_title if mapping else "",
+            matched_image=mapping.ah_image_url if mapping else None,
+        )
+
     def _search(query: str, limit: int = 5) -> list:
         """AH product search, using the injected stub or the real client."""
         if search_fn is not None:
@@ -2123,24 +2162,25 @@ def create_app(
         title: str = Form(""),
         image: str = Form(""),
         unit_size: str = Form(""),
+        back: str = Form(""),
     ):
         """Pin an order item to an AH product.
 
         `webshop_id` accepts a bare id or a pasted ah.nl product URL; the id is
         taken from the URL and its slug fills in the title when none is given.
         AH's own pack size is kept alongside, to offer as a suggestion later.
+        `back` returns to the page that asked (a single-product coupling from
+        a recipe order row) instead of the match page.
         """
+        if not back.startswith("/") or back.startswith("//"):
+            back = ""  # no open redirects
         ref = parse_product_ref(webshop_id)
         if ref is None:
-            return RedirectResponse("/order/match?error=id", status_code=303)
+            separator = "&" if "?" in back else "?"
+            return RedirectResponse(f"{back or '/order/match'}{separator}error=id", status_code=303)
         article_id, slug_title = ref
         label = title.strip() or slug_title or f"webshop-id {article_id}"
-        latest = store().latest_plan()
-        if latest is None:
-            raise HTTPException(404, "Geen actieve week")
-        plan_id = latest[0]
-        mapping_store = mappings()
-        mapping_store.put(
+        mappings().put(
             AHMapping(
                 product=product,
                 ah_webshop_id=article_id,
@@ -2151,17 +2191,25 @@ def create_app(
                 ah_unit_size=unit_size.strip() or None,
             )
         )
-        store().set_order_item_webshop_id(plan_id, product, unit, article_id)
+        latest = store().latest_plan()
+        if latest is not None:
+            # a product from the week's list gets its row updated; a product
+            # coupled from a recipe order row may not be on any list
+            store().set_order_item_webshop_id(latest[0], product, unit, article_id)
+        if back:
+            return RedirectResponse(back, status_code=303)
         return RedirectResponse("/order/match", status_code=303)
 
     @app.post("/order/match/unpin")
-    def order_match_unpin(product: str = Form(...), unit: str = Form(...)):
-        latest = store().latest_plan()
-        if latest is None:
-            raise HTTPException(404, "Geen actieve week")
-        plan_id = latest[0]
+    def order_match_unpin(product: str = Form(...), unit: str = Form(...), back: str = Form("")):
+        if not back.startswith("/") or back.startswith("//"):
+            back = ""  # no open redirects
         mappings().remove(product)
-        store().set_order_item_webshop_id(plan_id, product, unit, None)
+        latest = store().latest_plan()
+        if latest is not None:
+            store().set_order_item_webshop_id(latest[0], product, unit, None)
+        if back:
+            return RedirectResponse(back, status_code=303)
         return RedirectResponse("/order/match", status_code=303)
 
     @app.post("/order/match/pack")
@@ -2577,6 +2625,7 @@ def create_app(
                 {
                     "product": item.product,
                     "product_lower": key,
+                    "unit": item.unit,
                     "qty": pack.qty,
                     "source": pack.source,
                     "detail": pack.detail,
@@ -2585,8 +2634,10 @@ def create_app(
                     "note": item.note,
                     "staple": is_staple,
                     "have": key in have_products,
-                    "recipe_qty": (ingredient_rows or {}).get(
-                        key, format_amount(item.amount, item.unit)
+                    "recipe_qty": (
+                        (ingredient_rows or {}).get(f"{key}|{item.unit}")
+                        or (ingredient_rows or {}).get(key)
+                        or format_amount(item.amount, item.unit)
                     ),
                     "remove_url": _state_url(wanted_staples - {key}) if is_staple else None,
                 }
@@ -3268,11 +3319,12 @@ def create_app(
         ingredients = [
             format_amount(i.amount * factor, i.unit) + " " + i.product for i in recipe.ingredients
         ]
-        # orderable product (lowercase) -> scaled quantity, for the side-by-side
-        # table: duplicate ingredient lines of one product join into one row
+        # orderable product + unit (lowercase) -> scaled quantity, for the
+        # side-by-side table: duplicate ingredient lines of one product join
+        # into one row per unit
         ingredient_rows: dict[str, str] = {}
         for i in recipe.ingredients:
-            key = order_product(i.product)[0].lower()
+            key = f"{order_product(i.product)[0].lower()}|{i.unit}"
             qty = format_amount(i.amount * factor, i.unit)
             ingredient_rows[key] = (
                 f"{ingredient_rows[key]} + {qty}" if key in ingredient_rows else qty
