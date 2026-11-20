@@ -21,17 +21,25 @@
 <img class="recipe-img" src="{{ image_url }}" alt="{{ recipe.name }}">
 {% endif %}
 <p class="budget">
+  {% if people_shown and people_shown != recipe.servings %}
+  voor {{ people_shown }} personen <span class="muted">(recept: {{ recipe.servings }})</span>
+  {% else %}
   {{ recipe.servings }} personen
+  {% endif %}
   {% if recipe.time.total_minutes %} &middot; {{ recipe.time.total_minutes }} min{% endif %}
   {% if recipe.time.prep_ahead %} &middot; {{ recipe.time.prep_ahead }} min al eerder doen{% endif %}
   {% if recipe.protein %} &middot; {{ recipe.protein }}{% endif %}
 </p>
 <h2>Ingredi&euml;nten</h2>
+{% if order_rows %}
+{% include "_order_table.html" %}
+{% else %}
 <ul class="plain">
   {% for line in ingredients %}
   <li class="item">{{ line }}</li>
   {% endfor %}
 </ul>
+{% endif %}
 <h2>Bereiding</h2>
 <ul class="plain">
   {% for step in recipe.steps %}

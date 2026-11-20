@@ -1,0 +1,56 @@
+<table class="order-table">
+  <thead>
+    <tr>
+      <th>in huis</th>
+      <th>recept</th>
+      <th>product</th>
+      <th>bestellen</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in order_rows %}
+    <tr{% if row.have %} class="have"{% endif %}>
+      <td>
+        <form method="get" class="inline">
+          <input type="hidden" name="people" value="{{ order_people }}">
+          {% for w in order_with %}<input type="hidden" name="with" value="{{ w }}">{% endfor %}
+          {% for h in order_have %}{% if h != row.product_lower %}<input type="hidden" name="have" value="{{ h }}">{% endif %}{% endfor %}
+          <input type="checkbox" name="have" value="{{ row.product_lower }}"{% if row.have %} checked{% endif %}
+                 onchange="this.form.submit()"
+                 title="Heb ik al in huis: gaat niet mee op de lijst">
+          <noscript><button class="btn-small">ok</button></noscript>
+        </form>
+      </td>
+      <td>{{ row.recipe_qty }}</td>
+      <td>
+        {{ row.product }}
+        {% if row.staple %}<span class="muted">(voorraad)</span>{% endif %}
+      </td>
+      <td>
+        {% if row.have %}
+        <span class="muted">in huis &mdash; niets kopen</span>
+        {% else %}
+        {{ row.qty }} &times;
+        {% endif %}
+        {% if row.note %}<span class="muted">({{ row.note }})</span>{% endif %}
+        {% if not row.webshop_id %}<span class="muted">(niet gekoppeld)</span>{% endif %}
+        {% if row.source == 'derived' and row.detail %}
+        <span class="muted">[{{ row.detail }}, via AH]</span>
+        {% endif %}
+        {% if row.source == 'unknown' and not row.have %}
+        <form method="post" action="/order/match/pack" class="inline">
+          <input type="hidden" name="product" value="{{ row.product }}">
+          <input type="hidden" name="back" value="{{ order_back }}">
+          <input type="text" name="unit_size" placeholder="pakgrootte? bijv. 500 g" size="14">
+          <button class="btn-small"
+                  title="Bewaar dit als pakgrootte; de hoeveelheden kloppen dan meteen">pak opslaan</button>
+        </form>
+        {% endif %}
+        {% if row.remove_url %}
+        <a class="btn-small" href="{{ row.remove_url }}" title="Toch niet meebestellen">&minus;</a>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>

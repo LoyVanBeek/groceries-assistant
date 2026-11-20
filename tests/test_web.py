@@ -5527,7 +5527,8 @@ def test_recipe_order_block_renders_inline_and_pack_aware(tmp_path):
         assert "Open boodschappenlijst in AH" in page
         # 500 g spaghetti for 8 eaters is 1000 g: two 500 g packs, read from AH
         page = client.get("/recipes/pasta", params={"people": 8}).text
-        assert "2 &times; spaghetti" in page
+        assert "1000 g" in page  # the recipe column scales with the eaters
+        assert "2 &times;" in page  # two packs in the bestellen column
         assert 'value="/recipes/pasta?people=8"' in page  # pack form returns here
         # a plain visit has no order block
         assert 'id="bestellen"' not in client.get("/recipes/pasta").text

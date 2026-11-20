@@ -7,6 +7,7 @@ pack arithmetic or AH's own size) -> the quantities that end up in the
 """
 
 from datetime import date
+from urllib.parse import unquote
 
 from groceries_assistant.ah.deeplink import build_add_multiple_url
 from groceries_assistant.models import ProductFact, Recipe
@@ -302,15 +303,72 @@ def test_the_recipe_block_orders_a_staple_on_request(tmp_path):
         store = Store(tmp_path / "state.db")
         store.set_staple("olijfolie", True)
         page = client.get("/recipes/tomatensoep", params={"people": 4}).text
-        # 800 g tomaten against AH's 500 g pack: two packs
-        assert "2 &times; tomaten" in page
+        # 800 g tomaten against AH's 500 g pack: two packs, in the table
+        assert "order-table" in page
+        assert "2 &times;" in page
+        assert "tomaten" in page
         assert "+ op de lijst" in page and "olijfolie" in page
-        assert "1 &times; olijfolie" not in page
+        assert "(voorraad)" not in page  # not ordered, so not marked
 
         # with=olijfolie: it becomes an ordered item, marked voorraad, with a
         # minus to take it off, and the AH link includes it
         page = client.get("/recipes/tomatensoep", params={"people": 4, "with": "olijfolie"}).text
-        assert "1 &times; olijfolie" in page
         assert "(voorraad)" in page
         assert "&minus;" in page
         assert "people=4" in page and 'name="with" value="olijfolie"' in page
+
+
+def test_the_recipe_table_scales_and_ticking_in_house_updates_the_link(tmp_path):
+    """?people=8 doubles the ingredient amounts and the table shows recipe
+    quantity next to the order quantity; ticking 'in huis' drops that product
+    from the AH link and QR, and keeps the tick when regenerating."""
+    from tests.test_web import make_client
+
+    pasta = (
+        "name: Pasta\nservings: 4\ntime: {cook: 30}\ningredients:\n"
+        "  - {product: spaghetti, amount: 500, unit: g}\n"
+        "  - {product: ui, amount: 2, unit: stuks}\nsteps:\n  - Kook.\n"
+    )
+    (tmp_path / "recipes").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "recipes" / "pasta.yaml").write_text(pasta, encoding="utf-8")
+
+    class FakeProduct:
+        def __init__(self, webshop_id, title, unit_size):
+            self.webshop_id = webshop_id
+            self.title = title
+            self.unit_size = unit_size
+
+    def search(query):
+        sizes = {"spaghetti": "500 g", "ui": "6 stuks"}
+        return [FakeProduct(1000 + len(query), "AH " + query, sizes.get(query, "1 stuks"))]
+
+    with make_client(tmp_path, search_fn=search) as client:
+        plain = client.get("/recipes/pasta").text
+        assert "500 g spaghetti" in plain
+        assert "order-table" not in plain
+
+        page = client.get("/recipes/pasta", params={"people": 8}).text
+        assert "voor 8 personen" in page
+        assert "1000 g" in page  # the recipe column scales with the eaters
+        assert "order-table" in page
+        assert ">bestellen<" in page
+
+        def link(page_text):
+            for chunk in page_text.split('href="')[1:]:
+                if "add-multiple" in chunk:
+                    return unquote(chunk.split('"')[0])
+
+        # spaghetti for 8 = 1000 g -> two 500 g packs; ui for 8 = 4 stuks -> 1 net
+        assert "1009:2" in link(page)
+        assert "1002:1" in link(page)
+
+        # in huis: the spaghetti pair disappears from the link, the row dims
+        ticked = client.get("/recipes/pasta", params={"people": 8, "have": "spaghetti"}).text
+        assert "1009:2" not in link(ticked)
+        assert "1002:1" in link(ticked)
+        assert "in huis" in ticked
+        # the regenerate form keeps the tick (and it round-trips)
+        assert 'name="have" value="spaghetti"' in ticked
+
+        # without the tick the pair is back
+        assert "1009:2" in link(client.get("/recipes/pasta", params={"people": 8}).text)

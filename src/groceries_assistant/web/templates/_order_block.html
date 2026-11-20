@@ -5,6 +5,7 @@
       <input type="number" name="people" value="{{ order_people }}" min="1" max="99" size="3"
              aria-label="Aantal personen">
       {% for w in order_with %}<input type="hidden" name="with" value="{{ w }}">{% endfor %}
+      {% for h in order_have %}<input type="hidden" name="have" value="{{ h }}">{% endfor %}
       <button type="submit" class="btn-small" title="Opnieuw met dit aantal personen">opnieuw</button>
     </form>
     {% if order_link %}
@@ -14,6 +15,7 @@
     {% endif %}
   </p>
   {% if order_qr %}<div class="qr-block">{{ order_qr | safe }}</div>{% endif %}
+  {% if not order_rows %}
   <ul class="plain">
     {% for item in order_items %}
     <li class="item">
@@ -39,6 +41,7 @@
     </li>
     {% endfor %}
   </ul>
+  {% endif %}
   {% if order_staples %}
   <p class="muted">Voorraad &mdash; deze gebruikt het recept, maar staat (nog) niet op de lijst:</p>
   <ul class="plain">

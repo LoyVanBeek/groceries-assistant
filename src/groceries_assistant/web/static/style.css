@@ -276,6 +276,21 @@ table.plan td.col-day { vertical-align: top; }
 .order-block .qr-block svg { max-width: 180px; height: auto; }
 .order-block .item form.inline { margin-top: 0.25rem; }
 
+/* recept en boodschappen naast elkaar, met het 'in huis'-vinkje ertussen */
+.order-table { width: 100%; border-collapse: collapse; margin: 0.5rem 0 1rem; }
+.order-table th, .order-table td {
+  text-align: left;
+  vertical-align: top;
+  padding: 0.3rem 0.6rem 0.3rem 0;
+  border-bottom: 1px solid var(--border);
+}
+.order-table th { font-weight: 600; font-size: 0.9rem; }
+.order-table td:first-child { width: 3.5rem; }
+.order-table td:first-child input[type="checkbox"] { transform: scale(1.3); }
+.order-table tr.have td { color: var(--muted); }
+.order-table tr.have td:nth-child(3) { text-decoration: line-through; }
+
+
 .approved-badge {
   color: var(--accent);
   font-weight: 700;

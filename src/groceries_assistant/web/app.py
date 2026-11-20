@@ -2464,9 +2464,7 @@ def create_app(
             with_products = {
                 w.strip().lower() for w in request.query_params.getlist("with") if w.strip()
             }
-            back = f"/dishes/{slug}?people={people or SERVINGS}" + "".join(
-                f"&with={quote(w)}" for w in sorted(with_products)
-            )
+            back = f"/dishes/{slug}?people={people or SERVINGS}"
             entry = PlanEntry(
                 date=date.today(),
                 recipe=None,
@@ -2517,7 +2515,12 @@ def create_app(
         return {m.product.lower(): m.ah_unit_size for m in mappings().all() if m.ah_unit_size}
 
     def _order_ctx(
-        entry: PlanEntry, people: int, back: str, wanted_staples: set[str] | None = None
+        entry: PlanEntry,
+        people: int,
+        back: str,
+        wanted_staples: set[str] | None = None,
+        have_products: set[str] | None = None,
+        ingredient_rows: dict[str, str] | None = None,
     ) -> dict:
         """The inline 'bestellen' block: AH link + QR + items with pack counts.
 
@@ -2529,11 +2532,22 @@ def create_app(
         query parameter): they flow through as normal items, marked
         '(voorraad)', and the staples this entry uses but that are not wanted
         get a '+' link to pull them in.
+
+        `have_products` names items ticked 'in huis': they are dropped from
+        the AH link and QR and shown as already owned. `ingredient_rows` maps
+        the orderable product (lowercase) to the scaled recipe quantity, so
+        the recipe page can show recipe and order side by side.
         """
         wanted_staples = wanted_staples or set()
+        have_products = have_products or set()
 
-        def _with_url(staples: set[str]) -> str:
-            return back + "".join(f"&with={quote(p)}" for p in sorted(staples))
+        def _state_url(staples: set[str]) -> str:
+            """The page URL with this exact with=/have= state, people kept."""
+            return (
+                back
+                + "".join(f"&with={quote(p)}" for p in sorted(staples))
+                + "".join(f"&have={quote(p)}" for p in sorted(have_products))
+            )
 
         facts = store().product_facts()
         staples = [s for s in store().staples() if s.lower() not in wanted_staples]
@@ -2554,13 +2568,15 @@ def create_app(
         matched = _match([i.product for i in order.shopping])
         items = []
         for item in order.shopping:
+            key = item.product.lower()
             pack = ah_pack_qty(
                 item.product, item.amount, item.unit, item.pack_count, facts, _unit_sizes()
             )
-            is_staple = item.product.lower() in wanted_staples
+            is_staple = key in wanted_staples
             items.append(
                 {
                     "product": item.product,
+                    "product_lower": key,
                     "qty": pack.qty,
                     "source": pack.source,
                     "detail": pack.detail,
@@ -2568,30 +2584,41 @@ def create_app(
                     "need": format_amount(item.amount, item.unit),
                     "note": item.note,
                     "staple": is_staple,
-                    "remove_url": _with_url(wanted_staples - {item.product.lower()})
-                    if is_staple
-                    else None,
+                    "have": key in have_products,
+                    "recipe_qty": (ingredient_rows or {}).get(
+                        key, format_amount(item.amount, item.unit)
+                    ),
+                    "remove_url": _state_url(wanted_staples - {key}) if is_staple else None,
                 }
             )
-        pairs = [(i["webshop_id"], i["qty"]) for i in items if i["webshop_id"]]
+        # in-house items are owned, so they are not bought: no pair, no QR cell
+        pairs = [(i["webshop_id"], i["qty"]) for i in items if i["webshop_id"] and not i["have"]]
         link = build_add_multiple_url(pairs[:25]) if pairs else ""
-        return {
+        ctx = {
             "order_link": link,
             "order_qr": generate_qr_svg(link) if link else "",
             "order_people": people or SERVINGS,
-            "order_back": back,
+            # the full current state (people + with + have), so a form that
+            # leaves the page comes back to exactly this view
+            "order_back": _state_url(wanted_staples),
             "order_with": sorted(wanted_staples),
+            "order_have": sorted(have_products),
             "order_items": items,
             # the staples this entry uses but that are not being ordered
             "order_staples": [
                 {
                     "product": s.product,
                     "need": format_amount(s.amount, s.unit),
-                    "add_url": _with_url(wanted_staples | {s.product.lower()}),
+                    "add_url": _state_url(wanted_staples | {s.product.lower()}),
                 }
                 for s in order.staples
             ],
         }
+        if ingredient_rows is not None:
+            # the recipe page shows recipe quantity and order quantity side by
+            # side, with the in-house checkbox between them
+            ctx["order_rows"] = items
+        return ctx
 
     def _recipe_order_entry(recipe: Recipe, people: int) -> PlanEntry:
         """One cook entry for this recipe alone, for the order block."""
@@ -3233,23 +3260,43 @@ def create_app(
         except RecipeError as exc:
             raise HTTPException(404, str(exc)) from exc
         image = image_path(slug)
+        # the ingredient amounts scale with the number of eaters
+        factor = (people / recipe.servings) if (people and recipe.servings) else 1.0
+        ingredients = [
+            format_amount(i.amount * factor, i.unit) + " " + i.product for i in recipe.ingredients
+        ]
+        # orderable product (lowercase) -> scaled quantity, for the side-by-side
+        # table: duplicate ingredient lines of one product join into one row
+        ingredient_rows: dict[str, str] = {}
+        for i in recipe.ingredients:
+            key = order_product(i.product)[0].lower()
+            qty = format_amount(i.amount * factor, i.unit)
+            ingredient_rows[key] = (
+                f"{ingredient_rows[key]} + {qty}" if key in ingredient_rows else qty
+            )
         ctx: dict = {}
         if people is not None:
             with_products = {
                 w.strip().lower() for w in request.query_params.getlist("with") if w.strip()
             }
-            back = f"/recipes/{slug}?people={people or SERVINGS}" + "".join(
-                f"&with={quote(w)}" for w in sorted(with_products)
+            have_products = {
+                w.strip().lower() for w in request.query_params.getlist("have") if w.strip()
+            }
+            ctx = _order_ctx(
+                _recipe_order_entry(recipe, people),
+                people,
+                f"/recipes/{slug}?people={people or SERVINGS}",
+                wanted_staples=with_products,
+                have_products=have_products,
+                ingredient_rows=ingredient_rows,
             )
-            ctx = _order_ctx(_recipe_order_entry(recipe, people), people, back, with_products)
         return render(
             request,
             "recipe_view.html",
             recipe=recipe,
             image_url=f"/recipes/img/{image.name}" if image else None,
-            ingredients=[
-                format_amount(i.amount, i.unit) + " " + i.product for i in recipe.ingredients
-            ],
+            ingredients=ingredients,
+            people_shown=people,
             **ctx,
         )
 
