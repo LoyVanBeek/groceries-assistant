@@ -40,9 +40,7 @@
       {% for r in item.recipes %}{% if not loop.first %}, {% endif %}<a href="{{ r.href }}">{{ r.name }}</a>{% endfor %}</span>
     {% endif %}
     {% if item.unknown_pack %}
-    <a class="muted"
-       href="/order/match/one?product={{ item.product | urlencode }}&amp;unit={{ item.unit | urlencode }}&amp;back=/order"
-       title="Verpakking opgeven zodat de AH-hoeveelheden kloppen">pakgrootte opgeven?</a>
+    <span class="muted">(pakgrootte op de <a href="/order/match/one?product={{ item.product | urlencode }}&amp;back=/order">koppelpagina</a> zetten voor hele verpakkingen)</span>
     {% endif %}
   </li>
   {% endfor %}

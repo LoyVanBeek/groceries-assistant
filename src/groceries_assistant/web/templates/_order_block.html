@@ -45,9 +45,7 @@
       <a class="btn-small" href="{{ item.remove_url }}" title="Toch niet meebestellen">&minus;</a>
       {% endif %}
       {% if item.source == 'unknown' %}
-      <a class="muted"
-         href="/order/match/one?product={{ item.product | urlencode }}&amp;unit={{ item.unit | urlencode }}&amp;back={{ order_back | urlencode }}"
-         title="Verpakking opgeven zodat de aantallen kloppen">pakgrootte opgeven?</a>
+      <span class="muted">(pakgrootte op de koppelpagina zetten voor hele verpakkingen)</span>
       {% endif %}
     </li>
     {% endfor %}

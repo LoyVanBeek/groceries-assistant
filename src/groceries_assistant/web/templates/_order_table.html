@@ -52,11 +52,6 @@
         {% if row.source == 'derived' and row.detail %}
         <span class="muted">[{{ row.detail }}, via AH]</span>
         {% endif %}
-        {% if row.source == 'unknown' and not row.have %}
-        <a class="muted"
-           href="/order/match/one?product={{ row.product | urlencode }}&amp;unit={{ row.unit | urlencode }}&amp;back={{ order_back | urlencode }}"
-           title="Verpakking opgeven zodat de aantallen kloppen">pakgrootte opgeven?</a>
-        {% endif %}
         {% if row.remove_url %}
         <a class="btn-small" href="{{ row.remove_url }}" title="Toch niet meebestellen">&minus;</a>
         {% endif %}

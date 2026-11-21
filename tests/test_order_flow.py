@@ -783,9 +783,9 @@ def test_the_match_page_edits_the_pack_size(tmp_path):
         assert "verpakking opslaan" not in page
 
 
-def test_the_recipe_table_points_pack_questions_at_the_match_page(tmp_path):
-    """The inline pakgrootte form is gone: an unconvertible line links to the
-    match page, where the pack editor now lives."""
+def test_the_recipe_table_leaves_pack_sizes_to_the_match_page(tmp_path):
+    """No pack affordance on the recipe table at all: pack sizes live on the
+    match page, reached through koppel/wijzig; the row just shows its count."""
     from tests.test_web import make_client
 
     (tmp_path / "recipes").mkdir(parents=True, exist_ok=True)
@@ -798,5 +798,12 @@ def test_the_recipe_table_points_pack_questions_at_the_match_page(tmp_path):
     with make_client(tmp_path, search_fn=lambda q: []) as client:
         page = client.get("/recipes/pasta").text
         assert 'action="/order/match/pack"' not in page  # no inline form
-        assert "pakgrootte opgeven?" in page
-        assert "match/one?product=olijfolie&amp;unit=el" in page
+        assert "pakgrootte" not in page  # no pack prompt on recipe pages
+        # the row still shows its one-pack fallback and the koppel button
+        assert "1 &times;" in page
+        assert ">koppel</a>" in page
+        # the pack editor itself lives on the match page
+        editor = client.get(
+            "/order/match/one", params={"product": "olijfolie", "back": "/recipes/pasta"}
+        ).text
+        assert "verpakking opslaan" in editor
