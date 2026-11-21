@@ -2108,6 +2108,32 @@ def create_app(
             fmt=format_amount,
         )
 
+    def _kitchen_product_sources() -> dict[str, list[dict]]:
+        """Which recipes and dishes need each product, across the whole library.
+
+        Keyed by the orderable product name (lowercase), like the week list's
+        `_product_sources`. A recipe attributes its ingredients to itself; a
+        component attributes to the dishes that name it as a part option.
+        """
+        sources: dict[str, dict[str, str]] = {}
+        for recipe in load_all()[0]:
+            for ingredient in recipe.ingredients:
+                name, _note = order_product(ingredient.product)
+                per = sources.setdefault(name.lower(), {})
+                per.setdefault(recipe.name, f"/recipes/{recipe.slug}")
+        components = components_by_slug()
+        for dish in dishes_by_slug().values():
+            for part in dish.parts:
+                for option in part.options:
+                    component = components.get(option.slug)
+                    if component is not None:
+                        per = sources.setdefault(component.name.lower(), {})
+                        per.setdefault(dish.name, f"/dishes/{dish.slug}")
+        return {
+            product: [{"name": n, "href": h} for n, h in sorted(names.items())]
+            for product, names in sources.items()
+        }
+
     @app.get("/matches", response_class=HTMLResponse)
     def matches_page(request: Request):
         """All AH couplings, with the kitchen's uncoupled products on top.
@@ -2128,6 +2154,7 @@ def create_app(
         for component in load_components_all()[0]:
             used.add(component.name.lower())
         unmatched = sorted(used - set(by_lower))
+        sources = _kitchen_product_sources()
         matched_rows = []
         for m in sorted(mapping_store.all(), key=lambda m: m.product.lower()):
             suggestion = fact_from_unit_size(m.product, m.ah_unit_size) if m.ah_unit_size else None
@@ -2145,7 +2172,13 @@ def create_app(
                     ),
                 }
             )
-        return render(request, "matches.html", unmatched=unmatched, matched=matched_rows)
+        return render(
+            request,
+            "matches.html",
+            unmatched=unmatched,
+            matched=matched_rows,
+            sources=sources,
+        )
 
     @app.get("/order/match/one", response_class=HTMLResponse)
     def order_match_one(request: Request, product: str, unit: str = "", back: str = "/order"):

@@ -9,17 +9,26 @@
 <p><input type="search" id="match-filter" placeholder="filter op product&hellip;" autocomplete="off"></p>
 
 <h2>Nog te koppelen</h2>
-<ul class="plain" id="match-unmatched">
-  {% for p in unmatched %}
-  <li class="item" data-name="{{ p | lower }}">
-    {{ p }}
-    <a class="btn-small" href="/order/match/one?product={{ p | urlencode }}&amp;back=/matches"
-       title="Koppel dit product aan een AH-artikel">koppel</a>
-  </li>
-  {% else %}
-  <li class="muted">Alles wat de keuken gebruikt is gekoppeld.</li>
-  {% endfor %}
-</ul>
+<table class="match-queue" id="match-unmatched">
+  <tbody>
+    {% for p in unmatched %}
+    <tr data-name="{{ p | lower }}">
+      <td>
+        <a class="btn-small" href="/order/match/one?product={{ p | urlencode }}&amp;back=/matches"
+           title="Koppel dit product aan een AH-artikel">koppel</a>
+      </td>
+      <td>{{ p }}</td>
+      <td class="item-source">
+        {% for r in sources.get(p, []) %}
+        {% if not loop.first %}, {% endif %}<a href="{{ r.href }}">{{ r.name }}</a>
+        {% endfor %}
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="3" class="muted">Alles wat de keuken gebruikt is gekoppeld.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
 
 <h2>Gekoppeld</h2>
 <ul class="plain" id="match-matched">
@@ -56,7 +65,7 @@
     if (!input) return;
     input.addEventListener('input', function () {
       var needle = input.value.toLowerCase();
-      var rows = document.querySelectorAll('#match-unmatched li, #match-matched li');
+      var rows = document.querySelectorAll('#match-unmatched tr, #match-matched li');
       for (var i = 0; i < rows.length; i++) {
         var name = rows[i].getAttribute('data-name') || '';
         rows[i].style.display = name.indexOf(needle) === -1 ? 'none' : '';

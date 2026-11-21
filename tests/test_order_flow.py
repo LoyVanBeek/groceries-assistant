@@ -488,6 +488,16 @@ def test_the_matches_page_lists_couplings_and_the_work_queue(tmp_path):
         "  - {product: zout, amount: 2, unit: el}\nsteps:\n  - Kook.\n",
         encoding="utf-8",
     )
+    (tmp_path / "components").mkdir(exist_ok=True)
+    (tmp_path / "components" / "krieltjes.yaml").write_text(
+        "name: Krieltjes\namount: 400\nunit: g\nminutes: 25\n", encoding="utf-8"
+    )
+    (tmp_path / "dishes").mkdir(exist_ok=True)
+    (tmp_path / "dishes" / "aardappel-groente.yaml").write_text(
+        "slug: aardappel-groente\nname: Aardappel-groente\nparts:\n"
+        "  - label: Groente\n    options:\n      - slug: krieltjes\n",
+        encoding="utf-8",
+    )
     AHMappingStore(Store(tmp_path / "state.db")).put(
         AHMapping(
             product="spaghetti",
@@ -506,6 +516,21 @@ def test_the_matches_page_lists_couplings_and_the_work_queue(tmp_path):
         assert 'href="/order/match/one?product=zout&amp;back=/matches"' in page
         unmatched_block = page[page.find('id="match-unmatched"') : page.find('id="match-matched"')]
         assert "spaghetti" not in unmatched_block
+        # each queued row: koppel button first, then the product, then where
+        # it is needed (recipes by name, dishes for components)
+        row = page[
+            page.find('<tr data-name="zout">') : page.find(
+                "</tr>", page.find('<tr data-name="zout">')
+            )
+        ]
+        assert row.index("match/one") < row.index("<td>zout</td>")  # button column first
+        assert 'href="/recipes/pasta"' in row and "Pasta" in row
+        krieltjes_row = page[
+            page.find('<tr data-name="krieltjes">') : page.find(
+                "</tr>", page.find('<tr data-name="krieltjes">')
+            )
+        ]
+        assert 'href="/dishes/aardappel-groente"' in krieltjes_row
         # the coupled row: article link, AH's own size, pack-adopt offered
         assert "/producten/product/wi551" in page
         assert "volkoren spaghetti" in page
