@@ -4126,6 +4126,9 @@ def test_a_pack_without_a_known_piece_weight_is_refused(tmp_path):
 
 
 def test_the_match_page_offers_ahs_own_pack_size(tmp_path):
+    """Pinning a suggestion adopts AH's own size as the product's fact right
+    away, so the match page shows 'verpakking bekend' instead of an offer."""
+
     class FakeProduct:
         def __init__(self, webshop_id, title, unit_size):
             self.webshop_id = webshop_id
@@ -4146,18 +4149,19 @@ def test_the_match_page_offers_ahs_own_pack_size(tmp_path):
             follow_redirects=False,
         )
 
-        page = client.get("/order/match")
-        assert "voeg verpakking toe (350 g)" in page.text
+        fact = Store(tmp_path / "state.db").product_fact("broccoli")
+        assert (fact.pack_qty, fact.pack_unit) == (350, "g")
+        assert "verpakking bekend" in client.get("/order/match").text
 
+        # saving a size by hand still works (and overwrites the adopted one)
         stored = client.post(
             "/order/match/pack",
-            data={"product": "broccoli", "unit_size": "350 g"},
+            data={"product": "broccoli", "unit_size": "400 g"},
             follow_redirects=False,
         )
         assert stored.status_code == 303
         fact = Store(tmp_path / "state.db").product_fact("broccoli")
-        assert (fact.pack_qty, fact.pack_unit) == (350, "g")
-        assert "verpakking bekend" in client.get("/order/match").text
+        assert (fact.pack_qty, fact.pack_unit) == (400, "g")
 
 
 def test_an_unreadable_pack_size_is_not_offered(tmp_path):

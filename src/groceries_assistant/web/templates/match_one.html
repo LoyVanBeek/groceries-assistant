@@ -19,6 +19,24 @@
   </form>
 </div>
 {% endif %}
+<h2>Verpakking</h2>
+{% if pack_label and not pack_editable %}
+<p class="muted">
+  Verpakking bekend: {{ pack_label }}. Een stukgewicht wijzig je op de
+  <a href="/settings">instellingenpagina</a>.
+</p>
+{% else %}
+<form method="post" action="/order/match/pack" class="inline">
+  <input type="hidden" name="product" value="{{ product }}">
+  <input type="hidden" name="back" value="{{ back }}">
+  <input type="text" name="unit_size" value="{{ pack_prefill }}"
+         placeholder="bijv. 500 g of 6 stuks" size="18">
+  <button class="btn-small">verpakking opslaan</button>
+</form>
+{% if pack_label %}<span class="muted">nu: {{ pack_label }}</span>{% endif %}
+{% if pack_prefill %}<span class="muted">(overgenomen van AH)</span>
+{% else %}<span class="muted">zoals op de AH-verpakking, bijv. 500 g of 6 stuks</span>{% endif %}
+{% endif %}
 <h2>Suggesties van AH</h2>
 {% if search_error %}
 <p class="warnings">{{ search_error }}</p>

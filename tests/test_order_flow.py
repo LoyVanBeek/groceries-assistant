@@ -658,3 +658,145 @@ def test_pinning_from_the_matches_queue_needs_no_unit(tmp_path):
             .fetchall()
         )
         assert saved and all(row[0] is None for row in saved)
+
+
+def test_pinning_adopts_ahs_pack_size_automatically(tmp_path):
+    """A suggestion carries AH's own size: pinning saves it as the product's
+    fact, so the order table computes whole packs without a second step."""
+    from tests.test_web import make_client
+
+    (tmp_path / "recipes").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "recipes" / "pasta.yaml").write_text(
+        "name: Pasta\nservings: 4\ntime: {cook: 30}\ningredients:\n"
+        "  - {product: spaghetti, amount: 1500, unit: g}\nsteps:\n  - Kook.\n",
+        encoding="utf-8",
+    )
+    with make_client(tmp_path) as client:
+        resp = client.post(
+            "/order/match/pin",
+            data={
+                "product": "spaghetti",
+                "unit": "",
+                "webshop_id": "551",
+                "title": "AH spaghetti",
+                "unit_size": "500 g",
+                "back": "/recipes/pasta",
+            },
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        facts = Store(tmp_path / "state.db").product_facts()
+        assert facts["spaghetti"].pack_qty == 500
+        # the order table now computes packs: 1500 g -> three 500 g packs
+        page = client.get("/recipes/pasta").text
+        assert "3 &times;" in page
+        assert "(niet gekoppeld)" not in page
+
+
+def test_pinning_never_overwrites_an_existing_fact(tmp_path):
+    """A pack size the human set themselves is not replaced by AH's own."""
+    from tests.test_web import make_client
+
+    (tmp_path / "recipes").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "recipes" / "pasta.yaml").write_text(
+        "name: Pasta\nservings: 4\ntime: {cook: 30}\ningredients:\n"
+        "  - {product: spaghetti, amount: 500, unit: g}\nsteps:\n  - Kook.\n",
+        encoding="utf-8",
+    )
+    Store(tmp_path / "state.db").set_product_fact(
+        ProductFact(product="spaghetti", pack_qty=250, pack_unit="g")
+    )
+    with make_client(tmp_path) as client:
+        client.post(
+            "/order/match/pin",
+            data={
+                "product": "spaghetti",
+                "unit": "",
+                "webshop_id": "551",
+                "title": "AH spaghetti",
+                "unit_size": "500 g",
+            },
+            follow_redirects=False,
+        )
+        fact = Store(tmp_path / "state.db").product_facts()["spaghetti"]
+        assert fact.pack_qty == 250  # untouched
+
+
+def test_the_match_page_edits_the_pack_size(tmp_path):
+    """match/one shows a verpakking editor prefilled from the fact or AH's
+    own size; saving returns to the page that asked."""
+    from tests.test_web import make_client
+
+    (tmp_path / "recipes").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "recipes" / "pasta.yaml").write_text(
+        "name: Pasta\nservings: 4\ntime: {cook: 30}\ningredients:\n"
+        "  - {product: spaghetti, amount: 500, unit: g}\nsteps:\n  - Kook.\n",
+        encoding="utf-8",
+    )
+    with make_client(tmp_path) as client:
+        # no fact, no mapping: empty input with a hint
+        page = client.get(
+            "/order/match/one", params={"product": "spaghetti", "back": "/recipes/pasta"}
+        ).text
+        assert "verpakking opslaan" in page
+        assert 'name="unit_size" value=""' in page
+        # pin with AH's size: the fact exists, the editor is prefilled with it
+        client.post(
+            "/order/match/pin",
+            data={
+                "product": "spaghetti",
+                "unit": "",
+                "webshop_id": "551",
+                "title": "AH spaghetti",
+                "unit_size": "500 g",
+                "back": "/recipes/pasta",
+            },
+            follow_redirects=False,
+        )
+        page = client.get(
+            "/order/match/one", params={"product": "spaghetti", "back": "/recipes/pasta"}
+        ).text
+        assert 'name="unit_size" value="500 g"' in page
+        assert "nu: 500 g" in page
+        # saving a new size returns to the recipe page and updates the fact
+        resp = client.post(
+            "/order/match/pack",
+            data={"product": "spaghetti", "unit_size": "250 g", "back": "/recipes/pasta"},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/recipes/pasta"
+        assert Store(tmp_path / "state.db").product_facts()["spaghetti"].pack_qty == 250
+
+        # a piece-weight fact is shown read-only (editing it here would drop
+        # the weight); it is changed on the settings page
+        Store(tmp_path / "state.db").set_product_fact(
+            ProductFact(
+                product="broccoli", pack_qty=1, pack_unit="stuk", unit_qty=350, unit_measure="g"
+            )
+        )
+        page = client.get(
+            "/order/match/one", params={"product": "broccoli", "back": "/matches"}
+        ).text
+        assert "(350 g per stuk)" in page
+        assert "instellingenpagina" in page
+        assert "verpakking opslaan" not in page
+
+
+def test_the_recipe_table_points_pack_questions_at_the_match_page(tmp_path):
+    """The inline pakgrootte form is gone: an unconvertible line links to the
+    match page, where the pack editor now lives."""
+    from tests.test_web import make_client
+
+    (tmp_path / "recipes").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "recipes" / "pasta.yaml").write_text(
+        "name: Pasta\nservings: 4\ntime: {cook: 30}\ningredients:\n"
+        "  - {product: spaghetti, amount: 500, unit: g}\n"
+        "  - {product: olijfolie, amount: 2, unit: el}\nsteps:\n  - Kook.\n",
+        encoding="utf-8",
+    )
+    with make_client(tmp_path, search_fn=lambda q: []) as client:
+        page = client.get("/recipes/pasta").text
+        assert 'action="/order/match/pack"' not in page  # no inline form
+        assert "pakgrootte opgeven?" in page
+        assert "match/one?product=olijfolie&amp;unit=el" in page

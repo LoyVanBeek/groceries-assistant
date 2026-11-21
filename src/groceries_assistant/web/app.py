@@ -2191,6 +2191,7 @@ def create_app(
         if not back.startswith("/") or back.startswith("//"):
             back = "/order"  # no open redirects
         mapping = mappings().get(product)
+        fact = store().product_facts().get(product.lower())
         try:
             suggestions = [
                 {
@@ -2206,6 +2207,23 @@ def create_app(
         except Exception as exc:
             suggestions = []
             search_error = f"AH onbereikbaar ({exc})"
+        if fact is not None and fact.unit_measure:
+            # a pack of pieces with a known piece weight: editing it here
+            # would drop the weight, so that happens on the settings page
+            pack_label = (
+                f"{fact.pack_qty:g} {fact.pack_unit}"
+                f" ({fact.unit_qty:g} {fact.unit_measure} per stuk)"
+            )
+            pack_editable = False
+            pack_prefill = ""
+        elif fact is not None:
+            pack_label = f"{fact.pack_qty:g} {fact.pack_unit}"
+            pack_editable = True
+            pack_prefill = pack_label
+        else:
+            pack_label = ""
+            pack_editable = True
+            pack_prefill = mapping.ah_unit_size if mapping and mapping.ah_unit_size else ""
         return render(
             request,
             "match_one.html",
@@ -2217,6 +2235,9 @@ def create_app(
             matched_url=product_url(mapping.ah_webshop_id) if mapping else None,
             matched_title=mapping.ah_title if mapping else "",
             matched_image=mapping.ah_image_url if mapping else None,
+            pack_label=pack_label,
+            pack_editable=pack_editable,
+            pack_prefill=pack_prefill,
         )
 
     def _search(query: str, limit: int = 5) -> list:
@@ -2268,6 +2289,13 @@ def create_app(
                 ah_unit_size=unit_size.strip() or None,
             )
         )
+        # AH's own pack size comes with the suggestion; adopt it as the
+        # product's fact when there is none yet, so quantities are pack-aware
+        # right away. An existing fact is never overwritten from here.
+        if unit_size.strip() and product.lower() not in store().product_facts():
+            fact = fact_from_unit_size(product, unit_size)
+            if fact is not None:
+                store().set_product_fact(fact)
         latest = store().latest_plan()
         if latest is not None:
             if unit.strip():
