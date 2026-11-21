@@ -364,6 +364,13 @@ def test_the_recipe_table_scales_and_ticking_in_house_updates_the_link(tmp_path)
         assert "1009:2" in link(page)
         assert "1002:1" in link(page)
 
+        # the coupled rows show their match chip and a review link carrying
+        # product, unit and the full page state to come back to
+        assert "&#10003; AH spaghetti" in page
+        assert "/producten/product/wi1009" in page or "match/one" in page
+        assert "match/one?product=spaghetti&amp;unit=g&amp;back=" in page
+        assert "match/one?product=ui&amp;unit=stuks&amp;back=" in page
+
         # in huis: the spaghetti pair disappears from the link, the row dims
         ticked = client.get("/recipes/pasta", params={"people": 8, "have": "spaghetti"}).text
         assert "1009:2" not in link(ticked)
@@ -403,8 +410,10 @@ def test_an_unmatched_product_couples_from_the_order_table(tmp_path):
         page = client.get("/recipes/pasta").text
         assert "niet gekoppeld" in page
         assert 'href="/order/match/one?product=zout' in page
-        # the matched product gets no coupling link
-        assert "match/one?product=spaghetti" not in page
+        assert "koppel" in page
+        # the matched product gets a review chip + wijzig, not a koppel button
+        assert "match/one?product=spaghetti" in page  # the wijzig review link
+        assert page.count(">koppel</a>") == 1  # only the unmatched product
 
         # the one-product page: manual pin form carries the back target
         one = client.get(

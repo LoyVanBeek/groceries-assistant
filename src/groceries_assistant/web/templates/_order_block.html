@@ -27,6 +27,16 @@
       <a class="btn-small"
          href="/order/match/one?product={{ item.product | urlencode }}&amp;unit={{ item.unit | urlencode }}&amp;back={{ order_back | urlencode }}"
          title="Koppel dit product aan een AH-artikel">koppel</a>
+      {% else %}
+      <span class="match-chip">
+        {% if item.match_image %}<img class="ah-thumb" src="{{ item.match_image }}" alt="" loading="lazy">{% endif %}
+        <a class="ah-link" href="{{ item.match_url }}" target="_blank" rel="noopener">
+          &#10003; {{ item.match_title }}
+        </a>
+      </span>
+      <a class="btn-small"
+         href="/order/match/one?product={{ item.product | urlencode }}&amp;unit={{ item.unit | urlencode }}&amp;back={{ order_back | urlencode }}"
+         title="Bekijk of wijzig deze koppeling">wijzig</a>
       {% endif %}
       {% if item.source == 'derived' and item.detail %}
       <span class="muted">[{{ item.detail }}, via AH]</span>

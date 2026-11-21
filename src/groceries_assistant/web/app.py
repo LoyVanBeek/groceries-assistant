@@ -2702,6 +2702,7 @@ def create_app(
                 item.product, item.amount, item.unit, item.pack_count, facts, _unit_sizes()
             )
             is_staple = key in wanted_staples
+            mapping = mappings().get(item.product)
             items.append(
                 {
                     "product": item.product,
@@ -2711,6 +2712,9 @@ def create_app(
                     "source": pack.source,
                     "detail": pack.detail,
                     "webshop_id": matched.get(item.product, (None, ""))[0],
+                    "match_url": product_url(mapping.ah_webshop_id) if mapping else None,
+                    "match_title": mapping.ah_title if mapping else "",
+                    "match_image": mapping.ah_image_url if mapping else None,
                     "need": format_amount(item.amount, item.unit),
                     "note": item.note,
                     "staple": is_staple,
