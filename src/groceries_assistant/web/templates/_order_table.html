@@ -27,34 +27,44 @@
         {% if row.staple %}<span class="muted">(voorraad)</span>{% endif %}
       </td>
       <td>
-        {% if row.have %}
-        <span class="muted">in huis &mdash; niets kopen</span>
-        {% else %}
-        {{ row.qty }} &times;
-        {% endif %}
-        {% if row.note %}<span class="muted">({{ row.note }})</span>{% endif %}
-        {% if not row.webshop_id %}
-        <span class="muted">(niet gekoppeld)</span>
-        <a class="btn-small"
-           href="/order/match/one?product={{ row.product | urlencode }}&amp;unit={{ row.unit | urlencode }}&amp;back={{ order_back | urlencode }}"
-           title="Koppel dit product aan een AH-artikel">koppel</a>
-        {% else %}
-        <span class="match-chip">
-          {% if row.match_image %}<img class="ah-thumb" src="{{ row.match_image }}" alt="" loading="lazy">{% endif %}
-          <a class="ah-link" href="{{ row.match_url }}" target="_blank" rel="noopener">
-            &#10003; {{ row.match_title }}
-          </a>
-        </span>
-        <a class="btn-small"
-           href="/order/match/one?product={{ row.product | urlencode }}&amp;unit={{ row.unit | urlencode }}&amp;back={{ order_back | urlencode }}"
-           title="Bekijk of wijzig deze koppeling">wijzig</a>
-        {% endif %}
-        {% if row.source == 'derived' and row.detail %}
-        <span class="muted">[{{ row.detail }}, via AH]</span>
-        {% endif %}
-        {% if row.remove_url %}
-        <a class="btn-small" href="{{ row.remove_url }}" title="Toch niet meebestellen">&minus;</a>
-        {% endif %}
+        <div class="order-cell">
+          <span class="order-line">
+            {% if row.have %}
+            <span class="muted">in huis &mdash; niets kopen</span>
+            {% else %}
+            <span class="order-qty">{{ row.qty }} &times;</span>
+            {% endif %}
+            {% if row.note %}<span class="muted">({{ row.note }})</span>{% endif %}
+          </span>
+          <span class="order-line">
+            {% if not row.webshop_id %}
+            <span class="muted">(niet gekoppeld)</span>
+            <a class="btn-small"
+               href="/order/match/one?product={{ row.product | urlencode }}&amp;unit={{ row.unit | urlencode }}&amp;back={{ order_back | urlencode }}"
+               title="Koppel dit product aan een AH-artikel">koppel</a>
+            {% else %}
+            <span class="match-chip">
+              {% if row.match_image %}<img class="ah-thumb" src="{{ row.match_image }}" alt="" loading="lazy">{% endif %}
+              <a class="ah-link" href="{{ row.match_url }}" target="_blank" rel="noopener">
+                &#10003; {{ row.match_title }}
+              </a>
+            </span>
+            <a class="btn-small"
+               href="/order/match/one?product={{ row.product | urlencode }}&amp;unit={{ row.unit | urlencode }}&amp;back={{ order_back | urlencode }}"
+               title="Bekijk of wijzig deze koppeling">wijzig</a>
+            {% endif %}
+          </span>
+          {% if row.source == 'derived' and row.detail or row.remove_url %}
+          <span class="order-line">
+            {% if row.source == 'derived' and row.detail %}
+            <span class="muted">[{{ row.detail }}, via AH]</span>
+            {% endif %}
+            {% if row.remove_url %}
+            <a class="btn-small" href="{{ row.remove_url }}" title="Toch niet meebestellen">&minus;</a>
+            {% endif %}
+          </span>
+          {% endif %}
+        </div>
       </td>
     </tr>
     {% endfor %}

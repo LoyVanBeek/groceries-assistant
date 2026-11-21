@@ -274,7 +274,6 @@ table.plan td.col-day { vertical-align: top; }
 /* het inline 'bestellen'-blok op de recept- en gerechtpagina */
 .order-block { margin: 1rem 0; }
 .order-block .qr-block svg { max-width: 180px; height: auto; }
-.order-block .item form.inline { margin-top: 0.25rem; }
 
 /* recept en boodschappen naast elkaar, met het 'in huis'-vinkje ertussen */
 .order-table { width: 100%; border-collapse: collapse; margin: 0.5rem 0 1rem; }.order-table th, .order-table td {
@@ -288,8 +287,15 @@ table.plan td.col-day { vertical-align: top; }
 .order-table td:first-child input[type="checkbox"] { transform: scale(1.3); }
 .order-table tr.have td { color: var(--muted); }
 .order-table tr.have td:nth-child(3) { text-decoration: line-through; }
-.order-table .match-chip { display: inline-flex; align-items: center; gap: 0.35rem; margin-right: 0.3rem; }
 .order-table .match-chip img.ah-thumb { max-width: 30px; max-height: 30px; }
+
+/* het Bestellen-veld: drie uitgelijnde regels (aantal / artikel / hints) */
+.order-cell { display: flex; flex-direction: column; gap: 0.3rem; }
+.order-line { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+.order-line .match-chip,
+.match-chip { display: inline-flex; align-items: center; gap: 0.35rem; }
+.order-line .match-chip img.ah-thumb { max-width: 30px; max-height: 30px; }
+.order-qty { font-weight: 600; white-space: nowrap; }
 
 /* de koppel-wachtrij op /matches: knoppen in een uitgelijnde kolom */
 .match-queue { border-collapse: collapse; margin: 0.5rem 0 1rem; }

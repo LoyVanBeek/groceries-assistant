@@ -354,6 +354,9 @@ def test_the_recipe_table_scales_and_ticking_in_house_updates_the_link(tmp_path)
         assert "1000 g" in page  # the recipe column scales with the eaters
         assert "order-table" in page
         assert ">bestellen<" in page
+        # the bestellen cell is three aligned flex lines per row
+        assert 'class="order-cell"' in page
+        assert page.count('class="order-line"') >= 4  # qty + article lines
 
         def link(page_text):
             for chunk in page_text.split('href="')[1:]:
