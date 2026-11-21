@@ -296,7 +296,14 @@ table.plan td.col-day { vertical-align: top; }
   vertical-align: top;
   border-bottom: 1px solid var(--border);
 }
-.match-queue td:first-child { width: 6rem; }
+.match-queue td:first-child { width: 6.5rem; }
+.match-queue td:first-child img.ah-thumb { max-width: 42px; max-height: 42px; }
+.match-queue .match-section td {
+  font-weight: 600;
+  font-size: 0.95rem;
+  padding-top: 1rem;
+  border-bottom: 2px solid var(--border);
+}
 
 
 

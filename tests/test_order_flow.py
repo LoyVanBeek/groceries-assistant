@@ -514,8 +514,9 @@ def test_the_matches_page_lists_couplings_and_the_work_queue(tmp_path):
         # the queue on top: the uncoupled kitchen product, not the coupled one
         assert "zout" in page
         assert 'href="/order/match/one?product=zout&amp;back=/matches"' in page
-        unmatched_block = page[page.find('id="match-unmatched"') : page.find('id="match-matched"')]
-        assert "spaghetti" not in unmatched_block
+        # one table, two sections: the queue on top, couplings below
+        queue = page[page.find("Nog te koppelen") : page.find(">Gekoppeld<")]
+        assert "spaghetti" not in queue
         # each queued row: koppel button first, then the product, then where
         # it is needed (recipes by name, dishes for components)
         row = page[
@@ -531,12 +532,19 @@ def test_the_matches_page_lists_couplings_and_the_work_queue(tmp_path):
             )
         ]
         assert 'href="/dishes/aardappel-groente"' in krieltjes_row
-        # the coupled row: article link, AH's own size, pack-adopt offered
-        assert "/producten/product/wi551" in page
-        assert "volkoren spaghetti" in page
-        assert "(500 g)" in page
-        assert "voeg verpakking toe (500 g)" in page
-        assert 'href="/order/match/one?product=spaghetti&amp;back=/matches"' in page  # wijzig
+        # the coupled rows live in the same table: thumbnail (or tick) takes
+        # the first column, article chip and pack state sit in the last
+        spaghetti_row = page[
+            page.find('<tr data-name="spaghetti">') : page.find(
+                "</tr>", page.find('<tr data-name="spaghetti">')
+            )
+        ]
+        assert "ah-thumb" in spaghetti_row or "&#10003;" in spaghetti_row
+        assert "/producten/product/wi551" in spaghetti_row
+        assert "volkoren spaghetti" in spaghetti_row
+        assert "(500 g)" in spaghetti_row
+        assert "voeg verpakking toe (500 g)" in spaghetti_row
+        assert 'href="/order/match/one?product=spaghetti&amp;back=/matches"' in spaghetti_row
         # reachable from the nav
         assert 'href="/matches"' in client.get("/plan").text
 
@@ -574,7 +582,7 @@ def test_coupling_from_the_matches_queue_round_trips(tmp_path):
         assert resp.status_code == 303
         assert resp.headers["location"] == "/matches"
         page = client.get("/matches").text
-        unmatched_block = page[page.find('id="match-unmatched"') : page.find('id="match-matched"')]
-        assert "zout" not in unmatched_block
+        queue = page[page.find("Nog te koppelen") : page.find(">Gekoppeld<")]
+        assert "zout" not in queue
         assert "/producten/product/wi778899" in page
         assert "AH fijn zout" in page
