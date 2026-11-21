@@ -2108,6 +2108,45 @@ def create_app(
             fmt=format_amount,
         )
 
+    @app.get("/matches", response_class=HTMLResponse)
+    def matches_page(request: Request):
+        """All AH couplings, with the kitchen's uncoupled products on top.
+
+        The queue at the top is every ingredient product the recipes and
+        components use that has no mapping yet; each row opens the one-product
+        coupling page. Below, every existing coupling with its article, AH's
+        own pack size and the pack-fact state.
+        """
+        mapping_store = mappings()
+        by_lower = {m.product.lower(): m for m in mapping_store.all()}
+        facts = store().product_facts()
+        used: set[str] = set()
+        for recipe in load_all()[0]:
+            for ingredient in recipe.ingredients:
+                name, _note = order_product(ingredient.product)
+                used.add(name.lower())
+        for component in load_components_all()[0]:
+            used.add(component.name.lower())
+        unmatched = sorted(used - set(by_lower))
+        matched_rows = []
+        for m in sorted(mapping_store.all(), key=lambda m: m.product.lower()):
+            suggestion = fact_from_unit_size(m.product, m.ah_unit_size) if m.ah_unit_size else None
+            matched_rows.append(
+                {
+                    "product": m.product,
+                    "title": m.ah_title,
+                    "url": product_url(m.ah_webshop_id),
+                    "image": m.ah_image_url,
+                    "unit_size": m.ah_unit_size or "",
+                    "confirmed": m.confirmed,
+                    "has_fact": m.product.lower() in facts,
+                    "pack_label": (
+                        f"{suggestion.pack_qty:g} {suggestion.pack_unit}" if suggestion else ""
+                    ),
+                }
+            )
+        return render(request, "matches.html", unmatched=unmatched, matched=matched_rows)
+
     @app.get("/order/match/one", response_class=HTMLResponse)
     def order_match_one(request: Request, product: str, unit: str = "", back: str = "/order"):
         """Couple one product to an AH article, from wherever it came.

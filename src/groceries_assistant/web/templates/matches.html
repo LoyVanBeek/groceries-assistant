@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}AH-koppelingen{% endblock %}
+{% block content %}
+<h1>AH-koppelingen</h1>
+<p class="muted">
+  Welk AH-artikel hoort bij welk product. Dit wordt onthouden voor elke
+  boodschappenlijst &mdash; en bepaalt hoeveel verpakkingen er besteld worden.
+</p>
+<p><input type="search" id="match-filter" placeholder="filter op product&hellip;" autocomplete="off"></p>
+
+<h2>Nog te koppelen</h2>
+<ul class="plain" id="match-unmatched">
+  {% for p in unmatched %}
+  <li class="item" data-name="{{ p | lower }}">
+    {{ p }}
+    <a class="btn-small" href="/order/match/one?product={{ p | urlencode }}&amp;back=/matches"
+       title="Koppel dit product aan een AH-artikel">koppel</a>
+  </li>
+  {% else %}
+  <li class="muted">Alles wat de keuken gebruikt is gekoppeld.</li>
+  {% endfor %}
+</ul>
+
+<h2>Gekoppeld</h2>
+<ul class="plain" id="match-matched">
+  {% for m in matched %}
+  <li class="item" data-name="{{ m.product | lower }}">
+    {% if m.image %}<img class="ah-thumb" src="{{ m.image }}" alt="" loading="lazy">{% endif %}
+    <span>{{ m.product }}</span>
+    <a class="chip ah-link" href="{{ m.url }}" target="_blank" rel="noopener">
+      &#10003; {{ m.title }}
+    </a>
+    {% if m.unit_size %}<span class="muted">({{ m.unit_size }})</span>{% endif %}
+    {% if m.has_fact %}
+    <span class="muted">verpakking bekend</span>
+    {% elif m.pack_label %}
+    <form method="post" action="/order/match/pack" class="inline">
+      <input type="hidden" name="product" value="{{ m.product }}">
+      <input type="hidden" name="unit_size" value="{{ m.unit_size }}">
+      <input type="hidden" name="back" value="/matches">
+      <button class="btn-small">voeg verpakking toe ({{ m.pack_label }})</button>
+    </form>
+    {% endif %}
+    <a class="btn-small" href="/order/match/one?product={{ m.product | urlencode }}&amp;back=/matches"
+       title="Anders artikel koppelen of ontkoppelen">wijzig</a>
+  </li>
+  {% else %}
+  <li class="muted">Nog niets gekoppeld.</li>
+  {% endfor %}
+</ul>
+{% endblock %}
+{% block scripts %}
+<script>
+  (function () {
+    var input = document.getElementById('match-filter');
+    if (!input) return;
+    input.addEventListener('input', function () {
+      var needle = input.value.toLowerCase();
+      var rows = document.querySelectorAll('#match-unmatched li, #match-matched li');
+      for (var i = 0; i < rows.length; i++) {
+        var name = rows[i].getAttribute('data-name') || '';
+        rows[i].style.display = name.indexOf(needle) === -1 ? 'none' : '';
+      }
+    });
+  })();
+</script>
+{% endblock %}

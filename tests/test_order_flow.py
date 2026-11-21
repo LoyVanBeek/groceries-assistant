@@ -473,3 +473,83 @@ def test_one_product_coupling_works_without_an_active_week(tmp_path):
         assert resp.headers["location"] == "/recipes/pasta"
         page = client.get("/recipes/pasta").text
         assert "niet gekoppeld" not in page
+
+
+def test_the_matches_page_lists_couplings_and_the_work_queue(tmp_path):
+    """Top: every ingredient product the kitchen uses without a coupling.
+    Below: every coupling with its article and pack-size state."""
+    from groceries_assistant.ah.matching import AHMapping, AHMappingStore
+    from tests.test_web import make_client
+
+    (tmp_path / "recipes").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "recipes" / "pasta.yaml").write_text(
+        "name: Pasta\nservings: 4\ntime: {cook: 30}\ningredients:\n"
+        "  - {product: spaghetti, amount: 500, unit: g}\n"
+        "  - {product: zout, amount: 2, unit: el}\nsteps:\n  - Kook.\n",
+        encoding="utf-8",
+    )
+    AHMappingStore(Store(tmp_path / "state.db")).put(
+        AHMapping(
+            product="spaghetti",
+            ah_webshop_id=551,
+            ah_title="volkoren spaghetti",
+            score=1.0,
+            confirmed=True,
+            ah_unit_size="500 g",
+        )
+    )
+
+    with make_client(tmp_path) as client:
+        page = client.get("/matches").text
+        # the queue on top: the uncoupled kitchen product, not the coupled one
+        assert "zout" in page
+        assert 'href="/order/match/one?product=zout&amp;back=/matches"' in page
+        unmatched_block = page[page.find('id="match-unmatched"') : page.find('id="match-matched"')]
+        assert "spaghetti" not in unmatched_block
+        # the coupled row: article link, AH's own size, pack-adopt offered
+        assert "/producten/product/wi551" in page
+        assert "volkoren spaghetti" in page
+        assert "(500 g)" in page
+        assert "voeg verpakking toe (500 g)" in page
+        assert 'href="/order/match/one?product=spaghetti&amp;back=/matches"' in page  # wijzig
+        # reachable from the nav
+        assert 'href="/matches"' in client.get("/plan").text
+
+        # once the pack fact exists, the adopt button makes way
+        store = Store(tmp_path / "state.db")
+        store.set_product_fact(ProductFact(product="spaghetti", pack_qty=500, pack_unit="g"))
+        page = client.get("/matches").text
+        assert "verpakking bekend" in page
+        assert "voeg verpakking toe" not in page
+
+
+def test_coupling_from_the_matches_queue_round_trips(tmp_path):
+    """Pin zout from the one-product page with back=/matches: the queue loses
+    it and the coupled list gains it."""
+    from tests.test_web import make_client
+
+    (tmp_path / "recipes").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "recipes" / "pasta.yaml").write_text(
+        "name: Pasta\nservings: 4\ntime: {cook: 30}\ningredients:\n"
+        "  - {product: zout, amount: 2, unit: el}\nsteps:\n  - Kook.\n",
+        encoding="utf-8",
+    )
+    with make_client(tmp_path) as client:
+        resp = client.post(
+            "/order/match/pin",
+            data={
+                "product": "zout",
+                "unit": "el",
+                "webshop_id": "778899",
+                "title": "AH fijn zout",
+                "back": "/matches",
+            },
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/matches"
+        page = client.get("/matches").text
+        unmatched_block = page[page.find('id="match-unmatched"') : page.find('id="match-matched"')]
+        assert "zout" not in unmatched_block
+        assert "/producten/product/wi778899" in page
+        assert "AH fijn zout" in page
