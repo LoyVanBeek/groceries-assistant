@@ -2229,7 +2229,7 @@ def create_app(
     @app.post("/order/match/pin")
     def order_match_pin(
         product: str = Form(...),
-        unit: str = Form(...),
+        unit: str = Form(""),
         webshop_id: str = Form(...),
         title: str = Form(""),
         image: str = Form(""),
@@ -2243,6 +2243,11 @@ def create_app(
         AH's own pack size is kept alongside, to offer as a suggestion later.
         `back` returns to the page that asked (a single-product coupling from
         a recipe order row) instead of the match page.
+
+        `unit` is the saved list line the coupling belongs to. It may be empty:
+        the mapping is keyed by product alone, and a coupling made from a page
+        that only knows the product (the /matches queue, a recipe order row)
+        fixes every unit-line of that product on the list.
         """
         if not back.startswith("/") or back.startswith("//"):
             back = ""  # no open redirects
@@ -2265,21 +2270,25 @@ def create_app(
         )
         latest = store().latest_plan()
         if latest is not None:
-            # a product from the week's list gets its row updated; a product
-            # coupled from a recipe order row may not be on any list
-            store().set_order_item_webshop_id(latest[0], product, unit, article_id)
+            if unit.strip():
+                store().set_order_item_webshop_id(latest[0], product, unit, article_id)
+            else:
+                store().set_order_item_webshop_id_all_units(latest[0], product, article_id)
         if back:
             return RedirectResponse(back, status_code=303)
         return RedirectResponse("/order/match", status_code=303)
 
     @app.post("/order/match/unpin")
-    def order_match_unpin(product: str = Form(...), unit: str = Form(...), back: str = Form("")):
+    def order_match_unpin(product: str = Form(...), unit: str = Form(""), back: str = Form("")):
         if not back.startswith("/") or back.startswith("//"):
             back = ""  # no open redirects
         mappings().remove(product)
         latest = store().latest_plan()
         if latest is not None:
-            store().set_order_item_webshop_id(latest[0], product, unit, None)
+            if unit.strip():
+                store().set_order_item_webshop_id(latest[0], product, unit, None)
+            else:
+                store().set_order_item_webshop_id_all_units(latest[0], product, None)
         if back:
             return RedirectResponse(back, status_code=303)
         return RedirectResponse("/order/match", status_code=303)

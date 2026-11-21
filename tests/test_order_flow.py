@@ -586,3 +586,66 @@ def test_coupling_from_the_matches_queue_round_trips(tmp_path):
         assert "zout" not in queue
         assert "/producten/product/wi778899" in page
         assert "AH fijn zout" in page
+
+
+def test_pinning_from_the_matches_queue_needs_no_unit(tmp_path):
+    """The /matches queue knows only the product: pinning with an empty unit
+    must not 422 -- it saves the mapping and updates every unit-line the
+    week list carries for that product."""
+    from tests.test_web import make_client, seed_plan, seed_recipe
+
+    seed_recipe(tmp_path)
+    with make_client(tmp_path, search_fn=lambda q: []) as client:
+        seed_plan(client)
+        store = Store(tmp_path / "state.db")
+        plan_id = store.latest_plan()[0]
+        cook = next(r for r in store.plan_entries(plan_id) if r.kind == "cook")
+        client.post("/plan/approve", data={"day": cook.day.isoformat()}, follow_redirects=False)
+        client.post("/plan/order", follow_redirects=False)
+        # the list carries spaghetti under one unit ('g')
+        assert {i["unit"] for i in store.order_items(plan_id) if i["product"] == "spaghetti"} == {
+            "g"
+        }
+
+        # pin with an empty unit, exactly as the /matches suggestion form does
+        resp = client.post(
+            "/order/match/pin",
+            data={
+                "product": "spaghetti",
+                "unit": "",
+                "webshop_id": "551",
+                "title": "AH spaghetti",
+                "back": "/matches",
+            },
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303, resp.text[:200]
+        assert resp.headers["location"] == "/matches"
+        saved = (
+            Store(tmp_path / "state.db")
+            .conn.execute(
+                "SELECT webshop_id FROM order_items"
+                " WHERE plan_id = ? AND lower(product) = 'spaghetti'",
+                (plan_id,),
+            )
+            .fetchall()
+        )
+        assert saved and all(row[0] == 551 for row in saved)
+
+        # and unpin with an empty unit clears it again
+        resp = client.post(
+            "/order/match/unpin",
+            data={"product": "spaghetti", "unit": "", "back": "/matches"},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        saved = (
+            Store(tmp_path / "state.db")
+            .conn.execute(
+                "SELECT webshop_id FROM order_items"
+                " WHERE plan_id = ? AND lower(product) = 'spaghetti'",
+                (plan_id,),
+            )
+            .fetchall()
+        )
+        assert saved and all(row[0] is None for row in saved)

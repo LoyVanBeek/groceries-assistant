@@ -1292,3 +1292,20 @@ class Store:
             (webshop_id, plan_id, product, unit),
         )
         self.conn.commit()
+
+    def set_order_item_webshop_id_all_units(
+        self, plan_id: int, product: str, webshop_id: int | None
+    ) -> int:
+        """Every unit-line of one product, for a coupling made by product only.
+
+        A mapping is keyed by product, but the list may carry the product
+        under several units ('2 stuks' and '300 g'); coupling it from a page
+        that only knows the product fixes all of its lines.
+        """
+        cur = self.conn.cursor()
+        cur.execute(
+            "UPDATE order_items SET webshop_id = ? WHERE plan_id = ? AND lower(product) = lower(?)",
+            (webshop_id, plan_id, product.strip()),
+        )
+        self.conn.commit()
+        return cur.rowcount
