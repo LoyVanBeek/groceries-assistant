@@ -814,6 +814,11 @@ def create_app(
     @app.get("/plan", response_class=HTMLResponse)
     def plan_page(request: Request):
         all_recipes, errors = load_all()
+        today = date.today()
+        # Een voorstel dat (vanwege per-dag goedkeuren) 'proposed' bleef staan
+        # terwijl de week al voorbij is, zou de pagina voor altijd op die oude
+        # week laten staan. Finaliseer zulke voorstellen als historie.
+        store().archive_past_proposals(today)
         if not all_recipes:
             return render(
                 request,
@@ -854,7 +859,7 @@ def create_app(
             )
         approved_days = store().plan_approvals(plan_id)
         ordered_days = store().plan_ordered(plan_id)
-        evenings = plan_view(
+        all_evenings = plan_view(
             store(),
             plan_id,
             all_known(),
@@ -865,8 +870,19 @@ def create_app(
             ordered_days=ordered_days,
             vriezer=vriezer(),
         )
-        last_day = max(e["day_iso"] for e in evenings) if evenings else None
+        last_day = max(e["day_iso"] for e in all_evenings) if all_evenings else None
         next_start = date.fromisoformat(last_day) + timedelta(days=1) if last_day else start
+        # Toon standaard alleen deze week en later. Een doorlopend voorstel kan
+        # weken meegroeien; de afgelopen weken zijn verleden en blijven via
+        # ?past=1 (de 'toon eerdere dagen'-knop) bekijkbaar.
+        show_past = request.query_params.get("past") == "1"
+        current_week = today - timedelta(days=(today.weekday() - store().week_start_weekday()) % 7)
+        past_count = sum(1 for e in all_evenings if date.fromisoformat(e["day_iso"]) < current_week)
+        hidden_past = 0 if show_past else past_count
+        evenings = all_evenings
+        if not show_past:
+            evenings = [e for e in all_evenings if date.fromisoformat(e["day_iso"]) >= current_week]
+        display_start = start if show_past else max(start, current_week)
         pending = sorted(approved_days - ordered_days)
         rows_now = store().plan_entries(plan_id)
         week_empty = all(r.kind == "cook" and r.recipe_slug is None for r in rows_now)
@@ -877,7 +893,7 @@ def create_app(
             request,
             "plan.html",
             plan_id=plan_id,
-            start=start,
+            start=display_start,
             next_start=next_start,
             week_empty=week_empty,
             week_partly=week_partly,
@@ -887,6 +903,9 @@ def create_app(
             order_to=pending[-1] if pending else None,
             approved_any=bool(approved_days),
             evenings=evenings,
+            hidden_past=hidden_past,
+            past_count=past_count,
+            show_past=show_past,
             errors=errors,
         )
 
@@ -946,7 +965,11 @@ def create_app(
     @app.post("/plan/clear")
     def plan_clear():
         """Wipe this week and every planned-ahead week; past weeks stay."""
-        cleared = store().clear_future_plans(date.today())
+        today = date.today()
+        cleared = store().clear_future_plans(today)
+        # Een resterend voorstel dat volledig in het verleden ligt is geen
+        # actieve week meer; finaliseer het zodat de pagina een nieuwe week opent.
+        store().archive_past_proposals(today)
         return RedirectResponse(f"/plan?cleared={cleared}", status_code=303)
 
     @app.post("/plan/bonus/refresh")

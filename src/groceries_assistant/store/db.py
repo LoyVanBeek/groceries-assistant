@@ -705,13 +705,43 @@ class Store:
         This week and all planned-ahead weeks are wiped (entries, picks,
         approvals, ordered days and order items cascade along); plans that
         ended before today keep the history intact.
+
+        A proposal is a single running plan that can grow across weeks, so
+        matching on `start_date` alone would leave a plan that started weeks
+        ago (and still holds today) untouched. Any plan with a day today or
+        later is therefore wiped too.
         """
         cutoff = (today - timedelta(days=6)).isoformat()
         cur = self.conn.cursor()
-        cur.execute("DELETE FROM plans WHERE start_date >= ?", (cutoff,))
+        cur.execute(
+            "DELETE FROM plans WHERE start_date >= ?"
+            " OR id IN (SELECT plan_id FROM plan_entries WHERE day >= ?)",
+            (cutoff, today.isoformat()),
+        )
         deleted = cur.rowcount
         self.conn.commit()
         return deleted
+
+    def archive_past_proposals(self, today: date) -> int:
+        """Finalize proposals whose last day has passed.
+
+        Plans stay 'proposed' after per-row approval, so an old week would
+        otherwise remain the active proposal forever and `/plan` would keep
+        showing it. Marking them 'approved' keeps their entries and orders as
+        history while letting the page start a fresh week.
+        """
+        cur = self.conn.execute(
+            "UPDATE plans SET status = 'approved'"
+            " WHERE status = 'proposed'"
+            " AND id IN ("
+            "   SELECT plan_id FROM plan_entries GROUP BY plan_id"
+            "   HAVING MAX(day) < ?"
+            " )",
+            (today.isoformat(),),
+        )
+        archived = cur.rowcount
+        self.conn.commit()
+        return archived
 
     def approve_proposal(self, plan_id: int) -> None:
         self.conn.execute("UPDATE plans SET status = 'approved' WHERE id = ?", (plan_id,))

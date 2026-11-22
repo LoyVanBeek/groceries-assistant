@@ -122,8 +122,10 @@
 {% if request.query_params.error == 'restjes-geen' %}
 <p class="warnings">Dit gerecht levert geen porties over — niets om in te vriezen.</p>
 {% endif %}
-{% if request.query_params.cleared %}
+{% if request.query_params.cleared and request.query_params.cleared != '0' %}
 <p class="warnings">Week(en) leeggemaakt, de kogel is terug.</p>
+{% elif request.query_params.cleared == '0' %}
+<p class="budget">Niets om leeg te maken.</p>
 {% endif %}
 {% if request.query_params.error and request.query_params.error.startswith('scan:') %}
 <p class="warnings">Scan: {{ request.query_params.error | replace('scan:', '') }}</p>
@@ -132,6 +134,11 @@
 <p class="budget">{{ request.query_params.scanadded }} staat op de boodschappenlijst.</p>
 {% endif %}
 <h1>Week van {{ start | dutch_date }}</h1>
+{% if show_past and past_count %}
+<p><a class="btn-small" href="/plan">verberg eerdere dagen</a></p>
+{% elif hidden_past %}
+<p><a class="btn-small" href="/plan?past=1">toon eerdere dagen ({{ hidden_past }})</a></p>
+{% endif %}
 {% if week_empty %}
 <form method="post" action="/plan/fill">
   <p><button type="submit" class="primary">Vul de week in</button>

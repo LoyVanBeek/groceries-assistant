@@ -413,6 +413,101 @@ def test_clear_weeks_brings_back_the_fill_button(tmp_path):
         assert "leeggemaakt" in page
 
 
+def test_plan_archives_a_proposal_whose_week_has_passed(tmp_path):
+    """An old proposal never becomes 'approved' (approval is per day), so it
+    would stay the active week forever. Loading the plan finalizes it as
+    history and opens the current week."""
+    seed_recipe(tmp_path)
+    old_start = date.today() - timedelta(days=28)
+    with make_client(tmp_path) as client:
+        store = Store(tmp_path / "state.db")
+        old_id = store.save_proposal(
+            old_start,
+            [PlanEntryRow(day=old_start + timedelta(days=i)) for i in range(7)],
+        )
+        page = client.get("/plan").text
+        assert old_start.strftime("%d-%m") not in page
+
+        store = Store(tmp_path / "state.db")
+        row = store.conn.execute("SELECT status FROM plans WHERE id = ?", (old_id,)).fetchone()
+        assert row["status"] == "approved"  # history, no longer the proposal
+        assert len(store.plan_entries(old_id)) == 7  # entries kept
+        proposal = store.load_proposal()
+        assert proposal is not None
+        assert proposal[1] >= date.today()  # a fresh current week
+
+
+def test_clear_wipes_a_proposal_that_started_weeks_ago(tmp_path):
+    """A running proposal grows across weeks, so its start_date can be long
+    past while it still holds today. 'Week(en) leegmaken' must wipe it."""
+    seed_recipe(tmp_path)
+    start = date.today() - timedelta(days=21)
+    with make_client(tmp_path) as client:
+        store = Store(tmp_path / "state.db")
+        plan_id = store.save_proposal(
+            start,
+            [PlanEntryRow(day=start + timedelta(days=i)) for i in range(35)],
+        )
+        assert store.load_proposal()[0] == plan_id
+
+        resp = client.post("/plan/clear", follow_redirects=False)
+        assert resp.headers["location"] == "/plan?cleared=1"
+
+        store = Store(tmp_path / "state.db")
+        assert store.plan_entries(plan_id) == []
+        page = client.get(resp.headers["location"]).text
+        assert "leeggemaakt" in page
+        assert start.strftime("%d-%m") not in page
+
+
+def test_clear_keeps_a_fully_past_week_as_history(tmp_path):
+    """Past weeks stay, but a leftover old proposal is finalized so the page
+    opens the current week instead of staying stuck on it."""
+    seed_recipe(tmp_path)
+    start = date.today() - timedelta(days=21)
+    with make_client(tmp_path) as client:
+        store = Store(tmp_path / "state.db")
+        plan_id = store.save_proposal(
+            start,
+            [PlanEntryRow(day=start + timedelta(days=i)) for i in range(7)],
+        )
+
+        resp = client.post("/plan/clear", follow_redirects=False)
+        assert resp.headers["location"] == "/plan?cleared=0"
+
+        store = Store(tmp_path / "state.db")
+        assert len(store.plan_entries(plan_id)) == 7  # history stays
+        row = store.conn.execute("SELECT status FROM plans WHERE id = ?", (plan_id,)).fetchone()
+        assert row["status"] == "approved"
+        page = client.get(resp.headers["location"]).text
+        assert "Niets om leeg te maken" in page
+        assert "leeggemaakt" not in page
+        assert start.strftime("%d-%m") not in page
+
+
+def test_plan_hides_earlier_weeks_with_a_look_back_button(tmp_path):
+    """Earlier weeks of a running proposal are hidden by default, but a
+    'toon eerdere dagen' button brings them back."""
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        store = Store(tmp_path / "state.db")
+        start = date.today() - timedelta(days=21)
+        start += timedelta(days=(store.week_start_weekday() - start.weekday()) % 7)
+        store.save_proposal(
+            start,
+            [PlanEntryRow(day=start + timedelta(days=i)) for i in range(28)],
+        )
+        old_label = start.strftime("%d-%m")
+
+        page = client.get("/plan").text
+        assert old_label not in page
+        assert "toon eerdere dagen" in page
+
+        back = client.get("/plan", params={"past": "1"}).text
+        assert old_label in back
+        assert "verberg eerdere dagen" in back
+
+
 def test_import_page_shows_bookmarklet(tmp_path):
     """The bookmarklet copies the recipe URL plus its JSON-LD for the bulk box."""
     seed_recipe(tmp_path)
