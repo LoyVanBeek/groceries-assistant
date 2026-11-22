@@ -354,6 +354,8 @@ def test_the_recipe_table_scales_and_ticking_in_house_updates_the_link(tmp_path)
         assert "1000 g" in page  # the recipe column scales with the eaters
         assert "order-table" in page
         assert ">bestellen<" in page
+        # the QR svg carries its card class: visible on the dark theme too
+        assert 'class="qr-svg"' in page
         # the bestellen cell is one centered flex line per row
         assert 'class="order-cell"' not in page
         assert page.count('class="order-line"') >= 2

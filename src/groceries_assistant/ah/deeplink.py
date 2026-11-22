@@ -78,4 +78,7 @@ def generate_qr_svg(url: str, box_size: int = 6) -> str:
     factory = qrcode.image.svg.SvgPathImage
     img = qrcode.make(url, image_factory=factory, box_size=box_size)
     data = img.to_string()
-    return data.decode() if isinstance(data, bytes) else data
+    svg = data.decode() if isinstance(data, bytes) else data
+    # Tag the svg so every theme renders it on a light card: a black code on
+    # a dark page is invisible, and a light-on-dark code scans badly.
+    return svg.replace("<svg ", '<svg class="qr-svg" ', 1)
