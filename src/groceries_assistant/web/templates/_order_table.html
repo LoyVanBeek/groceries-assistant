@@ -27,11 +27,7 @@
       </td>
       <td>
         <span class="order-line">
-          {% if row.have %}
-          <span class="muted">in huis &mdash; niets kopen</span>
-          {% else %}
           <span class="order-qty">{{ row.qty }} &times;</span>
-          {% endif %}
           {% if row.note %}<span class="muted">({{ row.note }})</span>{% endif %}
           {% if not row.webshop_id %}
           <span class="muted">(niet gekoppeld)</span>

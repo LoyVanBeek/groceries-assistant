@@ -378,7 +378,12 @@ def test_the_recipe_table_scales_and_ticking_in_house_updates_the_link(tmp_path)
         ticked = client.get("/recipes/pasta", params={"people": 8, "have": "spaghetti"}).text
         assert "1009:2" not in link(ticked)
         assert "1002:1" in link(ticked)
-        assert "in huis" in ticked
+        # the row keeps its exact content and only dims: same quantity text,
+        # same style, just the have-class (and the tick)
+        assert '<tr class="have">' in ticked
+        assert '<input type="checkbox" name="have" value="spaghetti" checked' in ticked
+        assert "2 &times;" in ticked
+        assert "niets kopen" not in ticked
         # the regenerate form keeps the tick (and it round-trips)
         assert 'name="have" value="spaghetti"' in ticked
 
