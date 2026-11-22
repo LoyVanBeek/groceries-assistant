@@ -16,7 +16,6 @@
           {% for w in order_with %}<input type="hidden" name="with" value="{{ w }}">{% endfor %}
           {% for h in order_have %}{% if h != row.product_lower %}<input type="hidden" name="have" value="{{ h }}">{% endif %}{% endfor %}
           <input type="checkbox" name="have" value="{{ row.product_lower }}"{% if row.have %} checked{% endif %}
-                 onchange="this.form.submit()"
                  title="Heb ik al in huis: gaat niet mee op de lijst">
           <noscript><button class="btn-small">ok</button></noscript>
         </form>

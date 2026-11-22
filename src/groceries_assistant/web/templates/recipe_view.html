@@ -38,14 +38,10 @@
   (function () {
     var combo = document.getElementById('order-combo');
     if (!combo) return;
-    // Portie-aantal wijzigen haalt de pagina opnieuw op en wisselt alleen het
-    // besteldeel (tabel, QR, AH-link) in plaats van de hele pagina te herladen.
-    combo.addEventListener('change', function (event) {
-      if (event.target.id !== 'order-people') return;
-      var people = event.target.value;
-      if (!people) return;
-      var url = new URL(window.location.href);
-      url.searchParams.set('people', people);
+    // Portie-aantal of 'in huis' wijzigen haalt de pagina opnieuw op en wisselt
+    // alleen het besteldeel (tabel, QR, AH-link) in plaats van de hele pagina
+    // te herladen: de scrollpositie blijft staan.
+    function refreshCombo(url) {
       fetch(url).then(function (response) { return response.text(); }).then(function (html) {
         var doc = new DOMParser().parseFromString(html, 'text/html');
         var fresh = doc.getElementById('order-combo');
@@ -59,6 +55,33 @@
         }
         history.replaceState(null, '', url.pathname + url.search);
       });
+    }
+    combo.addEventListener('change', function (event) {
+      var target = event.target;
+      if (target.id === 'order-people') {
+        var people = target.value;
+        if (!people) return;
+        var url = new URL(window.location.href);
+        url.searchParams.set('people', people);
+        refreshCombo(url);
+        return;
+      }
+      if (target.type === 'checkbox' && target.name === 'have') {
+        // het vinkje wisselt dit product in/uit de have-lijst in de URL
+        var url = new URL(window.location.href);
+        var product = target.value;
+        var haves = url.searchParams.getAll('have').filter(function (p) {
+          return p !== product;
+        });
+        if (target.checked) {
+          haves.push(product);
+        }
+        url.searchParams.delete('have');
+        for (var i = 0; i < haves.length; i++) {
+          url.searchParams.append('have', haves[i]);
+        }
+        refreshCombo(url);
+      }
     });
   })();
 </script>

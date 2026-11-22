@@ -384,6 +384,11 @@ def test_the_recipe_table_scales_and_ticking_in_house_updates_the_link(tmp_path)
 
         # without the tick the pair is back
         assert "1009:2" in link(client.get("/recipes/pasta", params={"people": 8}).text)
+        # the tick swaps in place: no inline form-submit, the page script
+        # rebuilds the have-params in the URL and re-fetches the combo
+        assert 'onchange="this.form.submit()"' not in page
+        assert "getAll('have')" in page  # the live-update handler
+        assert "<noscript>" in page  # no-JS fallback still submits the form
 
 
 def test_an_unmatched_product_couples_from_the_order_table(tmp_path):
