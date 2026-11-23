@@ -721,6 +721,20 @@ form.custom-pin {
   border-radius: 7px;
 }
 form.custom-pin button { font-size: 0.9rem; padding: 0.35rem 0.55rem; white-space: nowrap; }
+/* de koppelpagina (match/one): de suggesties staan onder elkaar, met het
+   eigen-invoerveld erboven */
+.match-list { flex-direction: column; align-items: stretch; }
+.match-list .match-suggestion { display: flex; gap: 0.5rem; padding: 0.3rem 0.4rem; }
+.match-list .match-suggestion .ah-link { flex: 1 1 auto; }
+.match-list .match-suggestion button { margin-left: auto; flex: none; }
+.match-list form.custom-pin {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+  margin: 0 0 0.3rem;
+  padding: 0.4rem;
+}
 .match-current { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
 form.inline { display: inline-flex; align-items: center; gap: 0.3rem; margin: 0; }
 form.inline button { font-size: 0.85rem; padding: 0.25rem 0.45rem; white-space: nowrap; }

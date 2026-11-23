@@ -3,7 +3,7 @@
 from datetime import date, timedelta
 
 from groceries_assistant.ah.client import AHProduct
-from groceries_assistant.ah.matching import AHMappingStore, fact_from_unit_size
+from groceries_assistant.ah.matching import AHMapping, AHMappingStore, fact_from_unit_size
 from groceries_assistant.models import ComposedDish, ProductFact, Recipe
 from groceries_assistant.planner.availability import EveningAvailability
 from groceries_assistant.planner.engine import PlanEntry, WeeklyPlan
@@ -332,6 +332,46 @@ def test_a_fresh_match_keeps_ahs_pack_size_for_a_later_suggestion(tmp_path):
 
     fact = fact_from_unit_size("broccoli", mappings.get("broccoli").ah_unit_size)
     assert (fact.pack_qty, fact.pack_unit) == (350, "g")
+
+
+def test_a_confirmed_pin_wins_even_without_a_thumbnail(tmp_path):
+    """The docstring's promise: a human pin is never searched over. Before,
+    the recipe page's auto-match replaced an image-less pin on every render."""
+    mappings = AHMappingStore(Store(tmp_path / "state.db"))
+    mappings.put(
+        AHMapping(
+            product="zout",
+            ah_webshop_id=778899,
+            ah_title="Mijn zout",
+            score=1.0,
+            confirmed=True,
+        )
+    )
+    calls = []
+
+    def search(query):
+        calls.append(query)
+        return [AHProduct(111, "AH Zout 500 g", image_url="auto.jpg")]
+
+    assert match_products(["zout"], search, mappings) == {"zout": (778899, "Mijn zout")}
+    assert calls == []
+
+
+def test_an_unpinned_product_is_not_auto_matched_again(tmp_path):
+    """'Ontkoppel' must stick: auto-matching skips a deliberately uncoupled
+    product until a new pin replaces the marker."""
+    mappings = AHMappingStore(Store(tmp_path / "state.db"))
+    mappings.reject("zout")
+    calls = []
+
+    def search(query):
+        calls.append(query)
+        return [AHProduct(111, "AH Zout")]
+
+    assert match_products(["zout"], search, mappings) == {}
+    assert calls == []
+    mappings.unreject("zout")
+    assert match_products(["zout"], search, mappings) == {"zout": (111, "AH Zout")}
 
 
 # --- pack sizes and leftovers -------------------------------------------------

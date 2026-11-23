@@ -91,6 +91,24 @@ class AHMappingStore:
         self._mappings.pop(product.lower(), None)
         self.save()
 
+    def reject(self, product: str) -> None:
+        """Mark a product as deliberately uncoupled: auto-matching skips it."""
+        self._store.conn.execute(
+            "INSERT OR IGNORE INTO ah_rejected(product) VALUES (?)", (product.lower(),)
+        )
+        self._store.conn.commit()
+
+    def unreject(self, product: str) -> None:
+        """Clear the uncoupled marker: a new pin replaces it."""
+        self._store.conn.execute("DELETE FROM ah_rejected WHERE product = ?", (product.lower(),))
+        self._store.conn.commit()
+
+    def is_rejected(self, product: str) -> bool:
+        row = self._store.conn.execute(
+            "SELECT 1 FROM ah_rejected WHERE product = ?", (product.lower(),)
+        ).fetchone()
+        return row is not None
+
     def __len__(self) -> int:
         return len(self._mappings)
 

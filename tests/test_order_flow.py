@@ -499,6 +499,213 @@ def test_one_product_coupling_works_without_an_active_week(tmp_path):
         assert "niet gekoppeld" not in page
 
 
+def _pasta_with_zout(tmp_path):
+    (tmp_path / "recipes").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "recipes" / "pasta.yaml").write_text(
+        "name: Pasta\nservings: 4\ntime: {cook: 30}\ningredients:\n"
+        "  - {product: zout, amount: 2, unit: el}\nsteps:\n  - Kook.\n",
+        encoding="utf-8",
+    )
+
+
+def test_a_manual_pin_survives_the_recipe_page(tmp_path):
+    """A confirmed pin always wins: the auto-match on the next page render may
+    not replace a pin just because it has no thumbnail."""
+    from tests.test_web import make_client
+
+    _pasta_with_zout(tmp_path)
+
+    class Auto:
+        webshop_id = 111
+        title = "AH Auto zout"
+        unit_size = "500 g"
+        image_url = "auto.jpg"
+
+    with make_client(tmp_path, search_fn=lambda q: [Auto()]) as client:
+        resp = client.post(
+            "/order/match/pin",
+            data={
+                "product": "zout",
+                "unit": "el",
+                "webshop_id": "778899",
+                "title": "Mijn eigen zout",
+                "back": "/recipes/pasta",
+            },
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        page = client.get("/recipes/pasta").text
+        assert "Mijn eigen zout" in page
+        assert "AH Auto zout" not in page
+        row = (
+            Store(tmp_path / "state.db")
+            .conn.execute("SELECT ah_webshop_id, confirmed FROM ah_mappings WHERE key = 'zout'")
+            .fetchone()
+        )
+        assert tuple(row) == (778899, 1)
+
+
+def test_a_manual_pin_gets_ahs_thumbnail_and_pack_size(tmp_path):
+    """A bare id carries no article data: AH's search donates the real title,
+    the image and the pack size, so the pin is pack-aware right away."""
+    from tests.test_web import make_client
+
+    _pasta_with_zout(tmp_path)
+
+    class Known:
+        webshop_id = 575729
+        title = "AH Crema balsamico"
+        unit_size = "250 ml"
+        image_url = "crema.jpg"
+
+    with make_client(tmp_path, search_fn=lambda q: [Known()]) as client:
+        client.post(
+            "/order/match/pin",
+            data={
+                "product": "zout",
+                "unit": "el",
+                "webshop_id": "575729",
+                "back": "/recipes/pasta",
+            },
+            follow_redirects=False,
+        )
+        row = (
+            Store(tmp_path / "state.db")
+            .conn.execute(
+                "SELECT ah_title, confirmed, ah_image_url, ah_unit_size"
+                " FROM ah_mappings WHERE key = 'zout'"
+            )
+            .fetchone()
+        )
+        assert tuple(row) == ("AH Crema balsamico", 1, "crema.jpg", "250 ml")
+        facts = Store(tmp_path / "state.db").product_facts()
+        assert facts["zout"].pack_qty == 250
+        assert "crema.jpg" in client.get("/recipes/pasta").text
+
+
+def test_a_manual_pin_that_ah_does_not_know_still_pins(tmp_path):
+    """No search hit is not an error: the pin is kept exactly as entered."""
+    from tests.test_web import make_client
+
+    _pasta_with_zout(tmp_path)
+
+    class Other:
+        webshop_id = 111
+        title = "AH Auto zout"
+        unit_size = "500 g"
+        image_url = "auto.jpg"
+
+    with make_client(tmp_path, search_fn=lambda q: [Other()]) as client:
+        resp = client.post(
+            "/order/match/pin",
+            data={
+                "product": "zout",
+                "unit": "el",
+                "webshop_id": "778899",
+                "title": "Mijn eigen zout",
+                "back": "/recipes/pasta",
+            },
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/recipes/pasta"
+
+
+def test_unpin_suppresses_auto_matching_until_pinned_again(tmp_path):
+    """'Ontkoppel' must stick: no search brings the suggestion back, and a new
+    pin clears the uncoupled marker."""
+    from groceries_assistant.ah.matching import AHMappingStore
+    from tests.test_web import make_client
+
+    _pasta_with_zout(tmp_path)
+    calls = []
+
+    def search(query):
+        calls.append(query)
+        return [FakeProduct(111, "AH Zout", "500 g")]
+
+    with make_client(tmp_path, search_fn=search) as client:
+        client.post(
+            "/order/match/pin",
+            data={
+                "product": "zout",
+                "unit": "el",
+                "webshop_id": "111",
+                "title": "AH Zout",
+                "image": "zout.jpg",
+                "unit_size": "500 g",
+                "back": "/recipes/pasta",
+            },
+            follow_redirects=False,
+        )
+        assert "AH Zout" in client.get("/recipes/pasta").text
+
+        client.post(
+            "/order/match/unpin",
+            data={"product": "zout", "unit": "el", "back": "/recipes/pasta"},
+            follow_redirects=False,
+        )
+        page = client.get("/recipes/pasta").text
+        assert "(niet gekoppeld)" in page
+        assert "AH Zout" not in page
+        mappings = AHMappingStore(Store(tmp_path / "state.db"))
+        assert mappings.get("zout") is None
+        assert mappings.is_rejected("zout")
+        assert not calls  # the auto-match did not even look
+
+        client.post(
+            "/order/match/pin",
+            data={
+                "product": "zout",
+                "unit": "el",
+                "webshop_id": "222",
+                "title": "AH Fijn zout",
+                "back": "/recipes/pasta",
+            },
+            follow_redirects=False,
+        )
+        assert "AH Fijn zout" in client.get("/recipes/pasta").text
+        assert not AHMappingStore(Store(tmp_path / "state.db")).is_rejected("zout")
+
+
+def test_match_one_lists_the_custom_field_before_the_suggestions(tmp_path):
+    """The custom entry sits on top of a vertical suggestion list."""
+    from tests.test_web import make_client
+
+    _pasta_with_zout(tmp_path)
+    with make_client(
+        tmp_path, search_fn=lambda q: [FakeProduct(551, "AH zout", "500 g")]
+    ) as client:
+        one = client.get(
+            "/order/match/one",
+            params={"product": "zout", "unit": "el", "back": "/recipes/pasta"},
+        ).text
+        assert one.index('class="custom-pin"') < one.index('class="match-suggestion"')
+        assert "match-list" in one
+
+
+def test_the_recipe_page_says_when_a_pasted_id_could_not_be_read(tmp_path):
+    """An unreadable id no longer redirects silently: the recipe page shows
+    what went wrong."""
+    from tests.test_web import make_client
+
+    _pasta_with_zout(tmp_path)
+    with make_client(tmp_path, search_fn=lambda q: []) as client:
+        resp = client.post(
+            "/order/match/pin",
+            data={
+                "product": "zout",
+                "unit": "el",
+                "webshop_id": "geen ah-link",
+                "back": "/recipes/pasta?people=4",
+            },
+            follow_redirects=False,
+        )
+        assert resp.headers["location"].endswith("error=id")
+        page = client.get(resp.headers["location"]).text
+        assert "Kon de AH-id of URL niet lezen" in page
+
+
 def test_the_matches_page_lists_couplings_and_the_work_queue(tmp_path):
     """Top: every ingredient product the kitchen uses without a coupling.
     Below: every coupling with its article and pack-size state."""

@@ -2301,6 +2301,25 @@ def create_app(
             return RedirectResponse(f"{back or '/order/match'}{separator}error=id", status_code=303)
         article_id, slug_title = ref
         label = title.strip() or slug_title or f"webshop-id {article_id}"
+        image_url = image.strip() or None
+        unit_size_value = unit_size.strip() or None
+        if image_url is None or unit_size_value is None or not title.strip():
+            # A manual pin carries no article data: look the id up in AH's
+            # search so the pin still gets its thumbnail, AH's own pack size
+            # and the real title. Nothing is guessed — a miss keeps the pin
+            # exactly as entered.
+            try:
+                candidates = _search(product, limit=10)
+                if slug_title and not any(c.webshop_id == article_id for c in candidates):
+                    candidates = _search(slug_title, limit=10)
+            except Exception:
+                candidates = []
+            hit = next((c for c in candidates if c.webshop_id == article_id), None)
+            if hit is not None:
+                image_url = image_url or getattr(hit, "image_url", None)
+                unit_size_value = unit_size_value or (hit.unit_size or None)
+                if not title.strip() and hit.title:
+                    label = hit.title
         mappings().put(
             AHMapping(
                 product=product,
@@ -2308,15 +2327,16 @@ def create_app(
                 ah_title=label,
                 score=1.0,
                 confirmed=True,
-                ah_image_url=image.strip() or None,
-                ah_unit_size=unit_size.strip() or None,
+                ah_image_url=image_url,
+                ah_unit_size=unit_size_value,
             )
         )
+        mappings().unreject(product)
         # AH's own pack size comes with the suggestion; adopt it as the
         # product's fact when there is none yet, so quantities are pack-aware
         # right away. An existing fact is never overwritten from here.
-        if unit_size.strip() and product.lower() not in store().product_facts():
-            fact = fact_from_unit_size(product, unit_size)
+        if unit_size_value and product.lower() not in store().product_facts():
+            fact = fact_from_unit_size(product, unit_size_value)
             if fact is not None:
                 store().set_product_fact(fact)
         latest = store().latest_plan()
@@ -2334,6 +2354,9 @@ def create_app(
         if not back.startswith("/") or back.startswith("//"):
             back = ""  # no open redirects
         mappings().remove(product)
+        # the human uncoupled this on purpose: never auto-match it again
+        # until a new pin replaces the marker
+        mappings().reject(product)
         latest = store().latest_plan()
         if latest is not None:
             if unit.strip():

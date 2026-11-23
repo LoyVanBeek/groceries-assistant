@@ -190,6 +190,14 @@ CREATE TABLE IF NOT EXISTS ah_mappings (
     ah_unit_size TEXT
 );
 
+-- Producten die bewust ontkoppeld zijn (Ontkoppel): worden nooit automatisch
+-- opnieuw gekoppeld, maar blijven in de koppel-wachtrij staan totdat er
+-- handmatig weer een koppeling wordt gemaakt.
+CREATE TABLE IF NOT EXISTS ah_rejected (
+    product TEXT PRIMARY KEY,             -- lowercase
+    rejected_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- De barcodes: EAN -> productnaam (leert bij bij een onbekende scan).
 CREATE TABLE IF NOT EXISTS barcodes (
     ean TEXT PRIMARY KEY,

@@ -704,15 +704,19 @@ def match_products(
 
     `search(product)` returns AHProduct-like candidates; pass
     AHClient(...).search or a stub in tests. Confirmed pins in the mapping
-    store always win; fresh suggestions are cached as unconfirmed.
+    store always win — even without a thumbnail — and a product the human
+    uncoupled on purpose is never auto-matched again. Fresh suggestions
+    (for products that were never touched) are cached as unconfirmed.
 
-    A new match keeps the article's image URL; an existing mapping that
+    A new match keeps the article's image URL; an unconfirmed mapping that
     lacks one is re-searched once so older mappings get a thumbnail too.
     """
     matched: dict[str, tuple[int, str]] = {}
     for product in products:
+        if mappings.is_rejected(product):
+            continue
         known = mappings.get(product)
-        if known is not None and known.ah_image_url:
+        if known is not None and (known.confirmed or known.ah_image_url):
             matched[product] = (known.ah_webshop_id, known.ah_title)
             continue
         try:
