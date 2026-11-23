@@ -42,10 +42,29 @@ def seed_soep(tmp_path: Path) -> None:
     (tmp_path / "recipes" / "bonensoep.yaml").write_text(SOEP, encoding="utf-8")
 
 
+HELP_ASIDE_RE = re.compile(
+    rb'<aside id="page-help".*?</aside>|<button type="button" class="help-toggle".*?</button>',
+    re.S,
+)
+
+
+class _PageClient(TestClient):
+    """TestClient for page-content assertions: the per-page help panel repeats
+    the page's own button labels ('Vul de week in', 'niet gekoppeld', …), so
+    exact-string assertions would hit the panel instead of the page. It is
+    stripped here; tests/test_help.py checks the panel with a plain client."""
+
+    def request(self, *args, **kwargs):
+        response = super().request(*args, **kwargs)
+        if "text/html" in response.headers.get("content-type", ""):
+            response._content = HELP_ASIDE_RE.sub(b"", response.content)
+        return response
+
+
 def make_client(tmp_path: Path, search_fn=None):
     recipes = tmp_path / "recipes"
     recipes.mkdir(parents=True, exist_ok=True)
-    return TestClient(create_app(tmp_path, search_fn=search_fn))
+    return _PageClient(create_app(tmp_path, search_fn=search_fn))
 
 
 def seed_recipe(tmp_path: Path) -> None:

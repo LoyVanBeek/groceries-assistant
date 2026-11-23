@@ -24,6 +24,23 @@
   <main>
     {% block content %}{% endblock %}
   </main>
+  {% set help = help_for(request.url.path) %}
+  {% if help %}
+  <button type="button" class="help-toggle" id="help-toggle" title="Uitleg bij deze pagina"
+          aria-expanded="false" aria-controls="page-help">?</button>
+  <aside id="page-help" class="page-help" hidden>
+    <h2>{{ help.title }}</h2>
+    {% for heading, items in help.sections %}
+    <h3>{{ heading }}</h3>
+    <dl>
+      {% for term, text in items %}
+      <dt>{{ term }}</dt>
+      <dd>{{ text }}</dd>
+      {% endfor %}
+    </dl>
+    {% endfor %}
+  </aside>
+  {% endif %}
   <script>
     (function () {
       var html = document.documentElement;
@@ -34,6 +51,31 @@
       }
       var target = document.getElementById('theme-to');
       if (target) target.value = t === 'dark' ? 'light' : 'dark';
+      var toggle = document.getElementById('help-toggle');
+      var panel = document.getElementById('page-help');
+      if (toggle && panel) {
+        toggle.addEventListener('click', function () {
+          var open = panel.hidden;
+          panel.hidden = !open;
+          toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+          if (open) {
+            panel.scrollTop = 0;
+            toggle.textContent = '\u00d7';
+            toggle.title = 'Sluit de uitleg';
+          } else {
+            toggle.textContent = '?';
+            toggle.title = 'Uitleg bij deze pagina';
+          }
+        });
+        document.addEventListener('keydown', function (event) {
+          if (event.key === 'Escape' && !panel.hidden) {
+            panel.hidden = true;
+            toggle.setAttribute('aria-expanded', 'false');
+            toggle.textContent = '?';
+            toggle.title = 'Uitleg bij deze pagina';
+          }
+        });
+      }
     })();
   </script>
   {% block scripts %}{% endblock %}

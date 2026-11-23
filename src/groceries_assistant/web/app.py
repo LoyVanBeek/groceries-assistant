@@ -98,6 +98,7 @@ from groceries_assistant.services.planner_service import (
 from groceries_assistant.store.barcodes import BarcodeStore, valid_ean
 from groceries_assistant.store.db import PlanEntryRow, Store
 from groceries_assistant.store.vriezer import VriezerStore
+from groceries_assistant.web.helptext import help_for
 from groceries_assistant.web.views import (
     WEEKDAYS,
     Popularity,
@@ -663,6 +664,7 @@ def create_app(
     templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
     app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
     templates.env.globals["GIT_HASH"] = git_hash()
+    templates.env.globals["help_for"] = help_for
 
     holder: list[Store] = []
 

@@ -53,3 +53,7 @@ ignore = ["RUF001", "RUF002", "RUF003"]  # en-dashes in Dutch text/regexes are i
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff.lint.per-file-ignores]
+# The help texts are long Dutch sentences; wrapping them mid-sentence hurts.
+"src/groceries_assistant/web/helptext.py" = ["E501"]
