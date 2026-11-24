@@ -1,21 +1,25 @@
-"""AH bonus (aanbieding) products: a cached list plus the ingredient matching
-that feeds the planner's bonus preference.
+"""AH bonus (aanbieding) products: a cached list of webshop ids plus the
+matching that feeds the planner's bonus preference.
 
-The list comes from the anonymous mobile API (bonuspage/v1: periods ->
-sections -> products and bonus groups) and is kept in the plandatabase
-(tabel bonus_products) with its fetch date; without a cache the bonus
-preference is simply off. Oude backups met data/bonus.yaml worden bij het
-opstarten/importeren één keer in de tabel ingelezen.
+The list comes from the anonymous mobile API (searched per ingredient name,
+keeping the hits flagged isBonus) and is kept in the plandatabase (tabel
+bonus_products) with its fetch date; without a cache the bonus preference is
+simply off. Oude backups met data/bonus.yaml worden bij het opstarten/
+importeren één keer in de tabel ingelezen.
+
+Matching is by webshop id only: an ingredient counts as "in bonus" exactly
+when its coupled AH product (ah_mappings) is in the fetched list. No name
+matching — a generic ingredient like 'olijfolie' must not light up just
+because some other olijfolie pack is on sale.
 """
 
 from __future__ import annotations
 
 import random
-import re
 from collections.abc import Iterable
 from datetime import date, datetime, time, timedelta
 
-from groceries_assistant.ah.matching import normalize
+from groceries_assistant.ah.matching import AHMappingStore
 from groceries_assistant.store.db import Store
 
 # The daily automatic fetch fires at one random moment in this window
@@ -57,7 +61,7 @@ class BonusStore:
     def __init__(self, store: Store) -> None:
         self._store = store
         self._products: list[tuple[int, str]] = []
-        self._normalized_titles: list[str] = []
+        self._ids: set[int] = set()
         self._fetched_at: date | None = None
         self._counts: dict[str, int] = {}
         self.load()
@@ -92,7 +96,7 @@ class BonusStore:
 
     def _set(self, products: list[tuple[int, str]], fetched: date | None) -> None:
         self._products = list(products)
-        self._normalized_titles = [normalize(title) for _id, title in self._products]
+        self._ids = {webshop_id for webshop_id, _title in products}
         self._fetched_at = fetched
         self._counts = {}
 
@@ -120,27 +124,22 @@ class BonusStore:
         )
         self._store.conn.commit()
 
-    def count_for(self, slug: str, ingredients: Iterable) -> int:
-        """How many of the recipe's ingredients are (probably) in the bonus;
-        cached per slug until the list changes."""
+    def count_for(self, slug: str, ingredients: Iterable, mappings: AHMappingStore) -> int:
+        """How many of the recipe's ingredients are in the bonus — matched by
+        the coupled webshop id only; unmapped ingredients never count.
+        Cached per slug until the list changes."""
         if slug not in self._counts:
             self._counts[slug] = sum(
-                1 for ingredient in ingredients if self.is_in_bonus(ingredient.product)
+                1
+                for ingredient in ingredients
+                if (mapping := mappings.get(ingredient.product)) is not None
+                and self.webshop_id_in_bonus(mapping.ah_webshop_id)
             )
         return self._counts[slug]
 
-    def is_in_bonus(self, product: str) -> bool:
-        name = normalize(product)
-        if not name or not self._normalized_titles:
-            return False
-        for title_name in self._normalized_titles:
-            if name == title_name:
-                return True
-            # whole-word containment: 'tomatenblokjes' matches 'hak
-            # tomatenblokjes', but 'ui' must not match 'uitgeperste'
-            if len(name) >= 4 and re.search(rf"\b{re.escape(name)}\b", title_name):
-                return True
-        return False
+    def webshop_id_in_bonus(self, webshop_id: int) -> bool:
+        """Whether this exact AH product is in the fetched bonus list."""
+        return webshop_id in self._ids
 
 
 def _parse_date(value) -> date | None:

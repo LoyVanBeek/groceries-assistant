@@ -157,6 +157,18 @@ def test_bonus_lives_on_the_select_page_only(tmp_path, monkeypatch):
     seed_recipe(tmp_path)
     seed_soep(tmp_path)
     with make_client(tmp_path) as client:
+        # bonus matching is by webshop id: pin spaghetti to the bonus product
+        client.post(
+            "/order/match/pin",
+            data={
+                "product": "spaghetti",
+                "unit": "",
+                "webshop_id": "5",
+                "title": "AH Spaghetti 500 g",
+                "back": "/recipes",
+            },
+            follow_redirects=False,
+        )
         page = client.get("/plan").text
         assert "Bonuslijst" not in page
         assert "in de bonus" not in page

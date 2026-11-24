@@ -433,6 +433,7 @@ def select_options(
     course_by_slug: Mapping[str, str] | None = None,
     bonus: Mapping[str, int] | None = None,
     bonus_store=None,
+    mappings=None,
 ) -> list[SelectOption]:
     """Full option list for the /plan/select page, indicators included.
 
@@ -451,6 +452,7 @@ def select_options(
         by_slug=by_slug,
         bonus=bonus,
         bonus_store=bonus_store,
+        mappings=mappings,
     ):
         verdicts = verdicts_by_slug.get(row.slug, {})
         pop = popularity(verdicts)

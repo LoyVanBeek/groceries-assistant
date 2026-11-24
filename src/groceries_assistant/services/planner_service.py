@@ -134,13 +134,16 @@ def propose(
     )
 
 
-def bonus_counts(recipes: list[Recipe], bonus: BonusStore) -> dict[str, int]:
+def bonus_counts(
+    recipes: list[Recipe], bonus: BonusStore, mappings: AHMappingStore
+) -> dict[str, int]:
     """slug -> how many of the recipe's ingredients are in the bonus.
 
+    Matched by coupled webshop id only (an unmapped ingredient never counts).
     This one map is the bonus currency everywhere: the engine converts counts
     to points (`bonus_score`), the views show them as an annotation.
     """
-    return {r.slug: bonus.count_for(r.slug, r.ingredients) for r in recipes}
+    return {r.slug: bonus.count_for(r.slug, r.ingredients, mappings) for r in recipes}
 
 
 def fill_remaining(

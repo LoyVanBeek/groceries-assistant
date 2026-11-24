@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
+from groceries_assistant.ah.matching import AHMappingStore
 from groceries_assistant.models import ComposedDish, Recipe
 from groceries_assistant.planner.availability import EveningAvailability
 from groceries_assistant.planner.engine import bonus_score, fill_dish, why_not
@@ -49,6 +50,7 @@ def alternatives(
     by_slug: dict[str, Recipe] | None = None,
     bonus: Mapping[str, int] | None = None,
     bonus_store=None,
+    mappings: AHMappingStore | None = None,
 ) -> list[Alternative]:
     """Dishes and recipes that fit the evening's time budget, best first.
 
@@ -64,12 +66,19 @@ def alternatives(
     if by_slug is None:
         by_slug = {r.slug: r for r in recipes}
 
+    def _in_bonus(product: str) -> bool:
+        """In bonus only when the coupled webshop id is in the fetched list."""
+        if bonus_store is None or mappings is None:
+            return False
+        mapping = mappings.get(product)
+        return mapping is not None and bonus_store.webshop_id_in_bonus(mapping.ah_webshop_id)
+
     def _ingredient_lines(used: Sequence[Recipe]) -> tuple[tuple[str, bool, str], ...]:
         """(line, in_bonus, product) per ingredient of what this evening cooks."""
         return tuple(
             (
                 f"{i.amount:g} {i.unit} {i.product}",
-                bonus_store.is_in_bonus(i.product) if bonus_store else False,
+                _in_bonus(i.product),
                 i.product.lower(),
             )
             for recipe in used

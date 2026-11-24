@@ -1018,7 +1018,7 @@ def create_app(
                 start,
                 dishes=list(dishes.values()),
                 components=list(all_known().values()),
-                bonus=bonus_counts(all_recipes, bonus_store()),
+                bonus=bonus_counts(all_recipes, bonus_store(), mappings()),
                 vriezer=vriezer().available_all(),
             )
             store().save_proposal(
@@ -1046,7 +1046,7 @@ def create_app(
             all_recipes,
             dishes=list(dishes_by_slug().values()),
             components=list(all_known().values()),
-            bonus=bonus_counts(all_recipes, bonus_store()),
+            bonus=bonus_counts(all_recipes, bonus_store(), mappings()),
             vriezer=vriezer().available_all(),
         )
         store().update_proposal_rows(plan_id, new_rows)
@@ -1150,8 +1150,9 @@ def create_app(
             tag=tag,
             course=course,
             course_by_slug=course_by_slug,
-            bonus=bonus_counts(all_recipes, bonus_store()),
+            bonus=bonus_counts(all_recipes, bonus_store(), mappings()),
             bonus_store=bonus_store(),
+            mappings=mappings(),
         )
         # restjes-optie: het gerecht van de avond ervoor, als er porties
         # over zijn (servings minus de eters minus alle geplande restjes)
@@ -1960,7 +1961,7 @@ def create_app(
             start,
             dishes=list(dishes.values()),
             components=components,
-            bonus=bonus_counts(all_recipes, bonus_store()),
+            bonus=bonus_counts(all_recipes, bonus_store(), mappings()),
             vriezer=vriezer().available_all(),
         )
         store().extend_proposal(

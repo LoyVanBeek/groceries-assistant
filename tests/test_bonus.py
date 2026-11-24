@@ -1,4 +1,4 @@
-"""The bonus list cache and the recipe-ingredient matching behind it."""
+"""The bonus list cache and the webshop-id matching behind it."""
 
 import random
 from datetime import date, datetime, time, timedelta
@@ -6,6 +6,7 @@ from datetime import date, datetime, time, timedelta
 import pytest
 
 from groceries_assistant.ah.bonus import BonusStore, fetch_due, random_bonus_slot
+from groceries_assistant.ah.matching import AHMapping, AHMappingStore
 from groceries_assistant.models import Ingredient
 from groceries_assistant.planner.engine import bonus_score
 from groceries_assistant.store.db import Store
@@ -16,6 +17,19 @@ def store(tmp_path) -> BonusStore:
     return BonusStore(Store(tmp_path / "state.db"))
 
 
+@pytest.fixture
+def mappings(store) -> AHMappingStore:
+    return AHMappingStore(store._store)
+
+
+def _pin(mappings: AHMappingStore, product: str, webshop_id: int) -> None:
+    mappings.put(AHMapping(product=product, ah_webshop_id=webshop_id, ah_title=product, score=1.0))
+
+
+def _count(store: BonusStore, slug: str, product: str, mappings: AHMappingStore) -> int:
+    return store.count_for(slug, [Ingredient(product=product, amount=1, unit="g")], mappings)
+
+
 def test_bonus_points_are_a_capped_nudge():
     assert bonus_score(0) == 0.0
     assert bonus_score(1) == pytest.approx(0.5)
@@ -23,10 +37,10 @@ def test_bonus_points_are_a_capped_nudge():
     assert bonus_score(10) == pytest.approx(1.5)  # capped at 3 ingredients
 
 
-def test_missing_cache_means_no_bonus(store):
+def test_missing_cache_means_no_bonus(store, mappings):
     assert store.products == []
     assert store.fetched_at is None
-    assert store.count_for("pasta", [Ingredient(product="spaghetti", amount=500, unit="g")]) == 0
+    assert _count(store, "pasta", "spaghetti", mappings) == 0
 
 
 def test_save_and_load_round_trip(tmp_path):
@@ -54,30 +68,38 @@ def test_broken_cache_never_crashes(tmp_path):
     assert fresh.fetched_at is None
 
 
-def test_ingredient_matching_is_whole_word_containment(store, tmp_path_factory):
-    store.save([(1, "Hak tomatenblokjes uitgeperst 400 g")], date(2026, 11, 5))
-    # containment: the ingredient is a whole word inside the bonus title
-    assert store.is_in_bonus("tomatenblokjes") is True
-    assert store.is_in_bonus("Tomatenblokjes") is True  # normalization lowercases
-    # 'ui' is too short for containment: 'uitgeperst' must not match it
-    assert store.is_in_bonus("ui") is False
-    # exact short names still match on normalized equality
-    short = BonusStore(Store(tmp_path_factory.mktemp("bonus") / "state.db"))
-    short.save([(2, "Ui")], date(2026, 11, 5))
-    assert short.is_in_bonus("ui") is True
-    # and something unrelated matches nothing
-    assert store.is_in_bonus("chocolade") is False
+def test_matching_is_by_webshop_id_only(store, mappings):
+    """No name matching: a bonus title that merely contains the ingredient
+    word does NOT count; only the coupled webshop id does."""
+    store.save(
+        [(1, "Hak tomatenblokjes uitgeperst 400 g"), (48896, "AH Olijfolie 4-pack")],
+        date(2026, 11, 5),
+    )
+    _pin(mappings, "tomatenblokjes", 999)  # mapped to a product NOT in the bonus
+    _pin(mappings, "olijfolie", 48896)  # mapped to the 4-pack that IS in the bonus
+
+    assert store.webshop_id_in_bonus(48896) is True
+    assert store.webshop_id_in_bonus(999) is False
+    # 'tomatenblokjes' appears in a bonus title, but its mapped id 999 is not
+    # in the list: not in bonus
+    assert _count(store, "pasta", "tomatenblokjes", mappings) == 0
+    # 'olijfolie' is mapped to id 48896, which is in the list: in bonus — even
+    # though its mapped product is the 1L bottle, the 4-pack is what's on sale
+    assert _count(store, "saus", "olijfolie", mappings) == 1
+    # unmapped ingredient: never in bonus
+    assert _count(store, "chocola", "chocolade", mappings) == 0
 
 
-def test_count_for_caches_per_slug_until_the_list_changes(store):
+def test_count_for_caches_per_slug_until_the_list_changes(store, mappings):
     store.save([(1, "Hak tomatenblokjes")], date(2026, 11, 5))
+    _pin(mappings, "tomatenblokjes", 1)
     ingredients = [Ingredient(product="tomatenblokjes", amount=400, unit="g")]
 
-    assert store.count_for("pasta", ingredients) == 1
-    assert store.count_for("pasta", ingredients) == 1  # cached
+    assert store.count_for("pasta", ingredients, mappings) == 1
+    assert store.count_for("pasta", ingredients, mappings) == 1  # cached
 
     store.save([], date(2026, 11, 6))  # a refresh resets the cache
-    assert store.count_for("pasta", ingredients) == 0
+    assert store.count_for("pasta", ingredients, mappings) == 0
 
 
 def test_random_bonus_slot_stays_inside_the_window():
