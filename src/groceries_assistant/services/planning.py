@@ -31,10 +31,11 @@ class Alternative:
     """
     bonus_ingredients: int = 0
     """How many of the option's ingredients are in the AH bonus (display)."""
-    ingredients: tuple[tuple[str, bool], ...] = ()
-    """The option's ingredients as (line, in_bonus) pairs, for the picker's
-    expandable ingredient list. Lines are 'amount unit product'; a dish lists
-    the ingredients of the parts the planner filled in for this evening."""
+    ingredients: tuple[tuple[str, bool, str], ...] = ()
+    """The option's ingredients as (line, in_bonus, product) triples, for the
+    picker's expandable ingredient list. Lines are 'amount unit product'; a
+    dish lists the ingredients of the parts the planner filled in for this
+    evening. The lowercased product links the line to its AH coupling."""
 
 
 def alternatives(
@@ -63,12 +64,13 @@ def alternatives(
     if by_slug is None:
         by_slug = {r.slug: r for r in recipes}
 
-    def _ingredient_lines(used: Sequence[Recipe]) -> tuple[tuple[str, bool], ...]:
-        """(line, in_bonus) per ingredient of what this evening would cook."""
+    def _ingredient_lines(used: Sequence[Recipe]) -> tuple[tuple[str, bool, str], ...]:
+        """(line, in_bonus, product) per ingredient of what this evening cooks."""
         return tuple(
             (
                 f"{i.amount:g} {i.unit} {i.product}",
                 bonus_store.is_in_bonus(i.product) if bonus_store else False,
+                i.product.lower(),
             )
             for recipe in used
             for i in recipe.ingredients

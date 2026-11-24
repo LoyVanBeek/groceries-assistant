@@ -1143,6 +1143,11 @@ table.option-rows button { padding: 0.1rem 0.4rem; }
   color: var(--accent);
   font-weight: 600;
 }
+.ingredient-list .ingredient-wijzig {
+  font-size: 0.75rem;
+  padding: 0.05rem 0.35rem;
+  white-space: nowrap;
+}
 
 /* De '?' in de hoek: uitleg bij elk element van de pagina */
 .help-toggle {

@@ -109,8 +109,22 @@
         <details class="ingredient-details">
           <summary aria-label="Ingredi&euml;nten van {{ o.name }}">ingredi&euml;nten</summary>
           <ul class="ingredient-list">
-            {% for line, in_bonus in o.ingredients %}
-            <li {% if in_bonus %}class="bonus-item"{% endif %}>{{ line }}{% if in_bonus %} <span class="bonus-tag">bonus</span>{% endif %}</li>
+            {% for line, in_bonus, product in o.ingredients %}
+            {% set link = ingredient_links.get(product) %}
+            <li {% if in_bonus %}class="bonus-item"{% endif %}>
+              {% if link %}
+              <a class="ah-link" href="{{ link.url }}" target="_blank" rel="noopener"
+                 title="{{ link.title }}">{{ line }}</a>
+              {% else %}
+              {{ line }}
+              {% endif %}
+              {% if in_bonus %} <span class="bonus-tag">bonus</span>{% endif %}
+              <a class="btn-small ingredient-wijzig"
+                 href="/order/match/one?product={{ product | urlencode }}&amp;back={{ select_back | urlencode }}"
+                 title="Bekijk of wijzig de AH-koppeling van {{ product }}">
+                {%- if link %}(wijzigen){% else %}koppel{% endif -%}
+              </a>
+            </li>
             {% endfor %}
           </ul>
         </details>

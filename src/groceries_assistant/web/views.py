@@ -100,7 +100,7 @@ class SelectOption(TypedDict):
     dots: list[VerdictDot]
     recency: RecencyBadge
     bonus_ingredients: int
-    ingredients: tuple[tuple[str, bool], ...]
+    ingredients: tuple[tuple[str, bool, str], ...]
 
 
 def load_recipes(data_dir: Path) -> tuple[list[Recipe], list[str]]:
