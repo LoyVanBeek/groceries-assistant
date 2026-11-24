@@ -1971,6 +1971,150 @@ def test_settings_template_adults_dropdown(tmp_path):
             assert 'value="kid1"' not in select.split("</select>")[0]
 
 
+def test_settings_reorders_person_columns_in_recipes_and_plan(tmp_path):
+    """The up/down buttons in settings change which person gets which column
+    in the recipe list and the week view."""
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        for pid, name, role in (
+            ("mama", "Mama", "adult"),
+            ("papa", "Papa", "adult"),
+            ("kid1", "Kees", "kid"),
+        ):
+            client.post(
+                "/settings/people",
+                data={"person_id": pid, "name": name, "role": role, "weight": "1"},
+            )
+        seed_plan(client)
+
+        def recipe_headers(html):
+            # the person columns are the <th>s after the empty actions column
+            head = html.split("<tr><th>Recept</th>")[1].split("<th></th>")[1].split("</tr>")[0]
+            return re.findall(r"<th>([^<]+)</th>", head)
+
+        def plan_headers(html):
+            # person columns sit between Kok and the Gasten column
+            head = html.split("<th>Kok</th>")[1].split("<th>Gasten</th>")[0]
+            return re.findall(r"<th>([^<]+)</th>", head)
+
+        assert recipe_headers(client.get("/recipes").text) == ["Mama", "Papa", "Kees"]
+        assert plan_headers(client.get("/plan").text) == ["Mama", "Papa", "Kees"]
+
+        # move Kees two spots up: first in every view, and first in settings
+        for _ in range(2):
+            resp = client.post(
+                "/settings/people/move",
+                data={"person_id": "kid1", "direction": "up"},
+                follow_redirects=False,
+            )
+            assert resp.status_code == 303
+            assert resp.headers["location"] == "/settings"
+        assert recipe_headers(client.get("/recipes").text) == ["Kees", "Mama", "Papa"]
+        assert plan_headers(client.get("/plan").text) == ["Kees", "Mama", "Papa"]
+        page = client.get("/settings").text
+        familie_table = page.split("<h2>Familie</h2>")[1].split("<table>")[1].split("</table>")[0]
+        move_ids = re.findall(r'name="person_id" value="([^"]+)"', familie_table)
+        assert move_ids[0] == "kid1"
+        # the first row's up button is disabled, the last row's down button too
+        assert familie_table.count("disabled") == 2
+
+        # moving up at the top is a no-op
+        client.post("/settings/people/move", data={"person_id": "kid1", "direction": "up"})
+        assert recipe_headers(client.get("/recipes").text) == ["Kees", "Mama", "Papa"]
+
+
+def test_guests_vary_per_day_in_the_week_view(tmp_path):
+    """Gasten zijn per dag in te stellen in het weekoverzicht (standaard 0) en
+    tellen mee in de porties van die dag."""
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        for pid, name in (("mama", "Mama"), ("papa", "Papa")):
+            client.post(
+                "/settings/people",
+                data={"person_id": pid, "name": name, "role": "adult", "weight": "1"},
+            )
+        # guests are NOT a setting anymore
+        assert "/settings/guests" not in client.get("/settings").text
+        seed_plan(client)
+        from groceries_assistant.store.db import Store
+
+        store = Store(tmp_path / "state.db")
+        monday = store.load_proposal()[1]
+        tuesday = monday + timedelta(days=1)
+
+        # the week view has a Gasten column right of the last family member;
+        # each day shows the control twice (column dropdown + mobile expander)
+        page = client.get("/plan").text
+        assert "<th>Gasten</th>" in page
+        assert page.count('name="guests_delta" value="-1"') == 14
+
+        def set_guests(day, delta):
+            return client.post(
+                "/plan/evening",
+                data={
+                    "day": day.isoformat(),
+                    "guests_delta": str(delta),
+                    "joined": ["mama", "papa"],
+                },
+                follow_redirects=False,
+            )
+
+        def row_of(html, day):
+            return html.split(f'data-day="{day.isoformat()}"')[1].split("data-day=")[0]
+
+        def minus_button(row_html):
+            return re.search(r'<button[^>]*name="guests_delta" value="-1"[^>]*>', row_html).group(0)
+
+        # default 0: monday's minus button is disabled
+        page = client.get("/plan").text
+        assert "disabled" in minus_button(row_of(page, monday))
+
+        # +2 guests on monday only: the dropdown and expander both show 2
+        assert set_guests(monday, 1).status_code == 303
+        assert set_guests(monday, 1).status_code == 303
+        assert store.week_override(monday)[3] == 2
+        assert store.week_override(tuesday) is None  # untouched, still 0
+        page = client.get("/plan").text
+        assert page.count('<strong class="guests-count">2</strong>') == 2
+        assert "disabled" not in minus_button(row_of(page, monday))
+        assert "disabled" in minus_button(row_of(page, tuesday))
+        # portions count the guests: monday 2 family + 2 guests = 4 p
+        assert "&middot; 4 p" in row_of(page, monday)
+        assert "&middot; 2 p" in row_of(page, tuesday)
+
+        # minus clamps at 0
+        set_guests(monday, -1)
+        set_guests(monday, -1)
+        set_guests(monday, -1)
+        assert store.week_override(monday)[3] == 0
+
+        # plus caps at 10
+        for _ in range(12):
+            set_guests(monday, 1)
+        assert store.week_override(monday)[3] == 10
+
+
+def test_table_headers_stick_while_scrolling(tmp_path):
+    """The stylesheet pins thead th to the top of the viewport, and on wide
+    screens .table-scroll is not a scroll container so the pin binds to the
+    page scroll (on a phone the sideways scroll wins)."""
+    with make_client(tmp_path) as client:
+        css = client.get("/static/style.css").text
+        assert "thead th" in css and "position: sticky" in css
+        assert re.search(r"thead th\s*{[^}]*top: 0", css)
+        # .table-scroll must never be a scroll container, at any width,
+        # otherwise the sticky header binds to it instead of the viewport
+        assert re.search(r"\.table-scroll \{ overflow: visible;", css)
+        assert "overflow-x: auto" not in css.split(".table-scroll")[1].split("}")[0]
+        assert "max-height: calc(100dvh" not in css
+        # the recipe table's header row must be a real <thead> row: a bare
+        # <tr><th> lands in an implicit tbody where the sticky rule can't match
+        seed_recipe(tmp_path)
+        page = client.get("/recipes").text
+        assert '<table id="recipe-table">' in page
+        assert re.search(r'<table id="recipe-table">\s*<thead>', page)
+
+
 def test_save_rejects_bad_ingredient_line_with_feedback(tmp_path):
     with make_client(tmp_path) as client:
         page = client.post(
@@ -2174,11 +2318,12 @@ def test_grid_checkboxes_bound_to_their_own_row(tmp_path):
             )
         seed_plan(client)
         page = client.get("/plan").text
-        # each evening id: exactly 3 checkbox refs (3 people); fields that
-        # live inside the form itself don't need the form= attribute
+        # each evening id: exactly 3 checkbox refs (3 people) + 2 guests
+        # +/- buttons in the Gasten column; fields that live inside the form
+        # itself don't need the form= attribute
         for n in range(1, 8):
             refs = page.count(f'form="evening-{n}"')
-            assert refs == 3, f"evening-{n} referenced {refs}x, expected 3"
+            assert refs == 5, f"evening-{n} referenced {refs}x, expected 5"
         # the checkboxes in evening-5's own segment reference evening-5 (not another row)
         segment = page.split('id="evening-5"')[1].split('id="evening-6"')[0]
         first_checkbox = next(

@@ -246,6 +246,11 @@ ADDED_COLUMNS: dict[str, tuple[tuple[str, str], ...]] = {
     "order_items": (("pack_count", "REAL"), ("pack_unit", "TEXT"), ("note", "TEXT")),
     "plans": (("approved_through", "TEXT"), ("ordered_through", "TEXT")),
     "plan_entries": (("frozen", "INTEGER NOT NULL DEFAULT 0"),),
+    # people.col_order: which person column comes first in the week view and
+    # the recipe list; existing rows all share 0 and keep their id order.
+    "people": (("col_order", "INTEGER NOT NULL DEFAULT 0"),),
+    # week_override.guests: extra guests eating that specific day (default 0).
+    "week_override": (("guests", "INTEGER NOT NULL DEFAULT 0"),),
 }
 
 
@@ -477,17 +482,47 @@ class Store:
     # --- people & verdicts ------------------------------------------------------
 
     def people(self) -> list[dict]:
-        rows = self.conn.execute("SELECT id, name, role, weight FROM people ORDER BY id").fetchall()
+        """All people in column order (col_order, then id as tiebreak)."""
+        rows = self.conn.execute(
+            "SELECT id, name, role, weight FROM people ORDER BY col_order, id"
+        ).fetchall()
         return [dict(row) for row in rows]
 
     def upsert_person(self, person_id: str, name: str, role: str, weight: float) -> None:
-        self.conn.execute(
-            "INSERT INTO people(id, name, role, weight) VALUES (?,?,?,?)"
-            " ON CONFLICT(id) DO UPDATE SET name=excluded.name, role=excluded.role,"
-            " weight=excluded.weight",
-            (person_id, name, role, weight),
-        )
+        existing = self.conn.execute("SELECT id FROM people WHERE id = ?", (person_id,)).fetchone()
+        if existing is None:
+            # a new person goes last in the column order
+            next_order = self.conn.execute(
+                "SELECT COALESCE(MAX(col_order), -1) + 1 FROM people"
+            ).fetchone()[0]
+            self.conn.execute(
+                "INSERT INTO people(id, name, role, weight, col_order) VALUES (?,?,?,?,?)",
+                (person_id, name, role, weight, next_order),
+            )
+        else:
+            self.conn.execute(
+                "UPDATE people SET name=?, role=?, weight=? WHERE id=?",
+                (name, role, weight, person_id),
+            )
         self.conn.commit()
+
+    def set_people_order(self, ids: list[str]) -> None:
+        """Rewrite the column order; unknown ids are ignored."""
+        for index, person_id in enumerate(ids):
+            self.conn.execute("UPDATE people SET col_order = ? WHERE id = ?", (index, person_id))
+        self.conn.commit()
+
+    def move_person(self, person_id: str, delta: int) -> None:
+        """Move a person in the column order (delta -1 = up, +1 = down)."""
+        ids = [p["id"] for p in self.people()]
+        if person_id not in ids:
+            return
+        i = ids.index(person_id)
+        j = i + delta
+        if not 0 <= j < len(ids):
+            return
+        ids[i], ids[j] = ids[j], ids[i]
+        self.set_people_order(ids)
 
     def set_verdict(self, recipe_slug: str, person_id: str, verdict: str) -> None:
         self.conn.execute(
@@ -573,24 +608,31 @@ class Store:
         )
         self.conn.commit()
 
-    def week_override(self, day: date) -> tuple[str, int, bool] | None:
+    def week_override(self, day: date) -> tuple[str, int, bool, int] | None:
+        """(cook, free_minutes, allow_leftovers, guests) for one day, or None."""
         row = self.conn.execute(
-            "SELECT cook, free_minutes, allow_leftovers FROM week_override WHERE day = ?",
+            "SELECT cook, free_minutes, allow_leftovers, guests FROM week_override WHERE day = ?",
             (day.isoformat(),),
         ).fetchone()
         if row is None:
             return None
-        return row["cook"], row["free_minutes"], bool(row["allow_leftovers"])
+        return row["cook"], row["free_minutes"], bool(row["allow_leftovers"]), row["guests"]
 
     def set_week_override(
-        self, day: date, cook: str, free_minutes: int, allow_leftovers: bool
+        self,
+        day: date,
+        cook: str,
+        free_minutes: int,
+        allow_leftovers: bool,
+        guests: int = 0,
     ) -> None:
         self.conn.execute(
-            "INSERT INTO week_override(day, cook, free_minutes, allow_leftovers)"
-            " VALUES (?,?,?,?)"
+            "INSERT INTO week_override(day, cook, free_minutes, allow_leftovers, guests)"
+            " VALUES (?,?,?,?,?)"
             " ON CONFLICT(day) DO UPDATE SET cook=excluded.cook,"
-            " free_minutes=excluded.free_minutes, allow_leftovers=excluded.allow_leftovers",
-            (day.isoformat(), cook, free_minutes, int(allow_leftovers)),
+            " free_minutes=excluded.free_minutes, allow_leftovers=excluded.allow_leftovers,"
+            " guests=excluded.guests",
+            (day.isoformat(), cook, free_minutes, int(allow_leftovers), max(0, int(guests))),
         )
         self.conn.commit()
 

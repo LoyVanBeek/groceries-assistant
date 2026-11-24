@@ -43,6 +43,51 @@ def test_verdict_overwrite(store):
     assert store.verdicts()["pasta"]["kid1"] == "love"
 
 
+def test_people_column_order(store):
+    store.upsert_person("b", "B", "adult", 1.0)
+    store.upsert_person("a", "A", "adult", 1.0)
+    store.upsert_person("c", "C", "kid", 1.0)
+    # new people land at the end (insertion order)
+    assert [p["id"] for p in store.people()] == ["b", "a", "c"]
+    store.set_people_order(["c", "a", "b"])
+    assert [p["id"] for p in store.people()] == ["c", "a", "b"]
+    # re-upserting keeps the position
+    store.upsert_person("a", "A2", "adult", 2.0)
+    assert [p["id"] for p in store.people()] == ["c", "a", "b"]
+    assert store.people()[1]["name"] == "A2"
+    assert store.people()[1]["weight"] == 2.0
+    # a new person still goes last
+    store.upsert_person("d", "D", "adult", 1.0)
+    assert [p["id"] for p in store.people()] == ["c", "a", "b", "d"]
+
+
+def test_move_person_swaps_with_the_neighbour(store):
+    for pid in ("a", "b", "c"):
+        store.upsert_person(pid, pid.upper(), "adult", 1.0)
+    store.move_person("b", -1)
+    assert [p["id"] for p in store.people()] == ["b", "a", "c"]
+    store.move_person("b", 1)
+    store.move_person("b", 1)
+    assert [p["id"] for p in store.people()] == ["a", "c", "b"]
+    # edges and unknown ids are no-ops
+    store.move_person("b", 1)
+    store.move_person("nope", -1)
+    assert [p["id"] for p in store.people()] == ["a", "c", "b"]
+
+
+def test_week_override_guests_default_zero_and_round_trip(store):
+    day = date(2026, 9, 28)
+    assert store.week_override(day) is None  # no override: 0 guests
+    store.set_week_override(day, cook="mama", free_minutes=30, allow_leftovers=True, guests=2)
+    assert store.week_override(day) == ("mama", 30, True, 2)
+    # without guests the override stores the default 0
+    store.set_week_override(day, cook="", free_minutes=45, allow_leftovers=False)
+    assert store.week_override(day) == ("", 45, False, 0)
+    # negative guests clamp to 0
+    store.set_week_override(day, cook="", free_minutes=45, allow_leftovers=False, guests=-3)
+    assert store.week_override(day)[3] == 0
+
+
 def test_staples_toggle(store):
     store.set_staple("rijst", True)
     store.set_staple("pasta", True)

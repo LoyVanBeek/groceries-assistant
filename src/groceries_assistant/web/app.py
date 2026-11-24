@@ -1096,7 +1096,9 @@ def create_app(
         # als de BESCHIKBARE porties (voorraad minus al gepland eruit) niet
         # genoeg zijn voor de eters van deze avond
         dishes = dishes_by_slug()
-        joiners_count = len(evening.joiners) if evening.joiners is not None else 4
+        joiners_count = (
+            len(evening.joiners) if evening.joiners is not None else 4
+        ) + evening.guests
         frozen_options = []
         for e in vriezer().entries():
             slug = e["slug"]
@@ -1227,7 +1229,11 @@ def create_app(
                     if portions <= 0:
                         raise HTTPException(400, "Geen restjes van dit gerecht in de vriezer")
                     evening = evenings_for(store(), target, days=1)[0]
-                    eat = min(portions, len(evening.joiners) if evening.joiners is not None else 4)
+                    eat = min(
+                        portions,
+                        (len(evening.joiners) if evening.joiners is not None else 4)
+                        + evening.guests,
+                    )
                     new_rows.append(
                         PlanEntryRow(
                             day=target,
@@ -1357,7 +1363,10 @@ def create_app(
         if portions <= 0:
             return RedirectResponse("/plan?error=restjes-geen", status_code=303)
         evening = evenings_for(store(), target, days=1)[0]
-        eat = min(portions, len(evening.joiners) if evening.joiners is not None else 4)
+        eat = min(
+            portions,
+            (len(evening.joiners) if evening.joiners is not None else 4) + evening.guests,
+        )
         new_rows = [
             (
                 PlanEntryRow(
@@ -1656,11 +1665,17 @@ def create_app(
         minutes_raw = str(form.get("minutes", "")).strip()
         target = date.fromisoformat(day)
         minutes = int(minutes_raw) if minutes_raw.isdigit() else evening_minutes(store(), target)
+        # guests vary per day: the +/- buttons submit guests_delta with the form
+        guests_delta = str(form.get("guests_delta", "")).strip()
+        guests = evening_guests(store(), target)
+        if guests_delta in ("-1", "1"):
+            guests = max(0, min(10, guests + int(guests_delta)))
         store().set_week_override(
             target,
             cook=cook,
             free_minutes=max(minutes, 0),
             allow_leftovers=evening_allows_leftovers(store(), target),
+            guests=guests,
         )
         # Update attendance for all people when cook is provided (even if empty string)
         for person in store().people():
@@ -1676,6 +1691,11 @@ def create_app(
         template = s.week_template()[day.weekday()]
         override = s.week_override(day)
         return override[2] if override else template[2]
+
+    def evening_guests(s: Store, day: date) -> int:
+        """Guests eating this specific day (per-day override, default 0)."""
+        override = s.week_override(day)
+        return override[3] if override else 0
 
     def _build_and_save_order(plan_id: int, rows: list[PlanEntryRow]) -> None:
         """Build the grocery order for `rows` and store it for the plan."""
@@ -4177,6 +4197,13 @@ def create_app(
         weight: float = Form(1.0),
     ):
         store().upsert_person(person_id.strip(), name.strip(), role, float(weight))
+        return RedirectResponse("/settings", status_code=303)
+
+    @app.post("/settings/people/move")
+    def move_person(person_id: str = Form(...), direction: str = Form("up")):
+        """Move a person one spot up/down in the column order used by the
+        week view and the recipe list."""
+        store().move_person(person_id.strip(), -1 if direction == "up" else 1)
         return RedirectResponse("/settings", status_code=303)
 
     @app.post("/settings/staples")

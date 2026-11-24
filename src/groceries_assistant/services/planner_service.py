@@ -70,7 +70,9 @@ def evenings_for(store: Store, start: date, days: int = 7) -> list[EveningAvaila
         day = start + timedelta(days=offset)
         cook, minutes, allow_leftovers = template[day.weekday()]
         if (override := store.week_override(day)) is not None:
-            cook, minutes, allow_leftovers = override
+            cook, minutes, allow_leftovers, guests = override
+        else:
+            guests = 0
         joiners: tuple[str, ...] | None = None
         if people_ids:
             absent = store.absences(day)
@@ -82,6 +84,7 @@ def evenings_for(store: Store, start: date, days: int = 7) -> list[EveningAvaila
                 cook=cook or None,
                 allow_leftovers=allow_leftovers,
                 joiners=joiners,
+                guests=guests,
             )
         )
     return out
@@ -212,8 +215,12 @@ def fill_remaining(
 
 
 def _portions(entry: PlanEntry, servings: int) -> int:
-    """Joiners of the evening; fixed servings when no people are configured."""
-    return entry.availability.people_count or servings
+    """Joiners plus guests of the evening; fixed servings plus guests when no
+    people are configured."""
+    availability = entry.availability
+    if availability.joiners is not None:
+        return availability.people_count  # joiners + guests
+    return servings + availability.guests
 
 
 def apply_absences(
@@ -227,7 +234,10 @@ def apply_absences(
     joiners_by_day: dict[date, int | None] = {}
     for row in rows:
         evening = evenings_for(store, row.day, days=1)[0]
-        joiners_by_day[row.day] = len(evening.joiners) if evening.joiners is not None else None
+        # guests eat along but have no verdict; count them with the joiners
+        joiners_by_day[row.day] = (
+            len(evening.joiners) + evening.guests if evening.joiners is not None else None
+        )
 
     counts: dict[date, int] = {}
     for row in rows:

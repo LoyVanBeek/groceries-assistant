@@ -138,15 +138,30 @@ nav form.inline { margin-left: auto; }
 table { border-collapse: collapse; width: 100%; }
 th, td { border: 1px solid var(--border); padding: 0.5rem 0.6rem; text-align: left; vertical-align: top; }
 
-/* Wide tables (the recipes verdict table, the settings week template) scroll
-   sideways on a phone with the name column pinned. */
-.table-scroll { overflow-x: auto; margin-bottom: 0.75rem; }
+/* Wide tables (the recipes verdict table, the settings week template) are
+   wider than a phone; the page scrolls sideways and the name column stays
+   pinned (left: 0 below). overflow must stay visible: any other value makes
+   .table-scroll a scroll container, which would capture the sticky header. */
+.table-scroll { overflow: visible; margin-bottom: 0.75rem; }
 .table-scroll table { min-width: 620px; }
 .table-scroll th:first-child, .table-scroll td:first-child {
   position: sticky;
   left: 0;
   background: var(--bg);
 }
+.table-scroll td:first-child { z-index: 1; }
+
+/* Column headers stay visible while scrolling down: they pin to the top of
+   the viewport. That only works when no ancestor is a scroll container, so
+   .table-scroll must have overflow visible at every width (overflow-x other
+   than visible would make it one); a table wider than the screen then
+   scrolls sideways at page level, with the first column pinned (left: 0). */
+thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.table-scroll thead th:first-child { z-index: 3; }
 
 th {
   font-size: 0.8rem;
@@ -184,6 +199,16 @@ button {
   text-decoration: none;
 }
 .btn-small:hover { border-color: var(--ink); }
+
+/* per-day guest counter (+/- buttons) in the week view and settings */
+.guests-ctl { white-space: nowrap; }
+.guests-ctl .guests-count { display: inline-block; min-width: 1.4rem; text-align: center; }
+.btn-icon:disabled { opacity: 0.3; cursor: default; filter: none; }
+
+/* settings familie table: the up/down reorder buttons sit side by side */
+.order-btns { white-space: nowrap; }
+.order-btns form.inline { display: inline-flex; }
+.order-btns .btn-icon { font-size: 1rem; }
 
 /* icon-only row action (trash) */
 .btn-icon {
@@ -759,6 +784,37 @@ table.plan select, table.plan button { height: 2.5rem; }
 table.plan button { min-width: 5.5rem; text-align: center; white-space: nowrap; padding: 0.3rem 0.6rem; font-size: 1rem; }
 table.plan .col-day { white-space: nowrap; width: 10rem; }
 table.plan .col-dish { width: 40%; }
+table.plan .col-guests { width: 3.4rem; text-align: center; }
+
+/* guests dropdown in the week view: summary shows just the count, the
+   body holds the -/+ buttons (they submit the evening form via form=). */
+table.plan details.guests-picker { position: relative; display: block; }
+table.plan details.guests-picker summary {
+  list-style: none;
+  cursor: pointer;
+  text-align: center;
+  font-weight: 600;
+  padding: 0.15rem 0.3rem;
+  border: 1.5px solid var(--border);
+  border-radius: 7px;
+  min-height: 2.5rem;
+}
+table.plan details.guests-picker summary::-webkit-details-marker { display: none; }
+table.plan details.guests-picker summary::after { content: "\25BE"; color: var(--muted); font-size: 0.7rem; }
+table.plan details.guests-picker[open] summary {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+table.plan .guests-picker-body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
+  margin-top: 0.25rem;
+}
+/* the +/- buttons stay icon-sized inside the plan table (which otherwise
+   forces every button to 5.5rem wide) */
+table.plan .guests-ctl .btn-icon { min-width: 0; height: auto; padding: 0.15rem 0.35rem; font-size: 1rem; }
 
 /* part picker: the option rows are per-part buttons; reuse .dish-option */
 table.plan .dish-option {
@@ -978,7 +1034,7 @@ table.plan .col-attend .cell-name { display: none; }
     white-space: nowrap;
     text-align: left;
   }
-  table.plan .col-cook, table.plan .col-attend, table.plan .col-approve { display: none; }
+  table.plan .col-cook, table.plan .col-attend, table.plan .col-guests, table.plan .col-approve { display: none; }
   table.plan .parts-form { display: none; }
   table.plan .col-day .budget, table.plan .col-day .warnings { display: none; }
   table.plan .col-day > strong { display: none; }

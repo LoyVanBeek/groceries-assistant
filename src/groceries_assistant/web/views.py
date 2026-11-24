@@ -208,7 +208,12 @@ def plan_view(
                 "budget": evening.free_minutes,
                 "minutes": 0,
                 "total_minutes": 0,
-                "people": (len(evening.joiners) if evening.joiners is not None else row.people),
+                "people": (
+                    (len(evening.joiners) + evening.guests)
+                    if evening.joiners is not None
+                    else row.people
+                ),
+                "guests": evening.guests,
                 "members": members,
                 "cooking": cooking,
                 "is_dish": False,

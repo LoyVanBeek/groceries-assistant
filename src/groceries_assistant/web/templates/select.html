@@ -79,6 +79,7 @@
   {% if sort != 'recent' %}<a href="/plan/select?day={{ day }}&amp;sort=recent{% if q %}&amp;q={{ q | urlencode }}{% endif %}{% if tag %}&amp;tag={{ tag | urlencode }}{% endif %}{% if course %}&amp;course={{ course | urlencode }}{% endif %}">laatst gebruikt</a>{% else %}<strong>laatst gebruikt</strong>{% endif %}
 </p>
 <table class="select-table">
+  <thead>
   <tr>
     <th class="col-name">Gerecht</th>
     <th>Waardering</th>
@@ -86,6 +87,7 @@
     <th>Tijd</th>
     <th>Score</th>
   </tr>
+  </thead>
   {% for o in options %}
   <tr class="select-row{% if o.problem %} unavailable{% endif %}">
     <td class="col-name">

@@ -20,7 +20,9 @@
   </p>
   <div class="table-scroll">
   <table>
+    <thead>
     <tr><th>Avond</th><th>Kok</th><th>Minuten</th><th>Restjes ok?</th></tr>
+    </thead>
     {% for e in evenings %}
     <tr>
       <td>{{ e.name }}</td>
@@ -42,13 +44,37 @@
 </form>
 
 <h2>Familie</h2>
+<p class="muted">
+  De personenkolommen in het <a href="/plan">weekoverzicht</a> en het
+  <a href="/recipes">receptenoverzicht</a> staan in deze volgorde &mdash;
+  verplaats iemand met &#8593;/&#8595;. Gasten die mee-eten stel je per dag
+  in bij het <a href="/plan">weekoverzicht</a>.
+</p>
 <div class="table-scroll">
 <table>
-  <tr><th>Id</th><th>Naam</th><th>Rol</th><th>Gewicht</th></tr>
+  <thead>
+  <tr><th>Volgorde</th><th>Id</th><th>Naam</th><th>Rol</th><th>Gewicht</th></tr>
+  </thead>
   {% for p in people %}
-  <tr><td>{{ p['id'] }}</td><td>{{ p['name'] }}</td><td>{{ p['role'] }}</td><td>{{ p['weight'] }}</td></tr>
+  <tr>
+    <td class="order-btns">
+      <form method="post" action="/settings/people/move" class="inline">
+        <input type="hidden" name="person_id" value="{{ p['id'] }}">
+        <input type="hidden" name="direction" value="up">
+        <button class="btn-icon" {% if loop.first %}disabled{% endif %}
+                title="Omhoog" aria-label="{{ p['name'] or p['id'] }} omhoog verplaatsen">&#8593;</button>
+      </form>
+      <form method="post" action="/settings/people/move" class="inline">
+        <input type="hidden" name="person_id" value="{{ p['id'] }}">
+        <input type="hidden" name="direction" value="down">
+        <button class="btn-icon" {% if loop.last %}disabled{% endif %}
+                title="Omlaag" aria-label="{{ p['name'] or p['id'] }} omlaag verplaatsen">&#8595;</button>
+      </form>
+    </td>
+    <td>{{ p['id'] }}</td><td>{{ p['name'] }}</td><td>{{ p['role'] }}</td><td>{{ p['weight'] }}</td>
+  </tr>
   {% else %}
-  <tr><td colspan="4" class="muted">Nog niemand toegevoegd.</td></tr>
+  <tr><td colspan="5" class="muted">Nog niemand toegevoegd.</td></tr>
   {% endfor %}
 </table>
 </div>

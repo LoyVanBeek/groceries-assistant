@@ -11,12 +11,14 @@
 
 {% if dishes %}
 <table>
+  <thead>
   <tr>
     <th>Gerecht</th>
     <th>Onderdelen</th>
     <th></th>
     {% for p in people %}<th>{{ p['name'] or p['id'] }}</th>{% endfor %}
   </tr>
+  </thead>
   {% for d in dishes %}
   <tr>
     <td><a href="/dishes/{{ d.slug }}">{{ d.name }}</a></td>

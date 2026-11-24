@@ -8,6 +8,7 @@
 </p>
 {% if errors %}<p class="warnings">{{ errors|join('; ') }}</p>{% endif %}
 <table id="component-table">
+  <thead>
   <tr>
     <th>Onderdeel</th>
     <th>Hoeveelheid</th>
@@ -15,6 +16,7 @@
     <th></th>
     {% for p in people %}<th>{{ p['name'] or p['id'] }}</th>{% endfor %}
   </tr>
+  </thead>
   {% for c in components %}
   <tr>
     <td>

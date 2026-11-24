@@ -12,6 +12,7 @@ from groceries_assistant.services.planner_service import (
     ah_pack_qty,
     apply_absences,
     build_order,
+    evenings_for,
     last_weeks_stock,
     match_products,
     next_weekday,
@@ -134,6 +135,38 @@ def test_no_people_configured_falls_back_to_servings(tmp_path):
     rows = [PlanEntryRow(day=D1, kind="cook", recipe_slug="pasta", people=4)]
     fresh = apply_absences(store, rows)
     assert fresh[0].people == 4
+
+
+def test_guests_count_towards_portions_but_not_the_joiners(tmp_path):
+    store = Store(tmp_path / "state.db")
+    for person in ("a", "b"):
+        store.upsert_person(person, person, "adult", 1.0)
+    store.set_absence(D1, "a", True)
+    store.set_week_override(D1, cook="", free_minutes=45, allow_leftovers=False, guests=2)
+    (evening,) = evenings_for(store, D1, days=1)
+    assert evening.joiners == ("b",)  # guests are not joiners (no verdicts)
+    assert evening.guests == 2
+    assert evening.people_count == 3  # 1 joiner + 2 guests
+    rows = [PlanEntryRow(day=D1, kind="cook", recipe_slug="pasta", people=4)]
+    fresh = apply_absences(store, rows)
+    assert fresh[0].people == 3
+    # another day without an override has 0 guests
+    (other,) = evenings_for(store, D2, days=1)
+    assert other.guests == 0
+    assert other.people_count == 2
+
+
+def test_guests_add_to_the_fixed_servings_when_nobody_is_configured(tmp_path):
+    store = Store(tmp_path / "state.db")
+    store.set_week_override(D1, cook="", free_minutes=45, allow_leftovers=False, guests=2)
+    (evening,) = evenings_for(store, D1, days=1)
+    assert evening.joiners is None
+    assert evening.people_count == 0  # caller falls back to servings + guests
+    plan = WeeklyPlan(
+        entries=[PlanEntry(date=D1, recipe=_recipe(), availability=evening, score=1.0, reason="")]
+    )
+    rows = plan_to_rows(plan, servings=4)
+    assert rows[0].people == 6
 
 
 def test_no_cook_rows_contribute_no_groceries():

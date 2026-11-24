@@ -24,6 +24,13 @@
     <input type="number" name="minutes" value="{{ e.budget }}" min="0" max="300"
            aria-label="Minuten {{ e.label }}" onchange="this.form.requestSubmit()">
   </label>
+  <span class="row-more-label guests-ctl">Gasten {{ e.label }}
+    <button type="submit" name="guests_delta" value="-1" class="btn-icon" {% if not e.guests %}disabled{% endif %}
+            title="Een gast minder" aria-label="Een gast minder voor {{ e.label }}">&#8722;</button>
+    <strong class="guests-count">{{ e.guests }}</strong>
+    <button type="submit" name="guests_delta" value="1" class="btn-icon" {% if e.guests >= 10 %}disabled{% endif %}
+            title="Een gast meer" aria-label="Een gast meer voor {{ e.label }}">+</button>
+  </span>
   {% if e.kind != 'no_cook' and not e.is_ordered %}
   <label class="row-more-label">Kok {{ e.label }}
     <select name="cook" aria-label="Kok {{ e.label }}" onchange="this.form.requestSubmit()">
@@ -171,6 +178,7 @@
       <th>Gerecht</th>
       <th>Kok</th>
       {% for m in evenings[0].members %}<th>{{ m.name }}</th>{% endfor %}
+      <th>Gasten</th>
       <th>Goedkeuren</th>
     </tr>
   </thead>
@@ -383,6 +391,24 @@
       {% endif %}
     </td>
     {% endfor %}
+    <td class="col-guests">
+      {% if d.is_ordered or d.kind == 'no_cook' %}
+      <span class="muted" aria-label="Aantal gasten {{ d.label }}">{{ d.guests }}</span>
+      {% else %}
+      <details class="guests-picker">
+        <summary aria-label="Gasten voor {{ d.label }} instellen">{{ d.guests }}</summary>
+        <div class="guests-picker-body guests-ctl">
+          <button type="submit" form="evening-{{ row }}" name="guests_delta" value="-1" class="btn-icon"
+                  {% if not d.guests %}disabled{% endif %}
+                  title="Een gast minder" aria-label="Een gast minder voor {{ d.label }}">&#8722;</button>
+          <strong class="guests-count">{{ d.guests }}</strong>
+          <button type="submit" form="evening-{{ row }}" name="guests_delta" value="1" class="btn-icon"
+                  {% if d.guests >= 10 %}disabled{% endif %}
+                  title="Een gast meer" aria-label="Een gast meer voor {{ d.label }}">+</button>
+        </div>
+      </details>
+      {% endif %}
+    </td>
     <td class="col-approve">
       {% if d.is_past %}
       <span class="muted" aria-label="Al geweest">&mdash;</span>

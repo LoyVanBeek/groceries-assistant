@@ -19,7 +19,8 @@ class EveningAvailability:
 
     `joiners` lists the person ids eating that evening (None = everyone);
     absent people's verdicts don't steer the recipe choice and their absence
-    reduces the portion count.
+    reduces the portion count. `guests` are extra eaters without a verdict:
+    they raise the portion count but never steer the recipe choice.
     """
 
     date: date
@@ -27,6 +28,7 @@ class EveningAvailability:
     cook: str | None = None
     allow_leftovers: bool = False
     joiners: tuple[str, ...] | None = None
+    guests: int = 0
 
     @property
     def category(self) -> str:
@@ -38,5 +40,8 @@ class EveningAvailability:
 
     @property
     def people_count(self) -> int:
-        """Portions needed; caller supplies the default when joiners is None."""
-        return len(self.joiners) if self.joiners is not None else 0
+        """Portions needed: joiners plus guests; 0 when no people are configured
+        (callers then fall back to a fixed serving count)."""
+        if self.joiners is None:
+            return 0
+        return len(self.joiners) + self.guests

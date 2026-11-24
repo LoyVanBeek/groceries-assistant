@@ -23,7 +23,9 @@
 </form>
 <div class="table-scroll">
 <table id="recipe-table">
+  <thead>
   <tr><th>Recept</th><th>Tijd</th><th>Protein</th><th>Tags</th><th>Waardering</th><th>Laatst</th><th></th>{% for p in people %}<th>{{ p['name'] or p['id'] }}</th>{% endfor %}</tr>
+  </thead>
   {% for r in recipes %}
   <tr>
     <td>
