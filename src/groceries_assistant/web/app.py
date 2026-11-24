@@ -14,7 +14,7 @@ from collections.abc import Mapping
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Annotated, TypedDict
-from urllib.parse import quote, urlparse
+from urllib.parse import quote, urlencode, urlparse
 from uuid import uuid4
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -102,6 +102,7 @@ from groceries_assistant.store.db import PlanEntryRow, Store
 from groceries_assistant.store.vriezer import VriezerStore
 from groceries_assistant.web.helptext import help_for
 from groceries_assistant.web.views import (
+    SORT_DEFAULT_DIR,
     WEEKDAYS,
     Popularity,
     RecencyBadge,
@@ -1087,6 +1088,7 @@ def create_app(
         day: str = "",
         q: str = "",
         sort: str = "score",
+        dir: str = "",
         tag: str = "",
         course: str = "hoofdgerecht",
     ):
@@ -1153,6 +1155,7 @@ def create_app(
             bonus=bonus_counts(all_recipes, bonus_store(), mappings()),
             bonus_store=bonus_store(),
             mappings=mappings(),
+            direction=dir if dir in ("asc", "desc") else "",
         )
         # restjes-optie: het gerecht van de avond ervoor, als er porties
         # over zijn (servings minus de eters minus alle geplande restjes)
@@ -1221,12 +1224,35 @@ def create_app(
             }
             for m in mappings().all()
         }
+
+        def _sort_href(col: str) -> str:
+            # clicking the active column toggles asc/desc (the default view's
+            # column counts as its default direction); a new column gets its
+            # default direction; the current filters ride along
+            current_dir = dir if dir in ("asc", "desc") else SORT_DEFAULT_DIR.get(sort, "desc")
+            if sort == col:
+                next_dir = "asc" if current_dir == "desc" else "desc"
+            else:
+                next_dir = SORT_DEFAULT_DIR[col]
+            params = {
+                "day": day,
+                "sort": col,
+                "dir": next_dir,
+                "q": q,
+                "tag": tag,
+                "course": course,
+            }
+            return "/plan/select?" + urlencode({k: v for k, v in params.items() if v})
+
+        sort_links = {col: _sort_href(col) for col in SORT_DEFAULT_DIR}
         return render(
             request,
             "select.html",
             day=day,
             q=q,
             sort=sort,
+            dir=dir if dir in ("asc", "desc") else "",
+            sort_links=sort_links,
             tag=tag,
             restjes_option=restjes_option,
             frozen_options=frozen_options,

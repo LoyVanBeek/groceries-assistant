@@ -863,13 +863,24 @@ table.select-table th {
   padding: 0.35rem 0.5rem;
   vertical-align: bottom;
 }
+/* sortable header: the whole th is a link with an asc/desc arrow; the thead
+   is sticky (see above), so the sort buttons stay visible while scrolling */
+table.select-table th a.sort-link {
+  color: inherit;
+  text-decoration: none;
+  display: block;
+  white-space: nowrap;
+}
+table.select-table th a.sort-link:hover { color: var(--accent); }
 table.select-table td {
   border-bottom: 1px solid var(--rule);
   padding: 0.5rem;
   vertical-align: middle;
 }
 table.select-table tr:last-child td { border-bottom: none; }
-table.select-table .col-name { display: flex; align-items: center; gap: 0.6rem; }
+/* flex only on the body cells: a display:flex <th> would break the sticky
+   header (the th must stay a table-cell to stick) */
+table.select-table td.col-name { display: flex; align-items: center; gap: 0.6rem; }
 table.select-table .col-name .thumb {
   width: 3rem;
   height: 3rem;
@@ -1064,13 +1075,12 @@ table.plan .col-attend .cell-name { display: none; }
   .row-more summary { cursor: pointer; color: var(--muted); }
   .row-more-label { display: block; margin: 0.25rem 0; }
 
-  table.select-table thead { display: none; }
-  table.select-table, table.select-table tbody, table.select-table tr, table.select-table td {
-    display: block;
-    width: 100%;
-  }
-  table.select-table tr { border-bottom: 1px solid var(--rule); padding-bottom: 0.5rem; margin-bottom: 0.5rem; }
-  table.select-table td { border: none; padding: 0.2rem 0; }
+  /* the select table stays a real table on a phone too: the thead must remain
+     table-header-group for the sticky sortable header to stick */
+  table.select-table thead th { font-size: 0.72rem; padding: 0.25rem 0.3rem; }
+  table.select-table thead th a.sort-link { white-space: normal; }
+  table.select-table tbody tr { border-bottom: 1px solid var(--rule); }
+  table.select-table tbody td { border: none; padding: 0.2rem 0; }
 
   /* alles strakker zodat de week op één telefoonscherm past */
   body { padding: 0.35rem 0.55rem 1.25rem; font-size: 0.92rem; line-height: 1.3; }

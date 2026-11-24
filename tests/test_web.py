@@ -191,18 +191,21 @@ def test_bonus_lives_on_the_select_page_only(tmp_path, monkeypatch):
             >= 1
         )  # opgeslagen in de plandatabase
 
+        def has_bonus_count(html):
+            return re.search(r"bonus-count[^>]*>\s*1\s*<", html)
+
         day = next(
-            d for d in days if "in de bonus" in client.get(f"/plan/select?day={d.isoformat()}").text
+            d for d in days if has_bonus_count(client.get(f"/plan/select?day={d.isoformat()}").text)
         )
         select = client.get(f"/plan/select?day={day.isoformat()}").text
         assert "Bonuslijst (opnieuw) ophalen" in select
-        assert "in de bonus" in select  # chip on the matching option
+        assert re.search(r"bonus-count[^>]*>\s*1\s*<", select)  # bonus count in its own column
         assert "ingredient-details" in select
         assert "500 g spaghetti" in select  # the ingredient line
         assert 'class="bonus-item"' in select  # the bonus ingredient highlighted
         assert "1 stuk ui" in select  # the non-bonus one, unhighlighted
         # ... and the week page stayed clean
-        assert "in de bonus" not in client.get("/plan").text
+        assert "bonus-item" not in client.get("/plan").text
 
         # refresh from the select page lands back on that same picker
         resp = client.post(
@@ -2220,6 +2223,12 @@ def test_table_headers_stick_while_scrolling(tmp_path):
         page = client.get("/recipes").text
         assert '<table id="recipe-table">' in page
         assert re.search(r'<table id="recipe-table">\s*<thead>', page)
+        # a display:flex <th> breaks sticky in Chromium, and the mobile rules
+        # must not turn the select table into display:block (same reason)
+        assert "table.select-table td.col-name { display: flex" in css
+        assert "table.select-table .col-name { display: flex" not in css
+        assert "table.select-table thead { display: none" not in css
+        assert "table.select-table, table.select-table tbody" not in css
 
 
 def test_save_rejects_bad_ingredient_line_with_feedback(tmp_path):
@@ -4888,6 +4897,63 @@ def test_select_page_sorts_by_last_used(tmp_path):
         assert (
             text.index("Tortilla") < text.index("Curry") < text.index("Pasta") < text.index("Soep")
         )
+
+
+def test_select_page_headers_are_sort_links_with_direction(tmp_path):
+    """Every header cell links to sort by that column; the active column shows
+    an arrow and its link toggles asc/desc. Filters ride along in the links."""
+    store = _seed_select_data(tmp_path)
+    with make_client(tmp_path) as client:
+        day = store.load_proposal()[1].isoformat()
+        page = client.get(f"/plan/select?day={day}&q=cur").text
+        for col in ("name", "waardering", "recent", "minutes", "score", "bonus"):
+            assert f"sort={col}&amp;dir=" in page
+        # q is preserved in the header links
+        assert "q=cur" in page.split('class="sort-link"')[1]
+        # default view: score active with the desc arrow; its link toggles to asc
+        assert "sort=score&amp;dir=asc" in page
+        assert ">Score &#9660;</a>" in page
+        # a different column shows no arrow and points at its default dir
+        assert "sort=bonus&amp;dir=desc" in page
+        assert ">Bonus</a>" in page
+        # toggled: dir=asc shows the up arrow and flips back to desc
+        asc = client.get(f"/plan/select?day={day}&sort=name&dir=asc").text
+        assert ">Gerecht &#9650;</a>" in asc
+        assert "sort=name&amp;dir=desc" in asc
+        # name asc orders alphabetically (the day's own broccoli is excluded)
+        assert asc.index("Curry") < asc.index("Pasta") < asc.index("Soep") < asc.index("Tortilla")
+
+
+def test_select_page_sorts_by_bonus_count(tmp_path):
+    """sort=bonus orders by how many ingredients are in the bonus (webshop-id
+    matched); dir=asc reverses it."""
+    from groceries_assistant.ah.bonus import BonusStore
+    from groceries_assistant.ah.matching import AHMapping, AHMappingStore
+
+    store = _seed_select_data(tmp_path)
+    # curry gains a bonus ingredient; the others only have rijst
+    (tmp_path / "recipes" / "curry.yaml").write_text(
+        "name: Curry\nservings: 4\ntime: {cook: 20}\n"
+        "ingredients:\n"
+        "  - {product: rijst, amount: 400, unit: g}\n"
+        "  - {product: tomatenblokjes, amount: 200, unit: g}\n",
+        encoding="utf-8",
+    )
+    s = Store(tmp_path / "state.db")
+    BonusStore(s).save([(9, "Hak tomatenblokjes")], date.today())
+    AHMappingStore(s).put(
+        AHMapping(
+            product="tomatenblokjes", ah_webshop_id=9, ah_title="Hak tomatenblokjes", score=1.0
+        )
+    )
+    s.close()
+    with make_client(tmp_path) as client:
+        day = store.load_proposal()[1].isoformat()
+        desc = client.get(f"/plan/select?day={day}&sort=bonus&dir=desc").text
+        assert desc.index("Curry") < desc.index("Pasta")  # curry: 1 bonus ingredient
+        assert re.search(r"bonus-count[^>]*>\s*1\s*<", desc)
+        asc = client.get(f"/plan/select?day={day}&sort=bonus&dir=asc").text
+        assert asc.index("Pasta") < asc.index("Curry")  # 0 before 1 when ascending
 
 
 def test_select_page_asks_confirmation_on_a_besteld_day(tmp_path):

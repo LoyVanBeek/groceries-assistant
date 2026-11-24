@@ -412,6 +412,30 @@ def recency(last_used: date | None, today: date) -> RecencyBadge:
     return {"key": "old", "label": "langer geleden", "last": last_used}
 
 
+# Sortable columns of the /plan/select table. Each key sorts "best first"
+# ascending; `dir=asc` reverses it. Blocked rows always sink to the bottom.
+_BADGE_RANK = {"love": 3, "mixed": 2, "ok": 1, "hate": 0}
+SORT_KEYS = {
+    "name": lambda r: r["name"].lower(),
+    "waardering": lambda r: (-int(r["favourite"]), -_BADGE_RANK.get(r["badge"]["key"], 0)),
+    "recent": lambda r: (
+        r["recency"]["last"] is None,
+        -(r["recency"]["last"].toordinal() if r["recency"]["last"] else 0),
+    ),
+    "minutes": lambda r: (r["minutes"] is None, r["minutes"] or 0),
+    "score": lambda r: -r["score"],
+    "bonus": lambda r: -r["bonus_ingredients"],
+}
+SORT_DEFAULT_DIR = {
+    "name": "asc",
+    "waardering": "desc",
+    "recent": "desc",
+    "minutes": "asc",
+    "score": "desc",
+    "bonus": "desc",
+}
+
+
 def select_options(
     recipes: list[Recipe],
     prefs: Preferences,
@@ -427,6 +451,7 @@ def select_options(
     today: date,
     q: str = "",
     sort: str = "score",
+    direction: str = "",
     tags_by_slug: Mapping[str, Sequence[str]] | None = None,
     tag: str = "",
     course: str = "",
@@ -487,18 +512,14 @@ def select_options(
         rows = [
             row for row in rows if (course_by_slug or {}).get(row["slug"], "hoofdgerecht") == course
         ]
-    if sort == "recent":
-        # usable rows first, then blocked; within each, most recently planned
-        # first so the repeat is visible; never-used rows sink to the bottom
-        def _sort_key(row: SelectOption):
-            last = row["recency"]["last"]
-            return (
-                1 if row["problem"] else 0,
-                1 if last is None else 0,
-                -last.toordinal() if last is not None else 0,
-            )
-
-        rows.sort(key=_sort_key)
+    if sort in SORT_KEYS and not (sort == "score" and not direction):
+        # explicit header sort: keys are "best first" for the column's default
+        # direction, so reverse only when the requested dir differs from it;
+        # blocked rows always sink to the bottom (stable sort keeps the column
+        # order within the two groups)
+        direction = direction if direction in ("asc", "desc") else SORT_DEFAULT_DIR[sort]
+        rows.sort(key=SORT_KEYS[sort], reverse=(direction != SORT_DEFAULT_DIR[sort]))
+        rows.sort(key=lambda row: 1 if row["problem"] else 0)
     return rows
 
 

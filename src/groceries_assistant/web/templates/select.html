@@ -55,6 +55,7 @@
 <form method="get" action="/plan/select" class="select-search">
   <input type="hidden" name="day" value="{{ day }}">
   <input type="hidden" name="sort" value="{{ sort }}">
+  <input type="hidden" name="dir" value="{{ dir }}">
   <input type="search" name="q" value="{{ q }}" placeholder="Zoek recept&hellip;" aria-label="Zoek recept">
   {% if all_tags %}
   <select name="tag" aria-label="Filter op tag">
@@ -72,20 +73,20 @@
   </select>
   <button type="submit">Zoek</button>
 </form>
-<p class="muted">
-  Sorteer:
-  {% if sort != 'score' %}<a href="/plan/select?day={{ day }}&amp;sort=score{% if q %}&amp;q={{ q | urlencode }}{% endif %}{% if tag %}&amp;tag={{ tag | urlencode }}{% endif %}{% if course %}&amp;course={{ course | urlencode }}{% endif %}">scores</a>{% else %}<strong>scores</strong>{% endif %}
-  &middot;
-  {% if sort != 'recent' %}<a href="/plan/select?day={{ day }}&amp;sort=recent{% if q %}&amp;q={{ q | urlencode }}{% endif %}{% if tag %}&amp;tag={{ tag | urlencode }}{% endif %}{% if course %}&amp;course={{ course | urlencode }}{% endif %}">laatst gebruikt</a>{% else %}<strong>laatst gebruikt</strong>{% endif %}
-</p>
+{# Sortable header: each column links to sort by it, toggling asc/desc when
+   already active. The thead is sticky, so these stay visible while scrolling. #}
+{% macro sort_th(col, label, class='') %}
+<th{% if class %} class="{{ class }}"{% endif %}><a class="sort-link" href="{{ sort_links[col] }}">{{ label }}{% if sort == col %}{% if dir == 'asc' %} &#9650;{% else %} &#9660;{% endif %}{% endif %}</a></th>
+{% endmacro %}
 <table class="select-table">
   <thead>
   <tr>
-    <th class="col-name">Gerecht</th>
-    <th>Waardering</th>
-    <th>Laatst gepland</th>
-    <th>Tijd</th>
-    <th>Score</th>
+    {{ sort_th('name', 'Gerecht', 'col-name') }}
+    {{ sort_th('waardering', 'Waardering') }}
+    {{ sort_th('recent', 'Laatst gepland') }}
+    {{ sort_th('minutes', 'Tijd') }}
+    {{ sort_th('score', 'Score') }}
+    {{ sort_th('bonus', 'Bonus') }}
   </tr>
   </thead>
   {% for o in options %}
@@ -103,7 +104,6 @@
       {% if o.image %}<img class="thumb" src="{{ o.image }}" alt="">{% endif %}
       <span class="name-wrap">
         <span class="option-name">{{ o.name }}{% if o.is_dish %} <span class="muted">({{ o.part_labels|join(' + ') }})</span>{% endif %}</span>
-        {% if o.bonus_ingredients %}<span class="bonus-tag" title="Ingredi&euml;nten van dit recept staan in de bonus">{{ o.bonus_ingredients }} in de bonus</span>{% endif %}
         {% if o.problem %}<span class="muted row-problem">{{ o.problem }}</span>{% endif %}
         {% if o.ingredients %}
         <details class="ingredient-details">
@@ -143,9 +143,10 @@
     </td>
     <td class="muted">{% if o.minutes is not none %}{{ o.minutes }} min{% else %}&mdash;{% endif %}</td>
     <td class="muted score">{{ '%.1f'|format(o.score)|replace('.', ',') }}</td>
+    <td class="muted bonus-count" title="Aantal ingredi&euml;nten in de bonus">{{ o.bonus_ingredients }}</td>
   </tr>
   {% else %}
-  <tr><td colspan="5" class="muted">Geen recepten gevonden{% if q %} voor &lsquo;{{ q }}&rsquo;{% endif %}.</td></tr>
+  <tr><td colspan="6" class="muted">Geen recepten gevonden{% if q %} voor &lsquo;{{ q }}&rsquo;{% endif %}.</td></tr>
   {% endfor %}
 </table>
 {% if slot_course %}
