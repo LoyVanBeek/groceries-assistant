@@ -457,6 +457,64 @@ def test_component_verdict_keeps_the_page_too(tmp_path):
         assert 'value="love" selected' in client.get("/components").text
 
 
+def test_bonus_scheduler_fetches_once_a_day_at_the_random_slot(tmp_path, monkeypatch):
+    """schedule_bonus=True starts a background thread that fetches the bonus
+    list when the day's (random) slot has passed and nothing was fetched yet;
+    the running app's singleton picks the fresh list up."""
+    import time as time_mod
+    from datetime import datetime, time
+
+    import groceries_assistant.web.app as app_module
+    from groceries_assistant.ah.client import AHProduct
+
+    class FakeAH:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc_info):
+            return False
+
+        def bonus_products_for_queries(self, queries):
+            assert "spaghetti" in queries
+            return [AHProduct(webshop_id=7, title="AH Spaghetti 500 g")]
+
+    monkeypatch.setattr(app_module, "AHClient", FakeAH)
+    monkeypatch.setattr(app_module, "BONUS_CHECK_INTERVAL", 0.05)
+    # force the day's random slot into the past so the first tick is due
+    monkeypatch.setattr(
+        app_module, "random_bonus_slot", lambda day, rng=None: datetime.combine(day, time.min)
+    )
+    seed_recipe(tmp_path)
+    with _PageClient(create_app(tmp_path, schedule_bonus=True)) as client:
+        try:
+            deadline = time_mod.time() + 5
+            fetched = None
+            while time_mod.time() < deadline:
+                s = Store(tmp_path / "state.db")
+                row = s.conn.execute(
+                    "SELECT value FROM bonus_meta WHERE key = 'fetched_at'"
+                ).fetchone()
+                s.close()
+                if row:
+                    fetched = row[0]
+                    break
+                time_mod.sleep(0.05)
+            assert fetched == date.today().isoformat()
+            s = Store(tmp_path / "state.db")
+            rows = s.conn.execute("SELECT webshop_id, title FROM bonus_products").fetchall()
+            s.close()
+            assert [(r[0], r[1]) for r in rows] == [(7, "AH Spaghetti 500 g")]
+
+            # the running app's singleton was reloaded: the select page shows it
+            seed_plan(client)
+            store = Store(tmp_path / "state.db")
+            days = [r.day for r in store.plan_entries(store.load_proposal()[0])]
+            page = client.get(f"/plan/select?day={days[0].isoformat()}").text
+            assert "Bonus: 1 producten (opgehaald" in page
+        finally:
+            client.app.state.bonus_stop.set()
+
+
 def test_bonus_refresh_falls_back_to_search_when_bonuspage_refuses(tmp_path, monkeypatch):
     """AH's bonuspage endpoints refuse anonymous tokens (HTTP 500): the
     refresh searches the household's own ingredient names instead."""

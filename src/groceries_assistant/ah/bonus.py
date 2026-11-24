@@ -10,12 +10,45 @@ opstarten/importeren één keer in de tabel ingelezen.
 
 from __future__ import annotations
 
+import random
 import re
 from collections.abc import Iterable
-from datetime import date
+from datetime import date, datetime, time, timedelta
 
 from groceries_assistant.ah.matching import normalize
 from groceries_assistant.store.db import Store
+
+# The daily automatic fetch fires at one random moment in this window
+# (local time): early enough that the new bonus week is live, randomized so
+# every instance does not hammer the AH API at the same minute.
+BONUS_WINDOW_START = time(4, 0)
+BONUS_WINDOW_END = time(9, 0)
+
+
+def random_bonus_slot(day: date, rng: random.Random | None = None) -> datetime:
+    """A random moment within the bonus window on `day` (local time)."""
+    if rng is None:
+        rng = random.Random()
+    start = datetime.combine(day, BONUS_WINDOW_START)
+    span = (datetime.combine(day, BONUS_WINDOW_END) - start).total_seconds()
+    return start + timedelta(seconds=rng.uniform(0, span))
+
+
+def fetch_due(
+    fetched_at: date | None,
+    last_attempt: datetime | None,
+    *,
+    now: datetime,
+    slot: datetime,
+    min_retry_seconds: int = 3600,
+) -> bool:
+    """Whether the daily bonus fetch should run now: not fetched today yet,
+    the day's (random) slot has passed, and the last attempt is old enough."""
+    if fetched_at == now.date():
+        return False
+    if now < slot:
+        return False
+    return last_attempt is None or (now - last_attempt).total_seconds() >= min_retry_seconds
 
 
 class BonusStore:
@@ -71,6 +104,22 @@ class BonusStore:
     def fetched_at(self) -> date | None:
         return self._fetched_at
 
+    @property
+    def last_attempt(self) -> datetime | None:
+        """When the last fetch was attempted (success or failure), if ever."""
+        row = self._store.conn.execute(
+            "SELECT value FROM bonus_meta WHERE key = 'last_attempt'"
+        ).fetchone()
+        return _parse_datetime(row["value"] if row else None)
+
+    def note_attempt(self, when: datetime | None = None) -> None:
+        when = when or datetime.now()
+        self._store.conn.execute(
+            "INSERT OR REPLACE INTO bonus_meta(key, value) VALUES ('last_attempt', ?)",
+            (when.isoformat(),),
+        )
+        self._store.conn.commit()
+
     def count_for(self, slug: str, ingredients: Iterable) -> int:
         """How many of the recipe's ingredients are (probably) in the bonus;
         cached per slug until the list changes."""
@@ -99,5 +148,14 @@ def _parse_date(value) -> date | None:
         return None
     try:
         return date.fromisoformat(str(value))
+    except ValueError:
+        return None
+
+
+def _parse_datetime(value) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value))
     except ValueError:
         return None

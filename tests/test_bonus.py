@@ -1,10 +1,11 @@
 """The bonus list cache and the recipe-ingredient matching behind it."""
 
-from datetime import date
+import random
+from datetime import date, datetime, time, timedelta
 
 import pytest
 
-from groceries_assistant.ah.bonus import BonusStore
+from groceries_assistant.ah.bonus import BonusStore, fetch_due, random_bonus_slot
 from groceries_assistant.models import Ingredient
 from groceries_assistant.planner.engine import bonus_score
 from groceries_assistant.store.db import Store
@@ -77,3 +78,34 @@ def test_count_for_caches_per_slug_until_the_list_changes(store):
 
     store.save([], date(2026, 11, 6))  # a refresh resets the cache
     assert store.count_for("pasta", ingredients) == 0
+
+
+def test_random_bonus_slot_stays_inside_the_window():
+    rng = random.Random(42)
+    day = date(2026, 11, 24)
+    for _ in range(200):
+        slot = random_bonus_slot(day, rng)
+        assert slot.date() == day
+        assert time(4, 0) <= slot.time() <= time(9, 0)
+
+
+def test_fetch_due_decides_once_per_day_after_the_slot():
+    now = datetime(2026, 11, 24, 12, 0)
+    slot = datetime(2026, 11, 24, 6, 30)
+    # never fetched, slot passed -> due
+    assert fetch_due(None, None, now=now, slot=slot) is True
+    # already fetched today -> not due
+    assert fetch_due(date(2026, 11, 24), None, now=now, slot=slot) is False
+    # before the day's slot -> wait
+    assert fetch_due(None, None, now=datetime(2026, 11, 24, 5, 0), slot=slot) is False
+    # failed 10 minutes ago -> throttled
+    assert fetch_due(None, now - timedelta(minutes=10), now=now, slot=slot) is False
+    # failed 2 hours ago -> retry
+    assert fetch_due(None, now - timedelta(hours=2), now=now, slot=slot) is True
+
+
+def test_last_attempt_round_trip(store):
+    assert store.last_attempt is None
+    when = datetime(2026, 11, 24, 6, 12, 30)
+    store.note_attempt(when)
+    assert BonusStore(store._store).last_attempt == when

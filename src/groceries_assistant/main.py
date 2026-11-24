@@ -72,6 +72,7 @@ def serve(
     app_instance = create_app(
         Path(data_dir) if data_dir else default_data_dir(),
         tesseract_binary=os.environ.get("GROCERIES_TESSERACT", "tesseract"),
+        schedule_bonus=True,  # fetch the AH bonus list once a day, at a random time
     )
     uvicorn.run(app_instance, host=host, port=port, log_config=LOGGING_CONFIG)
 

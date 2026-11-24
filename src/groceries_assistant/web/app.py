@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import io
+import logging
 import os
 import re
 import subprocess
 import tempfile
+import threading
 import zipfile
 from collections.abc import Mapping
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Annotated, TypedDict
 from urllib.parse import quote, urlparse
@@ -22,7 +24,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 from starlette.datastructures import FormData
 
-from groceries_assistant.ah.bonus import BonusStore
+from groceries_assistant.ah.bonus import BonusStore, fetch_due, random_bonus_slot
 from groceries_assistant.ah.client import AHClient
 from groceries_assistant.ah.deeplink import (
     build_add_multiple_url,
@@ -116,6 +118,13 @@ SERVINGS = 4
 LEFTOVERS_CHOICE = "__leftovers__"
 COOK_CHOICE = "__cook__"
 NO_COOK_CHOICE = "__no_cook__"
+
+logger = logging.getLogger(__name__)
+
+# The daily bonus fetch runs in a background thread: it wakes this often and
+# fires once per day at a random slot in the 04:00-09:00 window (see
+# ah.bonus.random_bonus_slot).
+BONUS_CHECK_INTERVAL = 300  # seconds between staleness checks
 VRIEZER_CHOICE = "__vriezer__:"
 WEG_CHOICE = "__weg__"
 
@@ -650,8 +659,14 @@ def create_app(
     data_dir: str | os.PathLike[str],
     search_fn=None,
     tesseract_binary: str = "tesseract",
+    schedule_bonus: bool = False,
 ) -> FastAPI:
-    """search_fn: injectable AH search(product) -> candidates; None = real client."""
+    """search_fn: injectable AH search(product) -> candidates; None = real client.
+
+    schedule_bonus: start the background thread that fetches the AH bonus list
+    once per day at a random time (only the real server passes True; tests
+    keep it off so they never touch the network).
+    """
     data = Path(data_dir)
     (data / "recipes").mkdir(parents=True, exist_ok=True)
     (data / "components").mkdir(parents=True, exist_ok=True)
@@ -707,6 +722,81 @@ def create_app(
         if not _barcode_cache:
             _barcode_cache.append(BarcodeStore(store()))
         return _barcode_cache[0]
+
+    # --- daily bonus fetch (button + background scheduler share this) --------
+
+    _bonus_lock = threading.Lock()
+
+    def _ingredient_names() -> list[str]:
+        all_recipes, _errors = load_all()
+        return sorted({i.product for r in all_recipes for i in r.ingredients})
+
+    def _refresh_bonus_now() -> None:
+        """Fetch the current AH bonus list into the cache (manual button and
+        the daily scheduler both go through here)."""
+        names = _ingredient_names()
+        products: list[tuple[int, str]] = []
+        if names:
+            with AHClient() as client:
+                products = [
+                    (p.webshop_id, p.title) for p in client.bonus_products_for_queries(names)
+                ]
+        bonus_store().save(products, date.today())
+
+    def _auto_refresh_bonus(slot: datetime) -> None:
+        """One daily fetch from the scheduler thread: it uses its own DB
+        connection (WAL allows several), then reloads the app singleton."""
+        own_store = Store(data / "state.db")
+        try:
+            bonus = BonusStore(own_store)
+            if not fetch_due(bonus.fetched_at, bonus.last_attempt, now=datetime.now(), slot=slot):
+                return
+            with _bonus_lock:
+                bonus.load()  # the manual button may have refreshed just now
+                if not fetch_due(
+                    bonus.fetched_at, bonus.last_attempt, now=datetime.now(), slot=slot
+                ):
+                    return
+                bonus.note_attempt()
+                names = _ingredient_names()
+                products: list[tuple[int, str]] = []
+                if names:
+                    with AHClient() as client:
+                        products = [
+                            (p.webshop_id, p.title)
+                            for p in client.bonus_products_for_queries(names)
+                        ]
+                bonus.save(products, datetime.now().date())
+            bonus_store().load()  # pages read the singleton: pick up the new list
+            logger.info("bonuslijst automatisch ververst (%d producten)", len(products))
+        finally:
+            own_store.close()
+
+    def _bonus_scheduler_loop(stop: threading.Event) -> None:
+        slot_day: date | None = None
+        slot: datetime | None = None
+        while not stop.wait(BONUS_CHECK_INTERVAL):
+            try:
+                today = date.today()
+                if slot_day != today or slot is None:
+                    slot_day = today
+                    slot = random_bonus_slot(today)  # re-rolled every day
+                if slot is not None and datetime.now() >= slot:
+                    _auto_refresh_bonus(slot)
+            except Exception:
+                logger.exception("bonus automatisch verversen mislukt; oude lijst blijft")
+
+    @app.on_event("startup")
+    def _start_bonus_scheduler() -> None:
+        if schedule_bonus:
+            stop = threading.Event()
+            app.state.bonus_stop = stop
+            threading.Thread(
+                target=_bonus_scheduler_loop,
+                args=(stop,),
+                name="bonus-daily",
+                daemon=True,
+            ).start()
 
     def load_all() -> tuple[list[Recipe], list[str]]:
         return load_recipes_with_errors(data / "recipes")
@@ -976,27 +1066,19 @@ def create_app(
 
     @app.post("/plan/bonus/refresh")
     def bonus_refresh(back: str = Form("/plan")):
-        """Fetch the current AH bonus list into data/bonus.yaml.
-
-        The household's ingredient names are searched one by one; the search
-        response marks bonus products itself (isBonus/bonusEndDate — the
-        bonuspage endpoints are unavailable to anonymous tokens). Catches
-        everything: a failing fetch is a notice on the page you came from,
-        never a crash.
-        """
-        all_recipes, _errors = load_all()
+        """Fetch the current AH bonus list now (same fetch the daily scheduler
+        runs). Catches everything: a failing fetch is a notice on the page you
+        came from, never a crash."""
         if not back.startswith("/plan"):
             back = "/plan"  # no open redirects
-        names = sorted({i.product for r in all_recipes for i in r.ingredients})
         try:
-            with AHClient() as client:
-                products = client.bonus_products_for_queries(names) if names else []
+            with _bonus_lock:
+                _refresh_bonus_now()
         except Exception as exc:  # the button must never 500
             separator = "&" if "?" in back else "?"
             return RedirectResponse(
                 f"{back}{separator}error=bonus:{quote(str(exc))}", status_code=303
             )
-        bonus_store().save([(p.webshop_id, p.title) for p in products], date.today())
         return RedirectResponse(back, status_code=303)
 
     @app.get("/plan/select", response_class=HTMLResponse)
