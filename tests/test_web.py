@@ -340,6 +340,86 @@ def test_barcode_script_is_valid_javascript():
     esprima.parseScript((static / "barcode.js").read_text(encoding="utf-8"))
 
 
+def test_verdict_script_is_valid_javascript():
+    """The in-place verdict updater may not break on any browser's parser."""
+    import esprima
+
+    static = Path(web_app.__file__).parent / "static"
+    esprima.parseScript((static / "verdict.js").read_text(encoding="utf-8"))
+
+
+def test_setting_a_verdict_does_not_reload_the_page(tmp_path):
+    """The waardering select updates in place: no inline form submit, the
+    page script posts and swaps the table; without JS a button still posts
+    and the redirect keeps the current filter."""
+    seed_recipe(tmp_path)
+    with make_client(tmp_path) as client:
+        add_person(client, "kid1", "Kees", "kid")
+        page = client.get("/recipes").text
+        assert 'onchange="this.form.submit()"' not in page
+        assert 'id="recipe-table"' in page
+        assert "/static/verdict.js" in page
+        assert "<noscript><button" in page
+        # the form carries the current URL so a full reload keeps the filter
+        assert "back" in page
+
+        # the redirect honours the back target (no-JS path with a filter on)
+        resp = client.post(
+            "/recipes/verdict",
+            data={
+                "slug": "pasta",
+                "person": "kid1",
+                "verdict": "love",
+                "back": "/recipes?q=pasta",
+            },
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/recipes?q=pasta"
+        # without a back target: plain /recipes, as before
+        resp = client.post(
+            "/recipes/verdict",
+            data={"slug": "pasta", "person": "kid1", "verdict": "ok"},
+            follow_redirects=False,
+        )
+        assert resp.headers["location"] == "/recipes"
+        # a foreign back target is refused
+        resp = client.post(
+            "/recipes/verdict",
+            data={
+                "slug": "pasta",
+                "person": "kid1",
+                "verdict": "love",
+                "back": "https://evil.example",
+            },
+            follow_redirects=False,
+        )
+        assert resp.headers["location"] == "/recipes"
+
+
+def test_component_verdict_keeps_the_page_too(tmp_path):
+    """Components get the same in-place verdict flow."""
+    seed_part_recipes(tmp_path)
+    with make_client(tmp_path) as client:
+        add_person(client, "kid1", "Kees", "kid")
+        page = client.get("/components").text
+        assert 'onchange="this.form.submit()"' not in page
+        assert 'id="component-table"' in page
+        assert "/static/verdict.js" in page
+        resp = client.post(
+            "/components/verdict",
+            data={
+                "slug": "kipfilet",
+                "person": "kid1",
+                "verdict": "love",
+                "back": "/components",
+            },
+            follow_redirects=False,
+        )
+        assert resp.headers["location"] == "/components"
+        assert 'value="love" selected' in client.get("/components").text
+
+
 def test_bonus_refresh_falls_back_to_search_when_bonuspage_refuses(tmp_path, monkeypatch):
     """AH's bonuspage endpoints refuse anonymous tokens (HTTP 500): the
     refresh searches the household's own ingredient names instead."""

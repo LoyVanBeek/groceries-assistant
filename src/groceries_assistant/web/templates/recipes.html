@@ -22,7 +22,7 @@
   <button type="submit">Zoek</button>
 </form>
 <div class="table-scroll">
-<table>
+<table id="recipe-table">
   <tr><th>Recept</th><th>Tijd</th><th>Protein</th><th>Tags</th><th>Waardering</th><th>Laatst</th><th></th>{% for p in people %}<th>{{ p['name'] or p['id'] }}</th>{% endfor %}</tr>
   {% for r in recipes %}
   <tr>
@@ -52,12 +52,15 @@
       <form method="post" action="/recipes/verdict">
         <input type="hidden" name="slug" value="{{ r.slug }}">
         <input type="hidden" name="person" value="{{ p['id'] }}">
-        <select name="verdict" onchange="this.form.submit()">
+        <input type="hidden" name="back"
+               value="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}">
+        <select name="verdict">
           <option value=""></option>
           {% for v in ['love','ok','dislike','never'] %}
           <option value="{{ v }}" {% if r.verdicts[p['id']] == v %}selected{% endif %}>{{ v }}</option>
           {% endfor %}
         </select>
+        <noscript><button class="btn-small">zet</button></noscript>
       </form>
     </td>
     {% endfor %}
@@ -67,4 +70,7 @@
   {% endfor %}
 </table>
 </div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/verdict.js?v={{ GIT_HASH }}" defer></script>
 {% endblock %}

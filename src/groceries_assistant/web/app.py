@@ -3746,9 +3746,16 @@ def create_app(
             store().clear_verdict(slug, person)
 
     @app.post("/recipes/verdict")
-    def set_verdict_route(slug: str = Form(...), person: str = Form(...), verdict: str = Form("")):
+    def set_verdict_route(
+        slug: str = Form(...),
+        person: str = Form(...),
+        verdict: str = Form(""),
+        back: str = Form(""),
+    ):
         _set_verdict(slug, person, verdict)
-        return RedirectResponse("/recipes", status_code=303)
+        if not back.startswith("/") or back.startswith("//"):
+            back = ""  # no open redirects
+        return RedirectResponse(back or "/recipes", status_code=303)
 
     @app.get("/recipes/{slug}/export")
     def recipe_export(slug: str):
@@ -3960,10 +3967,15 @@ def create_app(
 
     @app.post("/components/verdict")
     def component_verdict_route(
-        slug: str = Form(...), person: str = Form(...), verdict: str = Form("")
+        slug: str = Form(...),
+        person: str = Form(...),
+        verdict: str = Form(""),
+        back: str = Form(""),
     ):
         _set_verdict(slug, person, verdict)
-        return RedirectResponse("/components", status_code=303)
+        if not back.startswith("/") or back.startswith("//"):
+            back = ""  # no open redirects
+        return RedirectResponse(back or "/components", status_code=303)
 
     # --- vriezer ----------------------------------------------------------------
 

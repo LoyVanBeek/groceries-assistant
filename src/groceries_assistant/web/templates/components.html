@@ -7,7 +7,7 @@
   <a class="big-link" href="/dishes">Gerechten</a>
 </p>
 {% if errors %}<p class="warnings">{{ errors|join('; ') }}</p>{% endif %}
-<table>
+<table id="component-table">
   <tr>
     <th>Onderdeel</th>
     <th>Hoeveelheid</th>
@@ -34,12 +34,14 @@
       <form method="post" action="/components/verdict">
         <input type="hidden" name="slug" value="{{ c.slug }}">
         <input type="hidden" name="person" value="{{ p['id'] }}">
-        <select name="verdict" onchange="this.form.submit()">
+        <input type="hidden" name="back" value="/components">
+        <select name="verdict">
           <option value=""></option>
           {% for v in ['love','ok','dislike','never'] %}
           <option value="{{ v }}" {% if c.verdicts[p['id']] == v %}selected{% endif %}>{{ v }}</option>
           {% endfor %}
         </select>
+        <noscript><button class="btn-small">zet</button></noscript>
       </form>
     </td>
     {% endfor %}
@@ -48,4 +50,7 @@
   <tr><td colspan="9">Nog geen onderdelen.</td></tr>
   {% endfor %}
 </table>
+{% endblock %}
+{% block scripts %}
+<script src="/static/verdict.js?v={{ GIT_HASH }}" defer></script>
 {% endblock %}
