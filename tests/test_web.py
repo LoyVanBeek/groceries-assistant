@@ -88,6 +88,43 @@ def test_pages_render(tmp_path):
         assert client.get("/recipes/import").status_code == 200
 
 
+def test_select_page_ingredients_link_to_ah_with_a_wijzigen_button(tmp_path):
+    """The picker's ingredient list links coupled products to their AH page
+    with a (wijzigen) button back to this exact search; uncoupled ones get
+    koppel instead."""
+    seed_recipe(tmp_path)
+    with make_client(tmp_path, search_fn=lambda q: []) as client:
+        client.post(
+            "/order/match/pin",
+            data={
+                "product": "spaghetti",
+                "unit": "",
+                "webshop_id": "551",
+                "title": "AH spaghetti",
+                "back": "/recipes",
+            },
+            follow_redirects=False,
+        )
+        seed_plan(client)
+        store = Store(tmp_path / "state.db")
+        days = [r.day for r in store.plan_entries(store.load_proposal()[0])]
+
+        page = ""
+        for d in days:
+            page = client.get(f"/plan/select?day={d.isoformat()}&course=alle").text
+            if "wi551" in page:
+                break
+        # the coupled ingredient line links to AH and offers (wijzigen)
+        assert 'href="https://www.ah.nl/producten/product/wi551"' in page
+        assert "(wijzigen)" in page
+        assert "/order/match/one?product=spaghetti&amp;back=" in page
+        assert "koppel" in page  # the uncoupled ui
+
+        # the wijzigen button returns to this exact search
+        page = client.get(f"/plan/select?day={days[0].isoformat()}&course=alle&q=past").text
+        assert "q%3Dpast" in page
+
+
 def test_bonus_lives_on_the_select_page_only(tmp_path, monkeypatch):
     """The week page stays bonus-free: no block, no chips. The selection page
     carries the block, the option chips and the expandable ingredient list

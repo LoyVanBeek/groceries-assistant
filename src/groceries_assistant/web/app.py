@@ -1118,6 +1118,26 @@ def create_app(
                     "fits": available >= joiners_count,
                 }
             )
+        # de ingrediëntenregels linken naar hun AH-koppeling; 'terug' van de
+        # koppelpagina komt terug naar exact deze zoekopdracht
+        select_back = "/plan/select?" + "&".join(
+            f"{name}={quote(value)}"
+            for name, value in (
+                ("day", day),
+                ("q", q),
+                ("sort", sort),
+                ("tag", tag),
+                ("course", course),
+            )
+            if value
+        )
+        ingredient_links = {
+            m.product.lower(): {
+                "url": product_url(m.ah_webshop_id),
+                "title": m.ah_title,
+            }
+            for m in mappings().all()
+        }
         return render(
             request,
             "select.html",
@@ -1133,6 +1153,8 @@ def create_app(
             all_tags=sorted({t for tags in tags_by_slug.values() for t in tags}),
             label=f"{WEEKDAYS[target.weekday()].capitalize()} {target.strftime('%d-%m')}",
             options=options,
+            select_back=select_back,
+            ingredient_links=ingredient_links,
             confirmed=target in store().plan_ordered(plan_id),
             course=course,
             slot_course=slot_course,
