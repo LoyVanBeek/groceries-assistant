@@ -30,6 +30,10 @@ class Alternative:
     Only dishes get one: a dish that is off the table is still listed, greyed
     out, so a dish with a typo in it is visible instead of simply gone.
     """
+    over_budget: bool = False
+    """True when the only problem is that it takes longer than the evening's
+    budget. Times are estimates, so these stay pickable — with the warning
+    shown — instead of being greyed out."""
     bonus_ingredients: int = 0
     """How many of the option's ingredients are in the AH bonus (display)."""
     ingredients: tuple[tuple[str, bool, str], ...] = ()
@@ -101,6 +105,8 @@ def alternatives(
                 is_dish=True,
                 part_labels=tuple(part.label for part in dish.parts),
                 problem=problem,
+                # the engine's time reason ends with 'deze avond heeft N min'
+                over_budget="deze avond heeft" in problem,
                 bonus_ingredients=(sum((bonus or {}).get(part.slug, 0) for part in parts)),
                 ingredients=_ingredient_lines(parts),
             )
@@ -114,11 +120,13 @@ def alternatives(
         minutes = (
             recipe.time.same_day_minutes if recipe.time.prep_ahead else recipe.time.total_minutes
         )
-        # Over budget is a problem to show, not a filter: the picker lists
-        # everything, blocked rows greyed out with the reason at the bottom.
+        # Over budget is a warning, not a block: times are estimates, so the
+        # picker still offers the recipe (flagged over_budget, reason shown)
+        # instead of greying it out.
+        over_budget = minutes > evening.free_minutes
         problem = (
             f"{recipe.name} is {minutes} min, deze avond heeft {evening.free_minutes}"
-            if minutes > evening.free_minutes
+            if over_budget
             else ""
         )
         scored.append(
@@ -129,6 +137,7 @@ def alternatives(
                 + bonus_score((bonus or {}).get(recipe.slug, 0)),
                 minutes=minutes,
                 problem=problem,
+                over_budget=over_budget,
                 bonus_ingredients=(bonus or {}).get(recipe.slug, 0),
                 ingredients=_ingredient_lines((recipe,)),
             )

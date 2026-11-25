@@ -894,6 +894,8 @@ table.select-table .col-name form { flex: 0 0 auto; }
 table.select-table .col-name .confirm-force { max-width: 15rem; white-space: normal; }
 table.select-table .score { font-variant-numeric: tabular-nums; }
 .select-row.unavailable { background: var(--surface); }
+/* over budget stays pickable (times are estimates): warn, don't grey out */
+.select-row.over { background: var(--over-bg); }
 .option-name { font-weight: 600; }
 .row-problem { display: block; font-size: 0.85rem; }
 .special-actions { margin: 0.6rem 0; }

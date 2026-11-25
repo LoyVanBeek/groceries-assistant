@@ -90,9 +90,9 @@
   </tr>
   </thead>
   {% for o in options %}
-  <tr class="select-row{% if o.problem %} unavailable{% endif %}">
+  <tr class="select-row{% if o.problem and not o.over_budget %} unavailable{% endif %}{% if o.over_budget %} over{% endif %}">
     <td class="col-name">
-      {% if not o.problem %}
+      {% if not o.problem or o.over_budget %}
       <form method="post" action="/plan/swap">
         <input type="hidden" name="day" value="{{ day }}">
         <input type="hidden" name="course" value="{{ slot_course }}">
@@ -104,7 +104,7 @@
       {% if o.image %}<img class="thumb" src="{{ o.image }}" alt="">{% endif %}
       <span class="name-wrap">
         <span class="option-name">{{ o.name }}{% if o.is_dish %} <span class="muted">({{ o.part_labels|join(' + ') }})</span>{% endif %}</span>
-        {% if o.problem %}<span class="muted row-problem">{{ o.problem }}</span>{% endif %}
+        {% if o.problem %}<span class="{% if o.over_budget %}warnings{% else %}muted{% endif %} row-problem">{{ o.problem }}</span>{% endif %}
         {% if o.ingredients %}
         <details class="ingredient-details">
           <summary aria-label="Ingredi&euml;nten van {{ o.name }}">ingredi&euml;nten</summary>

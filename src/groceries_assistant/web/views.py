@@ -488,6 +488,7 @@ def select_options(
                 "is_dish": row.is_dish,
                 "part_labels": row.part_labels,
                 "problem": row.problem,
+                "over_budget": getattr(row, "over_budget", False),
                 "score": row.score,
                 "minutes": row.minutes,
                 "image": image_for(row.slug) if image_for and not row.is_dish else None,

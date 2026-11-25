@@ -2947,10 +2947,14 @@ def test_no_cook_evening(tmp_path):
         assert "Geen kok nodig" in page  # kok cell replaced
         assert "Niet van toepassing" in page  # attendance cells replaced
         # its select page offers fitting dishes to switch back to cooking
-        # (Monday only has 25 minutes, so the 10-minute soup fits, pasta does not)
+        # (Monday only has 25 minutes: the 10-minute soup fits plainly; pasta
+        # at 30 min is over budget but still pickable — times are estimates —
+        # with the warning shown on the row)
         select = client.get(f"/plan/select?day={monday.isoformat()}").text
         assert 'value="soep"' in select
-        assert 'value="pasta"' not in select
+        assert 'value="pasta"' in select
+        assert "Pasta is 30 min, deze avond heeft 25" in select
+        assert "select-row over" in select
         # ... and no 'niet koken' option on that row itself
         assert "__no_cook__" not in select
 
@@ -4382,6 +4386,44 @@ def test_a_dish_that_cannot_be_planned_shows_why_on_the_select_page(tmp_path):
         # greyed out, not a button you can press
         assert 'value="aardappel-groente-vlees"' not in text
         assert "select-row unavailable" in text
+
+
+def test_over_budget_recipe_stays_pickable_but_warns(tmp_path):
+    """Times are estimates: a recipe longer than the evening's budget is still
+    offered on the select page — warning shown, not greyed out — and can be
+    picked; the week page then shows the over-budget warning."""
+    seed_recipe(tmp_path)  # pasta, 30 min
+    seed_soep(tmp_path)  # bonensoep, 40 min: fits the 45 min budget
+    (tmp_path / "recipes" / "stoofpot.yaml").write_text(
+        "name: Stoofpot\nservings: 4\ntime: {cook: 120}\n"
+        "ingredients:\n  - {product: rundvlees, amount: 500, unit: g}\n",
+        encoding="utf-8",
+    )
+    with make_client(tmp_path) as client:
+        seed_plan(client)
+        store = Store(tmp_path / "state.db")
+        day = store.load_proposal()[1]  # default budget 45 min
+        page = client.get(f"/plan/select?day={day.isoformat()}").text
+        # the warning stays visible
+        assert "Stoofpot is 120 min, deze avond heeft 45" in page
+        # ... but the row is pickable (kies button) and not greyed out
+        assert 'value="stoofpot"' in page
+        row_re = r'<tr class="(select-row[^"]*)"[^>]*>(?:(?!</tr>).)*value="stoofpot"'
+        m = re.search(row_re, page, re.S)
+        assert m and "over" in m.group(1) and "unavailable" not in m.group(1)
+        # a fitting recipe is a plain row
+        m2 = re.search(
+            r'<tr class="(select-row[^"]*)"[^>]*>(?:(?!</tr>).)*value="bonensoep"', page, re.S
+        )
+        assert m2 and m2.group(1).strip() == "select-row"
+        # pick the over-budget recipe anyway
+        resp = client.post(
+            "/plan/swap",
+            data={"day": day.isoformat(), "choice": "stoofpot"},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        assert "over!" in client.get("/plan").text  # week view keeps the warning
 
 
 def test_a_parts_options_show_what_they_cost_the_evening(tmp_path):
